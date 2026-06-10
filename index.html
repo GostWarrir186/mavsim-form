@@ -391,14 +391,20 @@
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let res = calculatePrice();
         
-        // СЕКРЕТНОЕ ОРУЖИЕ: Генерируем красивый ID (ORD + ДеньМесяц + 4 случайные цифры)
+        // КИБЕРБЕЗОПАСНОСТЬ: ORD + ДеньМесяц + 4 случайных знака (буквы и цифры)
         let now = new Date();
         let day = String(now.getDate()).padStart(2, '0');
-        let month = String(now.getMonth() + 1).padStart(2, '0'); // В JS месяцы идут от 0 до 11
-        let dateStr = day + month; // Получим, например, "1106" для 11 июня
+        let month = String(now.getMonth() + 1).padStart(2, '0');
+        let dateStr = day + month; // Например, "1106"
         
-        let randomStr = Math.floor(1000 + Math.random() * 9000); // Генерирует случайное число от 1000 до 9999
-        let generatedId = `ORD-${dateStr}-${randomStr}`; // Итог: ORD-1106-4829
+        // Генерируем 4 случайных символа (буквы + цифры)
+        let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let maskedHash = "";
+        for (let i = 0; i < 4; i++) {
+            maskedHash += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        
+        let generatedId = `ORD-${dateStr}-${maskedHash}`; // Итог: ORD-1106-K8X4
         
         let data = {
             order_id: generatedId,
@@ -418,7 +424,7 @@
             price: res.price.toFixed(2)
         };
 
-        // Сохраняем заказ в историю телефона с новым ID
+        // Сохраняем заказ в историю телефона
         let localHistory = JSON.parse(localStorage.getItem('user_orders') || '[]');
         localHistory.push({
             id: generatedId,
