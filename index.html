@@ -3,228 +3,294 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mavsimi Rason Delivery</title>
-    <!-- Подключаем Telegram Web App SDK -->
+    <title>Mavsimi Rason App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
+        :root {
+            --primary-color: #2481cc;
+            --bg-color: var(--tg-theme-bg-color, #ffffff);
+            --text-color: var(--tg-theme-text-color, #222222);
+            --sec-bg-color: var(--tg-theme-secondary-bg-color, #f4f4f5);
+            --hint-color: var(--tg-theme-hint-color, #8e8e93);
+        }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--tg-theme-bg-color, #ffffff);
-            color: var(--tg-theme-text-color, #222222);
-            margin: 0; padding: 15px; box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--sec-bg-color); color: var(--text-color);
+            margin: 0; padding: 0; box-sizing: border-box;
         }
-        .container { max-width: 100%; margin: 0 auto; }
-        .lang-switch { display: flex; justify-content: flex-end; margin-bottom: 15px; }
-        .lang-btn {
-            background: var(--tg-theme-secondary-bg-color, #e1e1e1); 
-            color: var(--tg-theme-text-color, #222222);
-            border: none; padding: 6px 12px; 
-            border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 5px;
+        /* Шапка с табами */
+        .header-tabs {
+            display: flex; background: var(--bg-color);
+            position: sticky; top: 0; z-index: 100;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         }
-        .lang-btn.active {
-            background: var(--tg-theme-button-color, #2481cc);
-            color: var(--tg-theme-button-text-color, #ffffff);
+        .tab-btn {
+            flex: 1; text-align: center; padding: 14px 0; font-size: 15px; font-weight: 600;
+            color: var(--hint-color); background: none; border: none; cursor: pointer;
+            border-bottom: 3px solid transparent; transition: all 0.2s ease;
         }
-        .section {
-            background: var(--tg-theme-secondary-bg-color, #f4f4f5);
-            border-radius: 10px; padding: 15px; margin-bottom: 15px;
+        .tab-btn.active {
+            color: var(--primary-color); border-bottom-color: var(--primary-color);
         }
-        h3 { margin-top: 0; color: var(--tg-theme-button-color, #2481cc); margin-bottom: 12px; }
-        .form-group { margin-bottom: 12px; }
-        label { display: block; font-size: 14px; font-weight: bold; margin-bottom: 5px; }
-        input, select, textarea {
-            width: 100%; padding: 10px; border: 1px solid var(--tg-theme-hint-color, #ccc); 
-            border-radius: 8px; box-sizing: border-box; font-size: 16px;
-            background: var(--tg-theme-bg-color, #ffffff); color: var(--tg-theme-text-color, #222222);
+        .container { padding: 15px; display: none; }
+        .container.active { display: block; }
+
+        /* Стильные блоки-карточки */
+        .card {
+            background: var(--bg-color); border-radius: 12px; padding: 16px;
+            margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+            border: 1px solid rgba(0,0,0,0.02);
         }
-        .radio-group { display: flex; gap: 15px; margin-top: 5px; }
-        .radio-label { display: flex; align-items: center; gap: 5px; font-weight: normal; }
-        .radio-label input { width: auto; }
-        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-        .warning { color: #d9534f; font-weight: bold; font-size: 14px; margin-top: 8px; display: none; }
+        h3 { margin-top: 0; color: var(--primary-color); font-size: 16px; margin-bottom: 14px; border-bottom: 1px solid var(--sec-bg-color); padding-bottom: 6px;}
         
-        /* ИСПРАВЛЕНО: Адаптивный блок стоимости для темной и светлой темы */
+        .form-group { margin-bottom: 14px; }
+        label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--hint-color); }
+        input, select {
+            width: 100%; padding: 12px; border: 1px solid var(--sec-bg-color); 
+            border-radius: 10px; box-sizing: border-box; font-size: 15px;
+            background: var(--sec-bg-color); color: var(--text-color);
+            transition: border 0.2s;
+        }
+        input:focus, select:focus { border-color: var(--primary-color); outline: none; }
+        
+        .radio-group { display: flex; gap: 12px; margin-top: 6px; }
+        .radio-label { 
+            flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+            padding: 10px; background: var(--sec-bg-color); border-radius: 8px; font-size: 14px; cursor: pointer;
+        }
+        .radio-label input { width: auto; margin: 0; }
+        
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        
         .price-box {
-            background: var(--tg-theme-secondary-bg-color, #e8f4fd); 
-            border: 2px dashed var(--tg-theme-button-color, #2481cc);
-            color: var(--tg-theme-text-color, #222222);
-            padding: 14px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: bold;
+            background: rgba(36, 129, 204, 0.07); border: 2px dashed var(--primary-color);
+            padding: 14px; border-radius: 10px; text-align: center; font-size: 18px; font-weight: bold;
+            color: var(--text-color); margin-top: 10px;
         }
         
-        /* ИСПРАВЛЕНО: Кнопка теперь использует нативные цвета Telegram */
         .submit-btn {
-            width: 100%; background: var(--tg-theme-button-color, #2481cc);
-            color: var(--tg-theme-button-text-color, #ffffff); border: none;
-            padding: 14px; border-radius: 10px; font-size: 18px; font-weight: bold;
-            cursor: pointer; margin-top: 10px;
-            transition: all 0.2s ease;
+            width: 100%; background: var(--primary-color); color: white; border: none;
+            padding: 15px; border-radius: 12px; font-size: 16px; font-weight: bold;
+            cursor: pointer; transition: all 0.2s;
         }
-        .submit-btn:disabled { 
-            background: var(--tg-theme-hint-color, #cccccc); 
-            color: var(--tg-theme-bg-color, #ffffff);
-            opacity: 0.6;
-            cursor: not-allowed; 
+        .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        /* Кнопки переключения языка */
+        .lang-switch { display: flex; justify-content: flex-end; padding: 10px 15px 0; background: var(--bg-color); }
+        .lang-link { font-size: 13px; color: var(--primary-color); cursor: pointer; margin-left: 10px; font-weight: 500;}
+        
+        /* Стили для истории заказов */
+        .order-item {
+            padding: 12px; border-bottom: 1px solid var(--sec-bg-color);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .order-item:last-child { border-bottom: none; }
+        .status-badge {
+            padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;
+            background: #e3f2fd; color: #0d47a1;
         }
     </style>
 </head>
 <body>
-<div class="container">
-    
+
+    <!-- Переключатель Языков -->
     <div class="lang-switch">
-        <button class="lang-btn active" onclick="setLang('ru')">Русский 🇷🇺</button>
-        <button class="lang-btn" onclick="setLang('tj')">Тоҷикӣ 🇹🇯</button>
+        <span class="lang-link" onclick="setLang('ru')">Русский 🇷🇺</span>
+        <span class="lang-link" onclick="setLang('tj')">Тоҷикӣ 🇹🇯</span>
     </div>
 
-    <div class="section">
-        <label class="radio-label">
-            <input type="checkbox" id="offer_agree" onchange="validateForm()">
-            <span id="txt-offer">Я ознакомлен и согласен с публичной офертой</span>
-        </label>
+    <!-- Вкладки навигации -->
+    <div class="header-tabs">
+        <button class="tab-btn active" id="tab-order-btn" onclick="switchTab('order')">📦 Новый заказ</button>
+        <button class="tab-btn" id="tab-profile-btn" onclick="switchTab('profile')">👤 Личный кабинет</button>
     </div>
 
-    <!-- ОТПРАВИТЕЛЬ -->
-    <div class="section">
-        <h3 id="txt-title-sender">Отправитель</h3>
-        <div class="form-group">
-            <label id="lbl-s-name">ФИО Отправителя:</label>
-            <input type="text" id="s_name" oninput="validateForm()">
+    <!-- ВКЛАДКА 1: ОФОРМЛЕНИЕ ЗАКАЗА -->
+    <div id="tab-order" class="container active">
+        <div class="card">
+            <label class="radio-label" style="justify-content: flex-start; background: none; padding: 0;">
+                <input type="checkbox" id="offer_agree" onchange="validateForm()">
+                <span id="txt-offer">Я ознакомлен и согласен с публичной офертой</span>
+            </label>
         </div>
-        <div class="form-group">
-            <label id="lbl-s-phone">Телефон Отправителя:</label>
-            <input type="text" id="s_phone" placeholder="+992XXXXXXXXX" oninput="validateForm()">
-        </div>
-    </div>
 
-    <!-- МАРШРУТ И ТИП ДОСТАВКИ -->
-    <div class="section">
-        <h3 id="txt-title-route">Маршрут и Тип доставки</h3>
-        <div class="form-group">
-            <label id="lbl-city-pickup">Город отправки (забора):</label>
-            <select id="city_pickup" onchange="calculatePrice()">
-                <option value="Душанбе">Душанбе</option>
-                <option value="Худжанд">Худжанд</option>
-                <option value="Бохтар">Бохтар</option>
-                <option value="Хорог">Хорог</option>
-                <option value="РРП">РРП</option>
-                <option value="Хатлонская область">Хатлонская область</option>
-                <option value="Согдийская область">Согдийская область</option>
-                <option value="ГБАО">ГБАО</option>
-            </select>
-        </div>
-        <div class="form-group">
-            <label id="lbl-address-pickup">Адрес забора (ОТКУДА):</label>
-            <input type="text" id="address_pickup" oninput="validateForm()">
-        </div>
-        <div class="form-group">
-            <label id="lbl-dtype">Тип доставки:</label>
-            <div class="radio-group">
-                <label class="radio-label"><input type="radio" name="dtype" value="pvz" checked onchange="toggleAddress(); calculatePrice()"> <span id="txt-pvz">До ПВЗ 🏢</span></label>
-                <label class="radio-label"><input type="radio" name="dtype" value="door" onchange="toggleAddress(); calculatePrice()"> <span id="txt-door">До двери 🚪</span></label>
+        <div class="card">
+            <h3 id="txt-title-route">Маршрут и доставка</h3>
+            <div class="form-group">
+                <label id="lbl-city-pickup">Город отправки:</label>
+                <select id="city_pickup">
+                    <option value="Душанбе">Душанбе</option>
+                    <option value="Худжанд">Худжанд</option>
+                    <option value="Бохтар">Бохтар</option>
+                    <option value="Хорог">Хорог</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label id="lbl-address-pickup">Адрес забора (ОТКУДА):</label>
+                <input type="text" id="address_pickup" oninput="validateForm()">
+            </div>
+            <div class="form-group">
+                <label id="lbl-dtype">Тип доставки:</label>
+                <div class="radio-group">
+                    <label class="radio-label"><input type="radio" name="dtype" value="pvz" checked onchange="toggleAddress(); calculatePrice()"> <span id="txt-pvz">До ПВЗ</span></label>
+                    <label class="radio-label"><input type="radio" name="dtype" value="door" onchange="toggleAddress(); calculatePrice()"> <span id="txt-door">До двери</span></label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label id="lbl-city-delivery">Город назначения:</label>
+                <select id="city_delivery" onchange="calculatePrice()">
+                    <option value="Душанбе">Душанбе</option>
+                    <option value="Худжанд">Худжанд</option>
+                    <option value="Бохтар">Бохтар</option>
+                    <option value="Хорог">Хорог</option>
+                </select>
+            </div>
+            <div class="form-group" id="delivery-address-group" style="display:none;">
+                <label id="lbl-address-delivery">Адрес доставки (КУДА):</label>
+                <input type="text" id="address_delivery" oninput="validateForm()">
+            </div>
+            <div class="form-group" id="driver-comment-group" style="display:none;">
+                <label id="lbl-comment">Ориентир для курьера:</label>
+                <input type="text" id="driver_comment">
             </div>
         </div>
-        <div class="form-group">
-            <label id="lbl-city-delivery">Город назначения (доставки):</label>
-            <select id="city_delivery" onchange="calculatePrice()">
-                <option value="Душанбе">Душанбе</option>
-                <option value="Худжанд">Худжанд</option>
-                <option value="Бохтар">Бохтар</option>
-                <option value="Хорог">Хорог</option>
-                <option value="РРП">РРП</option>
-                <option value="Хатлонская область">Хатлонская область</option>
-                <option value="Согдийская область">Согдийская область</option>
-                <option value="ГБАО">ГБАО</option>
-            </select>
-        </div>
-        <div class="form-group" id="delivery-address-group" style="display:none;">
-            <label id="lbl-address-delivery">Адрес доставки (КУДА):</label>
-            <input type="text" id="address_delivery" oninput="validateForm()">
-        </div>
-        <div class="form-group" id="driver-comment-group" style="display:none;">
-            <label id="lbl-comment">Ориентир для курьера:</label>
-            <input type="text" id="driver_comment">
-        </div>
-    </div>
 
-    <!-- ПОЛУЧАТЕЛЬ -->
-    <div class="section">
-        <h3 id="txt-title-receiver">Получатель</h3>
-        <div class="form-group">
-            <label id="lbl-r-name">ФИО Получателя:</label>
-            <input type="text" id="r_name" oninput="validateForm()">
-        </div>
-        <div class="form-group">
-            <label id="lbl-r-phone">Телефон Получателя:</label>
-            <input type="text" id="r_phone" placeholder="+992XXXXXXXXX" oninput="validateForm()">
-        </div>
-    </div>
-
-    <!-- ПАРАМЕТРЫ ПОСЫЛКИ -->
-    <div class="section">
-        <h3 id="txt-title-parcel">Параметры посылки</h3>
-        <div class="form-group">
-            <label id="lbl-weight">Вес (кг):</label>
-            <input type="number" id="weight" step="0.1" value="1" oninput="calculatePrice()">
-        </div>
-        <div class="form-group">
-            <label id="lbl-sizes">Габариты Д / Ш / В (см):</label>
-            <div class="grid-3">
-                <input type="number" id="size_l" value="10" oninput="calculatePrice()">
-                <input type="number" id="size_w" value="10" oninput="calculatePrice()">
-                <input type="number" id="size_h" value="10" oninput="calculatePrice()">
+        <div class="card">
+            <h3 id="txt-title-receiver">Получатель</h3>
+            <div class="form-group">
+                <label id="lbl-r-name">ФИО Получателя:</label>
+                <input type="text" id="r_name" oninput="validateForm()">
+            </div>
+            <div class="form-group">
+                <label id="lbl-r-phone">Телефон Получателя:</label>
+                <input type="text" id="r_phone" placeholder="+992XXXXXXXXX" oninput="validateForm()">
             </div>
         </div>
-        <div id="large-warning" class="warning">⚠️ Отправление крупногабаритное! Оформление на сайте.</div>
+
+        <div class="card">
+            <h3 id="txt-title-parcel">Параметры посылки</h3>
+            <div class="form-group">
+                <label id="lbl-weight">Вес (кг):</label>
+                <input type="number" id="weight" step="0.1" value="1" oninput="calculatePrice()">
+            </div>
+            <div class="form-group">
+                <label id="lbl-sizes">Габариты Д / Ш / В (см):</label>
+                <div class="grid-3">
+                    <input type="number" id="size_l" value="10" oninput="calculatePrice()">
+                    <input type="number" id="size_w" value="10" oninput="calculatePrice()">
+                    <input type="number" id="size_h" value="10" oninput="calculatePrice()">
+                </div>
+            </div>
+            <div class="price-box" id="price-box">Стоимость: 20.80 TJS</div>
+        </div>
+
+        <button class="submit-btn" id="submit-btn" disabled onclick="sendDataToBot()">Оформить доставку</button>
     </div>
 
-    <div class="form-group">
-        <div class="price-box" id="price-box">Стоимость: 20.80 TJS</div>
-    </div>
+    <!-- ВКЛАДКА 2: ЛИЧНЫЙ КАБИНЕТ -->
+    <div id="tab-profile" class="container">
+        <div class="card">
+            <h3 id="txt-profile-data">Мои личные данные</h3>
+            <p style="font-size: 12px; color: var(--hint-color); margin-top: -10px;">Заполните один раз, чтобы данные подставлялись автоматически</p>
+            <div class="form-group">
+                <label>Ваше ФИО:</label>
+                <input type="text" id="prof_name" placeholder="Иванов Иван Иванович" oninput="saveProfile()">
+            </div>
+            <div class="form-group">
+                <label>Ваш телефон:</label>
+                <input type="text" id="prof_phone" placeholder="+992XXXXXXXXX" oninput="saveProfile()">
+            </div>
+            <div class="form-group">
+                <label>Постоянный адрес забора (ОТКУДА):</label>
+                <input type="text" id="prof_address" placeholder="ул. Рудаки, дом 15, кв 4" oninput="saveProfile()">
+            </div>
+        </div>
 
-    <button class="submit-btn" id="submit-btn" disabled onclick="sendDataToBot()">Оформить доставку</button>
-</div>
+        <div class="card">
+            <h3 id="txt-orders-history">Мои заказы и статусы</h3>
+            <button class="submit-btn" style="padding: 10px; font-size: 14px; background: none; border: 1px solid var(--primary-color); color: var(--primary-color);" onclick="requestOrderHistory()">
+                🔄 Запросить историю в чат бота
+            </button>
+            <div id="orders-list" style="margin-top: 15px; font-size: 14px; color: var(--hint-color); text-align: center;">
+                История последних заказов прилетит сообщением в чат с ботом после нажатия кнопки.
+            </div>
+        </div>
+    </div>
 
 <script>
     let currentLang = 'ru';
     const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
+    tg.ready(); tg.expand();
 
     const translations = {
         ru: {
-            "txt-offer": "Я ознакомлен и согласен с публичной офертой",
-            "txt-title-sender": "Отправитель", "lbl-s-name": "ФИО Отправителя:", "lbl-s-phone": "Телефон Отправителя:",
-            "txt-title-route": "Маршрут и Тип доставки", "lbl-city-pickup": "Город отправки (забора):", "lbl-address-pickup": "Адрес забора (ОТКУДА):",
-            "lbl-dtype": "Тип доставки:", "txt-pvz": "До ПВЗ 🏢", "txt-door": "До двери 🚪",
-            "lbl-city-delivery": "Город назначения (доставки):", "lbl-address-delivery": "Адрес доставки (КУДА):", "lbl-comment": "Ориентир для курьера:",
+            "tab-order-btn": "📦 Новый заказ", "tab-profile-btn": "👤 ЛК",
+            "txt-offer": "Я ознакомлен и согласен с офертой", "txt-title-route": "Маршрут и доставка",
+            "lbl-city-pickup": "Город отправки:", "lbl-address-pickup": "Адрес забора:", "lbl-dtype": "Тип доставки:",
+            "txt-pvz": "До ПВЗ 🏢", "txt-door": "До двери 🚪", "lbl-city-delivery": "Город назначения:",
+            "lbl-address-delivery": "Адрес доставки:", "lbl-comment": "Ориентир для курьера:",
             "txt-title-receiver": "Получатель", "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:",
-            "txt-title-parcel": "Параметры посылки", "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты Д / Ш / В (см):",
-            "large-warning": "⚠️ Отправление крупногабаритное! Оформление только через официальный сайт.",
-            "price": "Стоимость", "btn-submit": "Оформить доставку"
+            "txt-title-parcel": "Параметры посылки", "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):",
+            "price": "Стоимость", "btn-submit": "Оформить доставку", "txt-profile-data": "Мои личные данные", "txt-orders-history": "Мои заказы"
         },
         tj: {
-            "txt-offer": "Ман шартҳои офертаи оммавиро қабул мекунам",
-            "txt-title-sender": "Ирсолкунанда", "lbl-s-name": "ФИО-и Ирсолкунанда:", "lbl-s-phone": "Телефони Ирсолкунанда:",
-            "txt-title-route": "Маршрут ва Намуди расонидан", "lbl-city-pickup": "Шаҳри ирсол (қабул):", "lbl-address-pickup": "Суроғаи қабул (АЗ КУҶО):",
-            "lbl-dtype": "Намуди расонидан:", "txt-pvz": "То ПВЗ 🏢", "txt-door": "То дари хона 🚪",
-            "lbl-city-delivery": "Шаҳри расонидан:", "lbl-address-delivery": "Суроғаи расонидан (БА КУҶО):", "lbl-comment": "Нишондиҳанда (ориентир):",
+            "tab-order-btn": "📦 Дархости нав", "tab-profile-btn": "👤 Кабинет",
+            "txt-offer": "Шартҳои офертаро қабул мекунам", "txt-title-route": "Маршрут ва расонидан",
+            "lbl-city-pickup": "Шаҳри ирсол:", "lbl-address-pickup": "Суроғаи қабул:", "lbl-dtype": "Намуди расонидан:",
+            "txt-pvz": "То ПВЗ 🏢", "txt-door": "То дари хона 🚪", "lbl-city-delivery": "Шаҳри расонидан:",
+            "lbl-address-delivery": "Суроғаи расонидан:", "lbl-comment": "Ориентир:",
             "txt-title-receiver": "Қабулкунанда", "lbl-r-name": "ФИО-и Қабулкунанда:", "lbl-r-phone": "Телефони Қабулкунанда:",
-            "txt-title-parcel": "Параметрҳои посылка", "lbl-weight": "Вазн (кг):", "lbl-sizes": "Андозаҳо Д / Б / В (см):",
-            "large-warning": "⚠️ Бор калонҳаҷм аст! Расмикунӣ танҳо тавассути сайт.",
-            "price": "Нарх", "btn-submit": "Ороиши дархост"
+            "txt-title-parcel": "Параметрҳои посылка", "lbl-weight": "Вазн (кг):", "lbl-sizes": "Андозаҳо (см):",
+            "price": "Нарх", "btn-submit": "Ороиши дархост", "txt-profile-data": "Маълумоти шахсӣ", "txt-orders-history": "Дархостҳои ман"
         }
     };
 
+    // Переключение вкладок (Табов)
+    function switchTab(tabName) {
+        document.querySelectorAll('.container').forEach(c => c.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+        document.getElementById(`tab-${tabName}-btn`).classList.add('active');
+        
+        if (tabName === 'order') {
+            loadProfileToForm(); // При переходе на вкладку заказа подставляем профиль
+        }
+    }
+
     function setLang(lang) {
         currentLang = lang;
-        document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
-        if(event) event.target.classList.add('active');
-        
+        document.getElementById('tab-order-btn').innerText = translations[lang]['tab-order-btn'];
+        document.getElementById('tab-profile-btn').innerText = translations[lang]['tab-profile-btn'];
         for (let id in translations[lang]) {
             let el = document.getElementById(id);
             if (el) el.innerText = translations[lang][id];
         }
         document.getElementById('submit-btn').innerText = translations[lang]['btn-submit'];
         calculatePrice();
+    }
+
+    // Сохранение личных данных в localStorage
+    function saveProfile() {
+        localStorage.setItem('prof_name', document.getElementById('prof_name').value);
+        localStorage.setItem('prof_phone', document.getElementById('prof_phone').value);
+        localStorage.setItem('prof_address', document.getElementById('prof_address').value);
+    }
+
+    // Загрузка личных данных из памяти устройства и автоподстановка
+    function loadProfileToForm() {
+        let savedName = localStorage.getItem('prof_name') || '';
+        let savedPhone = localStorage.getItem('prof_phone') || '';
+        let savedAddress = localStorage.getItem('prof_address') || '';
+
+        document.getElementById('prof_name').value = savedName;
+        document.getElementById('prof_phone').value = savedPhone;
+        document.getElementById('prof_address').value = savedAddress;
+
+        // Если данные есть, автоматом подставляем в скрытые поля заказа
+        if(savedAddress) document.getElementById('address_pickup').value = savedAddress;
+        validateForm();
     }
 
     function toggleAddress() {
@@ -238,24 +304,7 @@
     function calculatePrice() {
         let city = document.getElementById('city_delivery').value;
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
-        let w = parseFloat(document.getElementById('weight').value) || 0;
-        let l = parseInt(document.getElementById('size_l').value) || 0;
-        let width = parseInt(document.getElementById('size_w').value) || 0;
-        let h = parseInt(document.getElementById('size_h').value) || 0;
-
-        let maxSide = Math.max(l, width, h);
-        let sumSides = l + width + h;
-
-        if (w > 10 || maxSide > 35 || sumSides > 65) {
-            document.getElementById('large-warning').style.display = 'block';
-            document.getElementById('price-box').style.display = 'none';
-            document.getElementById('submit-btn').disabled = true;
-            return {isLarge: true};
-        } else {
-            document.getElementById('large-warning').style.display = 'none';
-            document.getElementById('price-box').style.display = 'block';
-        }
-
+        
         let zone = "1";
         if (["Душанбе", "Худжанд", "Бохтар"].includes(city)) zone = "1";
         else if (["Хорог", "РРП", "Хатлонская область"].includes(city)) zone = "2";
@@ -270,36 +319,43 @@
         let finalPrice = tarifs[zone][dtype];
         document.getElementById('price-box').innerText = `${translations[currentLang]['price']}: ${finalPrice.toFixed(2)} TJS`;
         validateForm();
-        return {isLarge: false, price: finalPrice};
+        return finalPrice;
     }
 
     function validateForm() {
         let offer = document.getElementById('offer_agree').checked;
-        let sName = document.getElementById('s_name').value.trim();
-        let sPhone = document.getElementById('s_phone').value.trim();
+        let sName = localStorage.getItem('prof_name') || '';
+        let sPhone = localStorage.getItem('prof_phone') || '';
         let addressPickup = document.getElementById('address_pickup').value.trim();
         let rName = document.getElementById('r_name').value.trim();
         let rPhone = document.getElementById('r_phone').value.trim();
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let addressDelivery = document.getElementById('address_delivery').value.trim();
 
-        let isLarge = (parseFloat(document.getElementById('weight').value) > 10);
-
-        // Кнопка станет активной, когда заполнены все эти поля:
-        let isValid = offer && sName && sPhone && addressPickup && rName && rPhone && !isLarge;
+        let isValid = offer && sName && sPhone && addressPickup && rName && rPhone;
         if (dtype === 'door' && !addressDelivery) isValid = false;
 
         document.getElementById('submit-btn').disabled = !isValid;
     }
 
+    // Запрос истории через отправку команды боту
+    function requestOrderHistory() {
+        let phone = localStorage.getItem('prof_phone');
+        if (!phone) {
+            alert('Сначала укажите ваш номер телефона в ЛК!');
+            return;
+        }
+        tg.sendData(JSON.stringify({ action: 'get_history', phone: phone }));
+        tg.close();
+    }
+
     function sendDataToBot() {
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
-        let res = calculatePrice();
         
         let data = {
             lang: currentLang,
-            s_name: document.getElementById('s_name').value,
-            s_phone: document.getElementById('s_phone').value,
+            s_name: localStorage.getItem('prof_name'),
+            s_phone: localStorage.getItem('prof_phone'),
             city_pickup: document.getElementById('city_pickup').value,
             address_pickup: document.getElementById('address_pickup').value,
             city_delivery: document.getElementById('city_delivery').value,
@@ -310,13 +366,15 @@
             r_phone: document.getElementById('r_phone').value,
             weight: document.getElementById('weight').value,
             sizes: `${document.getElementById('size_l').value}x${document.getElementById('size_w').value}x${document.getElementById('size_h').value}`,
-            price: res.price
+            price: calculatePrice()
         };
 
         tg.sendData(JSON.stringify(data));
         tg.close();
     }
 
+    // Инициализация при старте
+    loadProfileToForm();
     calculatePrice();
 </script>
 </body>
