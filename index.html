@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mavsimi Rason Delivery</title>
+    <!-- Подключаем Telegram Web App SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--tg-theme-bg-color, #ffffff);
+            color: var(--tg-theme-text-color, #222222);
+            margin: 0; padding: 15px; box-sizing: border-box;
+        }
+        .container { max-width: 100%; margin: 0 auto; }
+        .lang-switch { display: flex; justify-content: flex-end; margin-bottom: 15px; }
+        .lang-btn {
+            background: #e1e1e1; border: none; padding: 5px 10px; 
+            border-radius: 5px; cursor: pointer; font-size: 14px; margin-left: 5px;
+        }
+        .lang-btn.active {
+            background: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #ffffff);
+        }
+        .section {
+            background: var(--tg-theme-secondary-bg-color, #f4f4f5);
+            border-radius: 10px; padding: 15px; margin-bottom: 15px;
+        }
+        h3 { margin-top: 0; color: var(--tg-theme-button-color, #2481cc); margin-bottom: 12px; }
+        .form-group { margin-bottom: 12px; }
+        label { display: block; font-size: 14px; font-weight: bold; margin-bottom: 5px; }
+        input, select, textarea {
+            width: 100%; padding: 10px; border: 1px solid #ccc; 
+            border-radius: 8px; box-sizing: border-box; font-size: 16px;
+            background: var(--tg-theme-bg-color, #ffffff); color: var(--tg-theme-text-color, #222222);
+        }
+        .radio-group { display: flex; gap: 15px; margin-top: 5px; }
+        .radio-label { display: flex; align-items: center; gap: 5px; font-weight: normal; }
+        .radio-label input { width: auto; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .warning { color: #d9534f; font-weight: bold; font-size: 14px; margin-top: 8px; display: none; }
+        .price-box {
+            background: #e8f4fd; border: 2px dashed #2481cc;
+            padding: 12px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: bold;
+        }
+        .submit-btn {
+            width: 100%; background: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #ffffff); border: none;
+            padding: 14px; border-radius: 10px; font-size: 18px; font-weight: bold;
+            cursor: pointer; margin-top: 10px;
+        }
+        .submit-btn:disabled { background: #cccccc; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+<div class="container">
+    
+    <div class="lang-switch">
+        <button class="lang-btn active" onclick="setLang('ru')">Русский 🇷🇺</button>
+        <button class="lang-btn" onclick="setLang('tj')">Тоҷикӣ 🇹🇯</button>
+    </div>
+
+    <div class="section">
+        <label class="radio-label">
+            <input type="checkbox" id="offer_agree" onchange="validateForm()">
+            <span id="txt-offer">Я ознакомлен и согласен с публичной офертой</span>
+        </label>
+    </div>
+
+    <!-- ОТПРАВИТЕЛЬ -->
+    <div class="section">
+        <h3 id="txt-title-sender">Отправитель</h3>
+        <div class="form-group">
+            <label id="lbl-s-name">ФИО Отправителя:</label>
+            <input type="text" id="s_name" oninput="validateForm()">
+        </div>
+        <div class="form-group">
+            <label id="lbl-s-phone">Телефон Отправителя:</label>
+            <input type="text" id="s_phone" placeholder="+992XXXXXXXXX" oninput="validateForm()">
+        </div>
+    </div>
+
+    <!-- МАРШРУТ И ТИП ДОСТАВКИ -->
+    <div class="section">
+        <h3 id="txt-title-route">Маршрут и Тип доставки</h3>
+        <div class="form-group">
+            <label id="lbl-city-pickup">Город отправки (забора):</label>
+            <select id="city_pickup">
+                <option value="Душанбе">Душанбе</option>
+                <option value="Худжанд">Худжанд</option>
+                <option value="Бохтар">Бохтар</option>
+                <option value="Хорог">Хорог</option>
+                <option value="РРП">РРП</option>
+                <option value="Хатлонская область">Хатлонская область</option>
+                <option value="Согдийская область">Согдийская область</option>
+                <option value="ГБАО">ГБАО</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label id="lbl-address-pickup">Адрес забора (ОТКУДА):</label>
+            <input type="text" id="address_pickup" oninput="validateForm()">
+        </div>
+        <div class="form-group">
+            <label id="lbl-dtype">Тип доставки:</label>
+            <div class="radio-group">
+                <label class="radio-label"><input type="radio" name="dtype" value="pvz" checked onchange="toggleAddress(); calculatePrice()"> <span id="txt-pvz">До ПВЗ 🏢</span></label>
+                <label class="radio-label"><input type="radio" name="dtype" value="door" onchange="toggleAddress(); calculatePrice()"> <span id="txt-door">До двери 🚪</span></label>
+            </div>
+        </div>
+        <div class="form-group">
+            <label id="lbl-city-delivery">Город назначения (доставки):</label>
+            <select id="city_delivery" onchange="calculatePrice()">
+                <option value="Душанбе">Душанбе</option>
+                <option value="Худжанд">Худжанд</option>
+                <option value="Бохтар">Бохтар</option>
+                <option value="Хорог">Хорог</option>
+                <option value="РРП">РРП</option>
+                <option value="Хатлонская область">Хатлонская область</option>
+                <option value="Согдийская область">Согдийская область</option>
+                <option value="ГБАО">ГБАО</option>
+            </select>
+        </div>
+        <div class="form-group" id="delivery-address-group" style="display:none;">
+            <label id="lbl-address-delivery">Адрес доставки (КУДА):</label>
+            <input type="text" id="address_delivery" oninput="validateForm()">
+        </div>
+        <div class="form-group" id="driver-comment-group" style="display:none;">
+            <label id="lbl-comment">Ориентир для курьера:</label>
+            <input type="text" id="driver_comment">
+        </div>
+    </div>
+
+    <!-- ПОЛУЧАТЕЛЬ -->
+    <div class="section">
+        <h3 id="txt-title-receiver">Получатель</h3>
+        <div class="form-group">
+            <label id="lbl-r-name">ФИО Получателя:</label>
+            <input type="text" id="r_name" oninput="validateForm()">
+        </div>
+        <div class="form-group">
+            <label id="lbl-r-phone">Телефон Получателя:</label>
+            <input type="text" id="r_phone" placeholder="+992XXXXXXXXX" oninput="validateForm()">
+        </div>
+    </div>
+
+    <!-- ПАРАМЕТРЫ ПОСЫЛКИ -->
+    <div class="section">
+        <h3 id="txt-title-parcel">Параметры посылки</h3>
+        <div class="form-group">
+            <label id="lbl-weight">Вес (кг):</label>
+            <input type="number" id="weight" step="0.1" value="1" oninput="calculatePrice()">
+        </div>
+        <div class="form-group">
+            <label id="lbl-sizes">Габариты Д / Ш / В (см):</label>
+            <div class="grid-3">
+                <input type="number" id="size_l" value="10" oninput="calculatePrice()">
+                <input type="number" id="size_w" value="10" oninput="calculatePrice()">
+                <input type="number" id="size_h" value="10" oninput="calculatePrice()">
+            </div>
+        </div>
+        <div id="large-warning" class="warning">⚠️ Отправление крупногабаритное! Оформление на сайте.</div>
+    </div>
+
+    <div class="form-group">
+        <div class="price-box" id="price-box">Стоимость: 20.80 TJS</div>
+    </div>
+
+    <button class="submit-btn" id="submit-btn" disabled onclick="sendDataToBot()">Оформить доставку</button>
+</div>
+
+<script>
+    let currentLang = 'ru';
+    const tg = window.Telegram.WebApp;
+    tg.ready();
+    tg.expand(); // Расширяем окно на весь экран приложения
+
+    const translations = {
+        ru: {
+            "txt-offer": "Я ознакомлен и согласен с публичной офертой",
+            "txt-title-sender": "Отправитель", "lbl-s-name": "ФИО Отправителя:", "lbl-s-phone": "Телефон Отправителя:",
+            "txt-title-route": "Маршрут и Тип доставки", "lbl-city-pickup": "Город отправки (забора):", "lbl-address-pickup": "Адрес забора (ОТКУДА):",
+            "lbl-dtype": "Тип доставки:", "txt-pvz": "До ПВЗ 🏢", "txt-door": "До двери 🚪",
+            "lbl-city-delivery": "Город назначения (доставки):", "lbl-address-delivery": "Адрес доставки (КУДА):", "lbl-comment": "Ориентир для курьера:",
+            "txt-title-receiver": "Получатель", "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:",
+            "txt-title-parcel": "Параметры посылки", "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты Д / Ш / В (см):",
+            "large-warning": "⚠️ Отправление крупногабаритное! Оформление только через официальный сайт.",
+            "price": "Стоимость", "btn-submit": "Оформить доставку"
+        },
+        tj: {
+            "txt-offer": "Ман шартҳои офертаи оммавиро қабул мекунам",
+            "txt-title-sender": "Ирсолкунанда", "lbl-s-name": "ФИО-и Ирсолкунанда:", "lbl-s-phone": "Телефони Ирсолкунанда:",
+            "txt-title-route": "Маршрут ва Намуди расонидан", "lbl-city-pickup": "Шаҳри ирсол (қабул):", "lbl-address-pickup": "Суроғаи қабул (АЗ КУҶО):",
+            "lbl-dtype": "Намуди расонидан:", "txt-pvz": "То ПВЗ 🏢", "txt-door": "То дари хона 🚪",
+            "lbl-city-delivery": "Шаҳри расонидан:", "lbl-address-delivery": "Суроғаи расонидан (БА КУҶО):", "lbl-comment": "Нишондиҳанда (ориентир):",
+            "txt-title-receiver": "Қабулкунанда", "lbl-r-name": "ФИО-и Қабулкунанда:", "lbl-r-phone": "Телефони Қабулкунанда:",
+            "txt-title-parcel": "Параметрҳои посылка", "lbl-weight": "Вазн (кг):", "lbl-sizes": "Андозаҳо Д / Б / В (см):",
+            "large-warning": "⚠️ Бор калонҳаҷм аст! Расмикунӣ танҳо тавассути сайт.",
+            "price": "Нарх", "btn-submit": "Ороиши дархост"
+        }
+    };
+
+    function setLang(lang) {
+        currentLang = lang;
+        document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+        event.target.classList.add('active');
+        
+        for (let id in translations[lang]) {
+            let el = document.getElementById(id);
+            if (el) el.innerText = translations[lang][id];
+        }
+        document.getElementById('submit-btn').innerText = translations[lang]['btn-submit'];
+        calculatePrice();
+    }
+
+    function toggleAddress() {
+        let dtype = document.querySelector('input[name="dtype"]:checked').value;
+        let display = dtype === 'door' ? 'block' : 'none';
+        document.getElementById('delivery-address-group').style.display = display;
+        document.getElementById('driver-comment-group').style.display = display;
+        validateForm();
+    }
+
+    function calculatePrice() {
+        let city = document.getElementById('city_delivery').value;
+        let dtype = document.querySelector('input[name="dtype"]:checked').value;
+        let w = parseFloat(document.getElementById('weight').value) || 0;
+        let l = parseInt(document.getElementById('size_l').value) || 0;
+        let width = parseInt(document.getElementById('size_w').value) || 0;
+        let h = parseInt(document.getElementById('size_h').value) || 0;
+
+        let maxSide = Math.max(l, width, h);
+        let sumSides = l + width + h;
+
+        // Проверка лимитов крупногабарита из ТЗ
+        if (w > 10 || maxSide > 35 || sumSides > 65) {
+            document.getElementById('large-warning').style.display = 'block';
+            document.getElementById('price-box').style.display = 'none';
+            document.getElementById('submit-btn').disabled = true;
+            return {isLarge: true};
+        } else {
+            document.getElementById('large-warning').style.display = 'none';
+            document.getElementById('price-box').style.display = 'block';
+        }
+
+        // Определение зоны
+        let zone = "1";
+        if (["Душанбе", "Худжанд", "Бохтар"].includes(city)) zone = "1";
+        else if (["Хорог", "РРП", "Хатлонская область"].includes(city)) zone = "2";
+        else if (["Согдийская область", "ГБАО"].includes(city)) zone = "3";
+
+        // Сетка тарифов из ТЗ
+        const tarifs = {
+            "1": {"pvz": 20.80, "door": 31.20},
+            "2": {"pvz": 27.30, "door": 35.10},
+            "3": {"pvz": 31.20, "door": 37.70}
+        };
+
+        let finalPrice = tarifs[zone][dtype];
+        document.getElementById('price-box').innerText = `${translations[currentLang]['price']}: ${finalPrice.toFixed(2)} TJS`;
+        validateForm();
+        return {isLarge: false, price: finalPrice};
+    }
+
+    function validateForm() {
+        let offer = document.getElementById('offer_agree').checked;
+        let sName = document.getElementById('s_name').value.trim();
+        let sPhone = document.getElementById('s_phone').value.trim();
+        let addressPickup = document.getElementById('address_pickup').value.trim();
+        let rName = document.getElementById('r_name').value.trim();
+        let rPhone = document.getElementById('r_phone').value.trim();
+        let dtype = document.querySelector('input[name="dtype"]:checked').value;
+        let addressDelivery = document.getElementById('address_delivery').value.trim();
+
+        let isLarge = calculatePrice().isLarge;
+
+        let isValid = offer && sName && sPhone && addressPickup && rName && rPhone && !isLarge;
+        if (dtype === 'door' && !addressDelivery) isValid = false;
+
+        document.getElementById('submit-btn').disabled = !isValid;
+    }
+
+    function sendDataToBot() {
+        let dtype = document.querySelector('input[name="dtype"]:checked').value;
+        let res = calculatePrice();
+        
+        let data = {
+            lang: currentLang,
+            s_name: document.getElementById('s_name').value,
+            s_phone: document.getElementById('s_phone').value,
+            city_pickup: document.getElementById('city_pickup').value,
+            address_pickup: document.getElementById('address_pickup').value,
+            city_delivery: document.getElementById('city_delivery').value,
+            delivery_type: dtype,
+            address_delivery: dtype === 'door' ? document.getElementById('address_delivery').value : "ПВЗ",
+            driver_comment: dtype === 'door' ? document.getElementById('driver_comment').value : "Нет",
+            r_name: document.getElementById('r_name').value,
+            r_phone: document.getElementById('r_phone').value,
+            weight: document.getElementById('weight').value,
+            sizes: `${document.getElementById('size_l').value}x${document.getElementById('size_w').value}x${document.getElementById('size_h').value}`,
+            price: res.price
+        };
+
+        // Отправляем json-пакет данных обратно в телеграм боту
+        tg.sendData(JSON.stringify(data));
+        tg.close();
+    }
+
+    // Первичный запуск валидации
+    validateForm();
+</script>
+</body>
+</html>
