@@ -390,7 +390,15 @@
     function sendDataToBot() {
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let res = calculatePrice();
-        let generatedId = `ORD-${Date.now().toString().slice(-6)}`;
+        
+        // СЕКРЕТНОЕ ОРУЖИЕ: Генерируем красивый ID (ORD + ДеньМесяц + 4 случайные цифры)
+        let now = new Date();
+        let day = String(now.getDate()).padStart(2, '0');
+        let month = String(now.getMonth() + 1).padStart(2, '0'); // В JS месяцы идут от 0 до 11
+        let dateStr = day + month; // Получим, например, "1106" для 11 июня
+        
+        let randomStr = Math.floor(1000 + Math.random() * 9000); // Генерирует случайное число от 1000 до 9999
+        let generatedId = `ORD-${dateStr}-${randomStr}`; // Итог: ORD-1106-4829
         
         let data = {
             order_id: generatedId,
@@ -410,7 +418,7 @@
             price: res.price.toFixed(2)
         };
 
-        /* ИСПРАВЛЕНО: Сохраняем заказ в историю телефона прямо перед отправкой */
+        // Сохраняем заказ в историю телефона с новым ID
         let localHistory = JSON.parse(localStorage.getItem('user_orders') || '[]');
         localHistory.push({
             id: generatedId,
