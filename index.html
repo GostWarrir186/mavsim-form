@@ -46,7 +46,6 @@
             width: 100%; padding: 12px; border: 1px solid var(--sec-bg-color); 
             border-radius: 10px; box-sizing: border-box; font-size: 15px;
             background: var(--sec-bg-color); color: var(--text-color);
-            transition: border 0.2s;
         }
         input:focus, select:focus { border-color: var(--primary-color); outline: none; }
         .radio-group { display: flex; gap: 12px; margin-top: 6px; }
@@ -70,6 +69,23 @@
         .lang-switch { display: flex; justify-content: flex-end; padding: 10px 15px 0; background: var(--bg-color); }
         .lang-link { font-size: 13px; color: var(--primary-color); cursor: pointer; margin-left: 10px; font-weight: 500;}
         .warning { color: #d9534f; font-weight: bold; font-size: 14px; margin-top: 8px; display: none; text-align: center; }
+
+        /* ИСПРАВЛЕНО: Стили для красивых карточек истории заказов внутри ЛК */
+        .history-container { margin-top: 10px; }
+        .order-card {
+            background: var(--sec-bg-color); border-radius: 10px; padding: 12px;
+            margin-bottom: 10px; border-left: 4px solid var(--primary-color);
+        }
+        .order-card-header {
+            display: flex; justify-content: space-between; align-items: center;
+            font-weight: bold; font-size: 14px; margin-bottom: 6px;
+        }
+        .order-card-body { font-size: 13px; color: var(--text-color); line-height: 1.4; }
+        .status-badge {
+            background: #e3f2fd; color: #0d47a1; padding: 3px 8px; 
+            border-radius: 6px; font-size: 11px; font-weight: bold; text-transform: uppercase;
+        }
+        .no-orders { text-align: center; color: var(--hint-color); font-size: 14px; padding: 20px 0; }
     </style>
 </head>
 <body>
@@ -193,13 +209,9 @@
         </div>
 
         <div class="card">
-            <h3 id="txt-orders-history">Мои заказы и статусы</h3>
-            <button class="submit-btn" style="padding: 10px; font-size: 14px; background: none; border: 1px solid var(--primary-color); color: var(--primary-color);" onclick="requestOrderHistory()">
-                🔄 Запросить историю в чат бота
-            </button>
-            <div id="orders-list" style="margin-top: 15px; font-size: 14px; color: var(--hint-color); text-align: center;">
-                История последних заказов прилетит сообщением в чат с ботом после нажатия кнопки.
-            </div>
+            <h3 id="txt-orders-history">История моих заказов</h3>
+            <div class="history-container" id="history-container">
+                </div>
         </div>
     </div>
 
@@ -218,7 +230,7 @@
             "txt-title-receiver": "Получатель", "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:",
             "txt-title-parcel": "Параметры посылки", "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):",
             "large-warning": "⚠️ Отправление крупногабаритное! Оформление только через сайт.",
-            "price": "Стоимость", "btn-submit": "Оформить доставку", "txt-profile-data": "Мои личные данные", "txt-orders-history": "Мои заказы"
+            "price": "Стоимость", "btn-submit": "Оформить доставку", "txt-profile-data": "Мои личные данные", "txt-orders-history": "История моих заказов"
         },
         tj: {
             "tab-order-btn": "📦 Дархости нав", "tab-profile-btn": "👤 Кабинет",
@@ -229,7 +241,7 @@
             "txt-title-receiver": "Қабулкунанда", "lbl-r-name": "ФИО-и Қабулкунанда:", "lbl-r-phone": "Телефони Қабулкунанда:",
             "txt-title-parcel": "Параметрҳои посылка", "lbl-weight": "Вазн (кг):", "lbl-sizes": "Андозаҳо (см):",
             "large-warning": "⚠️ Бор калонҳаҷм аст! Расмикунӣ танҳо тавассути сайт.",
-            "price": "Нарх", "btn-submit": "Ороиши дархост", "txt-profile-data": "Маълумоти шахсӣ", "txt-orders-history": "Дархостҳои ман"
+            "price": "Нарх", "btn-submit": "Ороиши дархост", "txt-profile-data": "Маълумоти шахсӣ", "txt-orders-history": "Таърихи дархостҳо"
         }
     };
 
@@ -238,7 +250,12 @@
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.getElementById(`tab-${tabName}`).classList.add('active');
         document.getElementById(`tab-${tabName}-btn`).classList.add('active');
-        if (tabName === 'order') { loadProfileToForm(); }
+        
+        if (tabName === 'order') { 
+            loadProfileToForm(); 
+        } else if (tabName === 'profile') {
+            renderOrdersHistory(); // Обновляем список карточек при переходе в ЛК
+        }
     }
 
     function setLang(lang) {
@@ -251,6 +268,9 @@
         }
         document.getElementById('submit-btn').innerText = translations[lang]['btn-submit'];
         calculatePrice();
+        if(document.getElementById('tab-profile').classList.contains('active')) {
+            renderOrdersHistory();
+        }
     }
 
     function saveProfile() {
@@ -268,6 +288,39 @@
         document.getElementById('prof_address').value = savedAddress;
         if(savedAddress) document.getElementById('address_pickup').value = savedAddress;
         validateForm();
+    }
+
+    /* ИСПРАВЛЕНО: Функция генерации красивых карточек заказов прямо в ЛК */
+    function renderOrdersHistory() {
+        const container = document.getElementById('history-container');
+        let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
+        
+        if (orders.length === 0) {
+            container.innerHTML = `<div class="no-orders">${currentLang === 'ru' ? '📦 У вас пока нет оформленных заказов.' : '📦 Дархостҳо ёфт нашуданд.'}</div>`;
+            return;
+        }
+
+        // Разворачиваем массив, чтобы новые заказы были сверху
+        orders.sort((a,b) => b.timestamp - a.timestamp);
+
+        container.innerHTML = '';
+        orders.forEach(order => {
+            const card = document.createElement('div');
+            card.className = 'order-card';
+            card.innerHTML = `
+                <div class="order-card-header">
+                    <span>🆔 ${order.id}</span>
+                    <span class="status-badge">NEW</span>
+                </div>
+                <div class="order-card-body">
+                    📍 <b>Откуда:</b> ${order.city_pickup}<br>
+                    🌆 <b>Куда:</b> ${order.city_delivery} (${order.type === 'pvz' ? 'ПВЗ' : 'До двери'})<br>
+                    👤 <b>Получатель:</b> ${order.r_name}<br>
+                    💰 <b>Сумма к оплате:</b> <span style="color:var(--primary-color); font-weight:bold;">${order.price} TJS</span>
+                </div>
+            `;
+            container.appendChild(card);
+        });
     }
 
     function toggleAddress() {
@@ -334,21 +387,13 @@
         document.getElementById('submit-btn').disabled = !isValid;
     }
 
-    function requestOrderHistory() {
-        let phone = localStorage.getItem('prof_phone');
-        if (!phone) {
-            alert('Сначала укажите ваш номер телефона в ЛК!');
-            return;
-        }
-        tg.sendData(JSON.stringify({ action: 'get_history', phone: phone }));
-        tg.close();
-    }
-
     function sendDataToBot() {
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let res = calculatePrice();
+        let generatedId = `ORD-${Date.now().toString().slice(-6)}`;
         
         let data = {
+            order_id: generatedId,
             lang: currentLang,
             s_name: localStorage.getItem('prof_name'),
             s_phone: localStorage.getItem('prof_phone'),
@@ -362,8 +407,21 @@
             r_phone: document.getElementById('r_phone').value,
             weight: document.getElementById('weight').value,
             sizes: `${document.getElementById('size_l').value}x${document.getElementById('size_w').value}x${document.getElementById('size_h').value}`,
-            price: res.price
+            price: res.price.toFixed(2)
         };
+
+        /* ИСПРАВЛЕНО: Сохраняем заказ в историю телефона прямо перед отправкой */
+        let localHistory = JSON.parse(localStorage.getItem('user_orders') || '[]');
+        localHistory.push({
+            id: generatedId,
+            timestamp: Date.now(),
+            city_pickup: data.city_pickup,
+            city_delivery: data.city_delivery,
+            type: dtype,
+            r_name: data.r_name,
+            price: data.price
+        });
+        localStorage.setItem('user_orders', JSON.stringify(localHistory));
 
         tg.sendData(JSON.stringify(data));
         tg.close();
