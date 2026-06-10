@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mavsimi Rason App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
@@ -17,6 +17,7 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: var(--sec-bg-color); color: var(--text-color);
             margin: 0; padding: 0; box-sizing: border-box;
+            overflow-x: hidden;
         }
         .header-tabs {
             display: flex; background: var(--bg-color);
@@ -70,12 +71,48 @@
         .lang-link { font-size: 13px; color: var(--primary-color); cursor: pointer; margin-left: 10px; font-weight: 500;}
         .warning { color: #d9534f; font-weight: bold; font-size: 14px; margin-top: 8px; display: none; text-align: center; }
 
-        /* ИСПРАВЛЕНО: Стили для красивых карточек истории заказов внутри ЛК */
+        /* Контейнер для свайпа карточек */
         .history-container { margin-top: 10px; }
-        .order-card {
-            background: var(--sec-bg-color); border-radius: 10px; padding: 12px;
-            margin-bottom: 10px; border-left: 4px solid var(--primary-color);
+        
+        .order-swipe-wrapper {
+            position: relative;
+            overflow: hidden;
+            border-radius: 10px;
+            margin-bottom: 12px;
+            background-color: #e53935; /* Красный фон, который откроется при свайпе */
         }
+        
+        .order-card {
+            background: var(--bg-color);
+            padding: 12px;
+            border-left: 4px solid var(--primary-color);
+            position: relative;
+            z-index: 2;
+            transition: transform 0.2s ease-out;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+            border-top: 1px solid var(--sec-bg-color);
+            border-right: 1px solid var(--sec-bg-color);
+            border-bottom: 1px solid var(--sec-bg-color);
+            border-radius: 0 10px 10px 0;
+            transform: translateX(0);
+        }
+        
+        .swipe-delete-btn {
+            position: absolute;
+            top: 0; right: 0; bottom: 0;
+            width: 80px;
+            background: #e53935;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: bold;
+            z-index: 1;
+            border: none;
+            cursor: pointer;
+        }
+        
         .order-card-header {
             display: flex; justify-content: space-between; align-items: center;
             font-weight: bold; font-size: 14px; margin-bottom: 6px;
@@ -100,6 +137,7 @@
         <button class="tab-btn" id="tab-profile-btn" onclick="switchTab('profile')">👤 Личный кабинет</button>
     </div>
 
+    <!-- ВКЛАДКА 1: ОФОРМЛЕНИЕ ЗАКАЗА -->
     <div id="tab-order" class="container active">
         <div class="card">
             <label class="radio-label" style="justify-content: flex-start; background: none; padding: 0;">
@@ -183,13 +221,14 @@
                     <input type="number" id="size_h" value="10" oninput="calculatePrice()">
                 </div>
             </div>
-            <div id="large-warning" class="warning">⚠️ Отправление крупногабаритное! Оформление только через сайт.</div>
+            <div id="large-warning" class="warning">⚠️ Отправление крупногагабаритное! Оформление только через сайт.</div>
             <div class="price-box" id="price-box">Стоимость: 20.80 TJS</div>
         </div>
 
         <button class="submit-btn" id="submit-btn" disabled onclick="sendDataToBot()">Оформить доставку</button>
     </div>
 
+    <!-- ВКЛАДКА 2: ЛИЧНЫЙ КАБИНЕТ -->
     <div id="tab-profile" class="container">
         <div class="card">
             <h3 id="txt-profile-data">Мои личные данные</h3>
@@ -208,10 +247,12 @@
             </div>
         </div>
 
-        <div class="card">
+        <div class="card" style="overflow: visible;">
             <h3 id="txt-orders-history">История моих заказов</h3>
+            <p style="font-size: 11px; color: var(--hint-color); margin-top: -10px; margin-bottom: 12px;">← Смахните заказ влево, чтобы удалить его</p>
             <div class="history-container" id="history-container">
-                </div>
+                <!-- Сюда JavaScript будет вставлять карточки заказов -->
+            </div>
         </div>
     </div>
 
@@ -229,7 +270,7 @@
             "lbl-address-delivery": "Адрес доставки:", "lbl-comment": "Ориентир для курьера:",
             "txt-title-receiver": "Получатель", "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:",
             "txt-title-parcel": "Параметры посылки", "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):",
-            "large-warning": "⚠️ Отправление крупногабаритное! Оформление только через сайт.",
+            "large-warning": "⚠️ Отправление крупногагабаритное! Оформление только через сайт.",
             "price": "Стоимость", "btn-submit": "Оформить доставку", "txt-profile-data": "Мои личные данные", "txt-orders-history": "История моих заказов"
         },
         tj: {
@@ -254,7 +295,7 @@
         if (tabName === 'order') { 
             loadProfileToForm(); 
         } else if (tabName === 'profile') {
-            renderOrdersHistory(); // Обновляем список карточек при переходе в ЛК
+            renderOrdersHistory(); 
         }
     }
 
@@ -290,7 +331,7 @@
         validateForm();
     }
 
-    /* ИСПРАВЛЕНО: Функция генерации красивых карточек заказов прямо в ЛК */
+    // ИСПРАВЛЕНО: Генерация карточек со встроенной поддержкой жеста свайпа
     function renderOrdersHistory() {
         const container = document.getElementById('history-container');
         let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
@@ -300,27 +341,93 @@
             return;
         }
 
-        // Разворачиваем массив, чтобы новые заказы были сверху
         orders.sort((a,b) => b.timestamp - a.timestamp);
 
         container.innerHTML = '';
         orders.forEach(order => {
-            const card = document.createElement('div');
-            card.className = 'order-card';
-            card.innerHTML = `
-                <div class="order-card-header">
-                    <span>🆔 ${order.id}</span>
-                    <span class="status-badge">NEW</span>
-                </div>
-                <div class="order-card-body">
-                    📍 <b>Откуда:</b> ${order.city_pickup}<br>
-                    🌆 <b>Куда:</b> ${order.city_delivery} (${order.type === 'pvz' ? 'ПВЗ' : 'До двери'})<br>
-                    👤 <b>Получатель:</b> ${order.r_name}<br>
-                    💰 <b>Сумма к оплате:</b> <span style="color:var(--primary-color); font-weight:bold;">${order.price} TJS</span>
+            const wrapper = document.createElement('div');
+            wrapper.className = 'order-swipe-wrapper';
+            
+            wrapper.innerHTML = `
+                <button class="swipe-delete-btn" onclick="confirmDeleteOrder('${order.id}')">${currentLang === 'ru' ? 'Удалить' : 'Ўчириш'}</button>
+                <div class="order-card" id="card-${order.id}">
+                    <div class="order-card-header">
+                        <span>🆔 ${order.id}</span>
+                        <span class="status-badge">NEW</span>
+                    </div>
+                    <div class="order-card-body">
+                        <span style="font-size: 11px; color: var(--hint-color);">📅 ${order.date_str}</span><br>
+                        📍 <b>Откуда:</b> ${order.city_pickup}<br>
+                        🌆 <b>Куда:</b> ${order.city_delivery} (${order.type === 'pvz' ? 'ПВЗ' : 'До двери'})<br>
+                        👤 <b>Получатель:</b> ${order.r_name}<br>
+                        💰 <b>Сумма:</b> <span style="color:var(--primary-color); font-weight:bold;">${order.price} TJS</span>
+                    </div>
                 </div>
             `;
-            container.appendChild(card);
+            
+            container.appendChild(wrapper);
+            initSwipeEvents(order.id); // Подключаем датчики касания к новой карточке
         });
+    }
+
+    // ИСПРАВЛЕНО: Скрипт отслеживания движения пальца по экрану (Свайп)
+    let touchStartX = 0;
+    let touchEndX = 0;
+    let activeSwipedCardId = null;
+
+    function initSwipeEvents(orderId) {
+        const card = document.getElementById(`card-${orderId}`);
+        if (!card) return;
+
+        card.addEventListener('touchstart', (e) => {
+            // Если уже свайпнута другая карточка — закрываем её
+            if (activeSwipedCardId && activeSwipedCardId !== orderId) {
+                let oldCard = document.getElementById(`card-${activeSwipedCardId}`);
+                if (oldCard) oldCard.style.transform = 'translateX(0)';
+            }
+            touchStartX = e.changedTouches[0].screenX;
+        }, {passive: true});
+
+        card.addEventListener('touchend', (e) => {
+            touchEndX = e.changedTouches[0].screenX;
+            handleSwipe(orderId, card);
+        }, {passive: true});
+    }
+
+    function handleSwipe(orderId, cardElement) {
+        let swipeDistance = touchStartX - touchEndX;
+        
+        if (swipeDistance > 50) { 
+            // Свайп влево — открываем красную кнопку удаления
+            cardElement.style.transform = 'translateX(-80px)';
+            activeSwipedCardId = orderId;
+        } else if (swipeDistance < -30) {
+            // Свайп вправо — закрываем обратно
+            cardElement.style.transform = 'translateX(0)';
+            if (activeSwipedCardId === orderId) activeSwipedCardId = null;
+        }
+    }
+
+    // ИСПРАВЛЕНО: Интерактивное подтверждение удаления через Telegram PopUp
+    function confirmDeleteOrder(orderId) {
+        tg.showConfirm(
+            currentLang === 'ru' ? `Удалить заказ ${orderId} из истории?` : `Дархости ${orderId}-ро ўчиред?`,
+            (isConfirmed) => {
+                if (isConfirmed) {
+                    let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
+                    orders = orders.filter(o => o.id !== orderId);
+                    localStorage.setItem('user_orders', JSON.stringify(orders));
+                    
+                    if (activeSwipedCardId === orderId) activeSwipedCardId = null;
+                    renderOrdersHistory(); // Перерисовываем список
+                } else {
+                    // Если передумал — закрываем свайп
+                    let card = document.getElementById(`card-${orderId}`);
+                    if (card) card.style.transform = 'translateX(0)';
+                    if (activeSwipedCardId === orderId) activeSwipedCardId = null;
+                }
+            }
+        );
     }
 
     function toggleAddress() {
@@ -391,20 +498,21 @@
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let res = calculatePrice();
         
-        // КИБЕРБЕЗОПАСНОСТЬ: ORD + ДеньМесяц + 4 случайных знака (буквы и цифры)
         let now = new Date();
         let day = String(now.getDate()).padStart(2, '0');
         let month = String(now.getMonth() + 1).padStart(2, '0');
-        let dateStr = day + month; // Например, "1106"
+        let dateStr = day + month; 
         
-        // Генерируем 4 случайных символа (буквы + цифры)
         let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         let maskedHash = "";
         for (let i = 0; i < 4; i++) {
             maskedHash += chars.charAt(Math.floor(Math.random() * chars.length));
         }
-        
-        let generatedId = `ORD-${dateStr}-${maskedHash}`; // Итог: ORD-1106-K8X4
+        let generatedId = `ORD-${dateStr}-${maskedHash}`; 
+
+        let hours = String(now.getHours()).padStart(2, '0');
+        let minutes = String(now.getMinutes()).padStart(2, '0');
+        let fullDateStr = `${day}.${month}.${now.getFullYear()} ${hours}:${minutes}`;
         
         let data = {
             order_id: generatedId,
@@ -424,11 +532,11 @@
             price: res.price.toFixed(2)
         };
 
-        // Сохраняем заказ в историю телефона
         let localHistory = JSON.parse(localStorage.getItem('user_orders') || '[]');
         localHistory.push({
             id: generatedId,
             timestamp: Date.now(),
+            date_str: fullDateStr,
             city_pickup: data.city_pickup,
             city_delivery: data.city_delivery,
             type: dtype,
