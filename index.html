@@ -18,7 +18,6 @@
             background-color: var(--sec-bg-color); color: var(--text-color);
             margin: 0; padding: 0; box-sizing: border-box;
         }
-        /* Шапка с табами */
         .header-tabs {
             display: flex; background: var(--bg-color);
             position: sticky; top: 0; z-index: 100;
@@ -35,15 +34,12 @@
         }
         .container { padding: 15px; display: none; }
         .container.active { display: block; }
-
-        /* Стильные блоки-карточки */
         .card {
             background: var(--bg-color); border-radius: 12px; padding: 16px;
             margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);
             border: 1px solid rgba(0,0,0,0.02);
         }
         h3 { margin-top: 0; color: var(--primary-color); font-size: 16px; margin-bottom: 14px; border-bottom: 1px solid var(--sec-bg-color); padding-bottom: 6px;}
-        
         .form-group { margin-bottom: 14px; }
         label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--hint-color); }
         input, select {
@@ -53,60 +49,41 @@
             transition: border 0.2s;
         }
         input:focus, select:focus { border-color: var(--primary-color); outline: none; }
-        
         .radio-group { display: flex; gap: 12px; margin-top: 6px; }
         .radio-label { 
             flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
             padding: 10px; background: var(--sec-bg-color); border-radius: 8px; font-size: 14px; cursor: pointer;
         }
         .radio-label input { width: auto; margin: 0; }
-        
         .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-        
         .price-box {
             background: rgba(36, 129, 204, 0.07); border: 2px dashed var(--primary-color);
             padding: 14px; border-radius: 10px; text-align: center; font-size: 18px; font-weight: bold;
             color: var(--text-color); margin-top: 10px;
         }
-        
         .submit-btn {
             width: 100%; background: var(--primary-color); color: white; border: none;
             padding: 15px; border-radius: 12px; font-size: 16px; font-weight: bold;
             cursor: pointer; transition: all 0.2s;
         }
         .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        
-        /* Кнопки переключения языка */
         .lang-switch { display: flex; justify-content: flex-end; padding: 10px 15px 0; background: var(--bg-color); }
         .lang-link { font-size: 13px; color: var(--primary-color); cursor: pointer; margin-left: 10px; font-weight: 500;}
-        
-        /* Стили для истории заказов */
-        .order-item {
-            padding: 12px; border-bottom: 1px solid var(--sec-bg-color);
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .order-item:last-child { border-bottom: none; }
-        .status-badge {
-            padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: bold;
-            background: #e3f2fd; color: #0d47a1;
-        }
+        .warning { color: #d9534f; font-weight: bold; font-size: 14px; margin-top: 8px; display: none; text-align: center; }
     </style>
 </head>
 <body>
 
-    <!-- Переключатель Языков -->
     <div class="lang-switch">
         <span class="lang-link" onclick="setLang('ru')">Русский 🇷🇺</span>
         <span class="lang-link" onclick="setLang('tj')">Тоҷикӣ 🇹🇯</span>
     </div>
 
-    <!-- Вкладки навигации -->
     <div class="header-tabs">
         <button class="tab-btn active" id="tab-order-btn" onclick="switchTab('order')">📦 Новый заказ</button>
         <button class="tab-btn" id="tab-profile-btn" onclick="switchTab('profile')">👤 Личный кабинет</button>
     </div>
 
-    <!-- ВКЛАДКА 1: ОФОРМЛЕНИЕ ЗАКАЗА -->
     <div id="tab-order" class="container active">
         <div class="card">
             <label class="radio-label" style="justify-content: flex-start; background: none; padding: 0;">
@@ -118,12 +95,16 @@
         <div class="card">
             <h3 id="txt-title-route">Маршрут и доставка</h3>
             <div class="form-group">
-                <label id="lbl-city-pickup">Город отправки:</label>
-                <select id="city_pickup">
+                <label id="lbl-city-pickup">Город отправки (забора):</label>
+                <select id="city_pickup" onchange="calculatePrice()">
                     <option value="Душанбе">Душанбе</option>
                     <option value="Худжанд">Худжанд</option>
                     <option value="Бохтар">Бохтар</option>
                     <option value="Хорог">Хорог</option>
+                    <option value="РРП">РРП</option>
+                    <option value="Хатлонская область">Хатлонская область</option>
+                    <option value="Согдийская область">Согдийская область</option>
+                    <option value="ГБАО">ГБАО</option>
                 </select>
             </div>
             <div class="form-group">
@@ -138,12 +119,16 @@
                 </div>
             </div>
             <div class="form-group">
-                <label id="lbl-city-delivery">Город назначения:</label>
+                <label id="lbl-city-delivery">Город назначения (доставки):</label>
                 <select id="city_delivery" onchange="calculatePrice()">
                     <option value="Душанбе">Душанбе</option>
                     <option value="Худжанд">Худжанд</option>
                     <option value="Бохтар">Бохтар</option>
                     <option value="Хорог">Хорог</option>
+                    <option value="РРП">РРП</option>
+                    <option value="Хатлонская область">Хатлонская область</option>
+                    <option value="Согдийская область">Согдийская область</option>
+                    <option value="ГБАО">ГБАО</option>
                 </select>
             </div>
             <div class="form-group" id="delivery-address-group" style="display:none;">
@@ -182,13 +167,13 @@
                     <input type="number" id="size_h" value="10" oninput="calculatePrice()">
                 </div>
             </div>
+            <div id="large-warning" class="warning">⚠️ Отправление крупногабаритное! Оформление только через сайт.</div>
             <div class="price-box" id="price-box">Стоимость: 20.80 TJS</div>
         </div>
 
         <button class="submit-btn" id="submit-btn" disabled onclick="sendDataToBot()">Оформить доставку</button>
     </div>
 
-    <!-- ВКЛАДКА 2: ЛИЧНЫЙ КАБИНЕТ -->
     <div id="tab-profile" class="container">
         <div class="card">
             <h3 id="txt-profile-data">Мои личные данные</h3>
@@ -232,6 +217,7 @@
             "lbl-address-delivery": "Адрес доставки:", "lbl-comment": "Ориентир для курьера:",
             "txt-title-receiver": "Получатель", "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:",
             "txt-title-parcel": "Параметры посылки", "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):",
+            "large-warning": "⚠️ Отправление крупногабаритное! Оформление только через сайт.",
             "price": "Стоимость", "btn-submit": "Оформить доставку", "txt-profile-data": "Мои личные данные", "txt-orders-history": "Мои заказы"
         },
         tj: {
@@ -242,21 +228,17 @@
             "lbl-address-delivery": "Суроғаи расонидан:", "lbl-comment": "Ориентир:",
             "txt-title-receiver": "Қабулкунанда", "lbl-r-name": "ФИО-и Қабулкунанда:", "lbl-r-phone": "Телефони Қабулкунанда:",
             "txt-title-parcel": "Параметрҳои посылка", "lbl-weight": "Вазн (кг):", "lbl-sizes": "Андозаҳо (см):",
+            "large-warning": "⚠️ Бор калонҳаҷм аст! Расмикунӣ танҳо тавассути сайт.",
             "price": "Нарх", "btn-submit": "Ороиши дархост", "txt-profile-data": "Маълумоти шахсӣ", "txt-orders-history": "Дархостҳои ман"
         }
     };
 
-    // Переключение вкладок (Табов)
     function switchTab(tabName) {
         document.querySelectorAll('.container').forEach(c => c.classList.remove('active'));
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        
         document.getElementById(`tab-${tabName}`).classList.add('active');
         document.getElementById(`tab-${tabName}-btn`).classList.add('active');
-        
-        if (tabName === 'order') {
-            loadProfileToForm(); // При переходе на вкладку заказа подставляем профиль
-        }
+        if (tabName === 'order') { loadProfileToForm(); }
     }
 
     function setLang(lang) {
@@ -271,24 +253,19 @@
         calculatePrice();
     }
 
-    // Сохранение личных данных в localStorage
     function saveProfile() {
         localStorage.setItem('prof_name', document.getElementById('prof_name').value);
         localStorage.setItem('prof_phone', document.getElementById('prof_phone').value);
         localStorage.setItem('prof_address', document.getElementById('prof_address').value);
     }
 
-    // Загрузка личных данных из памяти устройства и автоподстановка
     function loadProfileToForm() {
         let savedName = localStorage.getItem('prof_name') || '';
         let savedPhone = localStorage.getItem('prof_phone') || '';
         let savedAddress = localStorage.getItem('prof_address') || '';
-
         document.getElementById('prof_name').value = savedName;
         document.getElementById('prof_phone').value = savedPhone;
         document.getElementById('prof_address').value = savedAddress;
-
-        // Если данные есть, автоматом подставляем в скрытые поля заказа
         if(savedAddress) document.getElementById('address_pickup').value = savedAddress;
         validateForm();
     }
@@ -304,7 +281,24 @@
     function calculatePrice() {
         let city = document.getElementById('city_delivery').value;
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
-        
+        let w = parseFloat(document.getElementById('weight').value) || 0;
+        let l = parseInt(document.getElementById('size_l').value) || 0;
+        let width = parseInt(document.getElementById('size_w').value) || 0;
+        let h = parseInt(document.getElementById('size_h').value) || 0;
+
+        let maxSide = Math.max(l, width, h);
+        let sumSides = l + width + h;
+
+        if (w > 10 || maxSide > 35 || sumSides > 65) {
+            document.getElementById('large-warning').style.display = 'block';
+            document.getElementById('price-box').style.display = 'none';
+            document.getElementById('submit-btn').disabled = true;
+            return {isLarge: true};
+        } else {
+            document.getElementById('large-warning').style.display = 'none';
+            document.getElementById('price-box').style.display = 'block';
+        }
+
         let zone = "1";
         if (["Душанбе", "Худжанд", "Бохтар"].includes(city)) zone = "1";
         else if (["Хорог", "РРП", "Хатлонская область"].includes(city)) zone = "2";
@@ -319,7 +313,7 @@
         let finalPrice = tarifs[zone][dtype];
         document.getElementById('price-box').innerText = `${translations[currentLang]['price']}: ${finalPrice.toFixed(2)} TJS`;
         validateForm();
-        return finalPrice;
+        return {isLarge: false, price: finalPrice};
     }
 
     function validateForm() {
@@ -332,13 +326,14 @@
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let addressDelivery = document.getElementById('address_delivery').value.trim();
 
-        let isValid = offer && sName && sPhone && addressPickup && rName && rPhone;
+        let isLarge = (parseFloat(document.getElementById('weight').value) > 10);
+
+        let isValid = offer && sName && sPhone && addressPickup && rName && rPhone && !isLarge;
         if (dtype === 'door' && !addressDelivery) isValid = false;
 
         document.getElementById('submit-btn').disabled = !isValid;
     }
 
-    // Запрос истории через отправку команды боту
     function requestOrderHistory() {
         let phone = localStorage.getItem('prof_phone');
         if (!phone) {
@@ -351,6 +346,7 @@
 
     function sendDataToBot() {
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
+        let res = calculatePrice();
         
         let data = {
             lang: currentLang,
@@ -366,14 +362,13 @@
             r_phone: document.getElementById('r_phone').value,
             weight: document.getElementById('weight').value,
             sizes: `${document.getElementById('size_l').value}x${document.getElementById('size_w').value}x${document.getElementById('size_h').value}`,
-            price: calculatePrice()
+            price: res.price
         };
 
         tg.sendData(JSON.stringify(data));
         tg.close();
     }
 
-    // Инициализация при старте
     loadProfileToForm();
     calculatePrice();
 </script>
