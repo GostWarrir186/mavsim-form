@@ -18,6 +18,8 @@
             background-color: var(--sec-bg-color); color: var(--text-color);
             margin: 0; padding: 0; box-sizing: border-box;
             overflow-x: hidden;
+            user-select: none; /* Запрещаем выделение текста при перетаскивании на ПК */
+            -webkit-user-select: none;
         }
         .header-tabs {
             display: flex; background: var(--bg-color);
@@ -71,7 +73,7 @@
         .lang-link { font-size: 13px; color: var(--primary-color); cursor: pointer; margin-left: 10px; font-weight: 500;}
         .warning { color: #d9534f; font-weight: bold; font-size: 14px; margin-top: 8px; display: none; text-align: center; }
 
-        /* Контейнер для свайпа карточек */
+        /* Контейнер для нативного свайпа карточек */
         .history-container { margin-top: 10px; }
         
         .order-swipe-wrapper {
@@ -79,7 +81,7 @@
             overflow: hidden;
             border-radius: 10px;
             margin-bottom: 12px;
-            background-color: #e53935; /* Красный фон, который откроется при свайпе */
+            background-color: #e53935;
         }
         
         .order-card {
@@ -88,14 +90,15 @@
             border-left: 4px solid var(--primary-color);
             position: relative;
             z-index: 2;
-            transition: transform 0.2s ease-out;
             box-shadow: 0 2px 6px rgba(0,0,0,0.02);
             border-top: 1px solid var(--sec-bg-color);
             border-right: 1px solid var(--sec-bg-color);
             border-bottom: 1px solid var(--sec-bg-color);
             border-radius: 0 10px 10px 0;
             transform: translateX(0);
+            cursor: grab; /* Меняем курсор на ПК, показывая, что блок можно тащить */
         }
+        .order-card:active { cursor: grabbing; }
         
         .swipe-delete-btn {
             position: absolute;
@@ -137,7 +140,6 @@
         <button class="tab-btn" id="tab-profile-btn" onclick="switchTab('profile')">👤 Личный кабинет</button>
     </div>
 
-    <!-- ВКЛАДКА 1: ОФОРМЛЕНИЕ ЗАКАЗА -->
     <div id="tab-order" class="container active">
         <div class="card">
             <label class="radio-label" style="justify-content: flex-start; background: none; padding: 0;">
@@ -221,14 +223,13 @@
                     <input type="number" id="size_h" value="10" oninput="calculatePrice()">
                 </div>
             </div>
-            <div id="large-warning" class="warning">⚠️ Отправление крупногагабаритное! Оформление только через сайт.</div>
+            <div id="large-warning" class="warning">⚠️ Отправление крупногабаритное! Оформление только через сайт.</div>
             <div class="price-box" id="price-box">Стоимость: 20.80 TJS</div>
         </div>
 
         <button class="submit-btn" id="submit-btn" disabled onclick="sendDataToBot()">Оформить доставку</button>
     </div>
 
-    <!-- ВКЛАДКА 2: ЛИЧНЫЙ КАБИНЕТ -->
     <div id="tab-profile" class="container">
         <div class="card">
             <h3 id="txt-profile-data">Мои личные данные</h3>
@@ -249,10 +250,9 @@
 
         <div class="card" style="overflow: visible;">
             <h3 id="txt-orders-history">История моих заказов</h3>
-            <p style="font-size: 11px; color: var(--hint-color); margin-top: -10px; margin-bottom: 12px;">← Смахните заказ влево, чтобы удалить его</p>
+            <p style="font-size: 11px; color: var(--hint-color); margin-top: -10px; margin-bottom: 12px;">← Смахните заказ влево мышкой или пальцем для удаления</p>
             <div class="history-container" id="history-container">
-                <!-- Сюда JavaScript будет вставлять карточки заказов -->
-            </div>
+                </div>
         </div>
     </div>
 
@@ -270,7 +270,7 @@
             "lbl-address-delivery": "Адрес доставки:", "lbl-comment": "Ориентир для курьера:",
             "txt-title-receiver": "Получатель", "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:",
             "txt-title-parcel": "Параметры посылки", "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):",
-            "large-warning": "⚠️ Отправление крупногагабаритное! Оформление только через сайт.",
+            "large-warning": "⚠️ Отправление крупногабаритное! Оформление только через сайт.",
             "price": "Стоимость", "btn-submit": "Оформить доставку", "txt-profile-data": "Мои личные данные", "txt-orders-history": "История моих заказов"
         },
         tj: {
@@ -331,7 +331,6 @@
         validateForm();
     }
 
-    // ИСПРАВЛЕНО: Генерация карточек со встроенной поддержкой жеста свайпа
     function renderOrdersHistory() {
         const container = document.getElementById('history-container');
         let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
@@ -366,65 +365,90 @@
             `;
             
             container.appendChild(wrapper);
-            initSwipeEvents(order.id); // Подключаем датчики касания к новой карточке
+            bindFluidSwipeEvents(order.id); // Подключаем новую плавную физику
         });
     }
 
-    // ИСПРАВЛЕНО: Скрипт отслеживания движения пальца по экрану (Свайп)
-    let touchStartX = 0;
-    let touchEndX = 0;
-    let activeSwipedCardId = null;
+    // ИСПРАВЛЕНО: Полностью переработанная физика «живого» свайпа для ПК и Смартфонов
+    let globalActiveCardId = null;
 
-    function initSwipeEvents(orderId) {
+    function bindFluidSwipeEvents(orderId) {
         const card = document.getElementById(`card-${orderId}`);
         if (!card) return;
 
-        card.addEventListener('touchstart', (e) => {
-            // Если уже свайпнута другая карточка — закрываем её
-            if (activeSwipedCardId && activeSwipedCardId !== orderId) {
-                let oldCard = document.getElementById(`card-${activeSwipedCardId}`);
-                if (oldCard) oldCard.style.transform = 'translateX(0)';
-            }
-            touchStartX = e.changedTouches[0].screenX;
-        }, {passive: true});
+        let isDragging = false;
+        let startX = 0;
+        let currentX = 0;
+        let transformX = 0;
+        const maxSwipe = -80; // Ширина кнопки удаления в пикселях
 
-        card.addEventListener('touchend', (e) => {
-            touchEndX = e.changedTouches[0].screenX;
-            handleSwipe(orderId, card);
-        }, {passive: true});
-    }
-
-    function handleSwipe(orderId, cardElement) {
-        let swipeDistance = touchStartX - touchEndX;
-        
-        if (swipeDistance > 50) { 
-            // Свайп влево — открываем красную кнопку удаления
-            cardElement.style.transform = 'translateX(-80px)';
-            activeSwipedCardId = orderId;
-        } else if (swipeDistance < -30) {
-            // Свайп вправо — закрываем обратно
-            cardElement.style.transform = 'translateX(0)';
-            if (activeSwipedCardId === orderId) activeSwipedCardId = null;
+        // Функция фиксации начала движения
+        function startDrag(screenX) {
+            isDragging = true;
+            startX = screenX;
+            card.style.transition = 'none'; // Отключаем анимацию во время движения за пальцем
         }
+
+        // Функция обработки перемещения в реальном времени
+        function moveDrag(screenX) {
+            if (!isDragging) return;
+            let diffX = screenX - startX;
+            
+            // Если карточка была закрыта, мы можем тянуть её только влево
+            if (transformX === 0) {
+                currentX = Math.min(0, Math.max(maxSwipe, diffX));
+            } else {
+                // Если карточка уже была открыта (смещена на -80px)
+                currentX = Math.min(0, Math.max(maxSwipe, maxSwipe + diffX));
+            }
+            
+            card.style.transform = `translateX(${currentX}px)`;
+        }
+
+        // Функция завершения жеста и доводки на пружине
+        function endDrag() {
+            if (!isDragging) return;
+            isDragging = false;
+            card.style.transition = 'transform 0.2s ease-out'; // Возвращаем плавный довод
+
+            // Физика выбора конечной точки по порогу половины пути (40 пикселей)
+            if (currentX < -40) {
+                card.style.transform = `translateX(${maxSwipe}px)`;
+                transformX = maxSwipe;
+                globalActiveCardId = orderId;
+            } else {
+                card.style.transform = 'translateX(0px)';
+                transformX = 0;
+                if (globalActiveCardId === orderId) globalActiveCardId = null;
+            }
+        }
+
+        // ПОДДЕРЖКА СМАРТФОНОВ (Touch Events)
+        card.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), {passive: true});
+        card.addEventListener('touchmove', (e) => moveDrag(e.touches[0].clientX), {passive: true});
+        card.addEventListener('touchend', endDrag, {passive: true});
+
+        // ИСПРАВЛЕНО: ПОДДЕРЖКА ПК (Mouse Events)
+        card.addEventListener('mousedown', (e) => startDrag(e.clientX));
+        window.addEventListener('mousemove', (e) => { if(isDragging) moveDrag(e.clientX); });
+        window.addEventListener('mouseup', () => { if(isDragging) endDrag(); });
     }
 
-    // ИСПРАВЛЕНО: Интерактивное подтверждение удаления через Telegram PopUp
     function confirmDeleteOrder(orderId) {
         tg.showConfirm(
             currentLang === 'ru' ? `Удалить заказ ${orderId} из истории?` : `Дархости ${orderId}-ро ўчиред?`,
             (isConfirmed) => {
+                let card = document.getElementById(`card-${orderId}`);
                 if (isConfirmed) {
                     let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
                     orders = orders.filter(o => o.id !== orderId);
                     localStorage.setItem('user_orders', JSON.stringify(orders));
-                    
-                    if (activeSwipedCardId === orderId) activeSwipedCardId = null;
-                    renderOrdersHistory(); // Перерисовываем список
+                    renderOrdersHistory();
                 } else {
-                    // Если передумал — закрываем свайп
-                    let card = document.getElementById(`card-${orderId}`);
-                    if (card) card.style.transform = 'translateX(0)';
-                    if (activeSwipedCardId === orderId) activeSwipedCardId = null;
+                    if (card) {
+                        card.style.transition = 'transform 0.2s ease-out';
+                        card.style.transform = 'translateX(0px)';
+                    }
                 }
             }
         );
