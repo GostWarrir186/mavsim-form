@@ -16,8 +16,10 @@
         .container { max-width: 100%; margin: 0 auto; }
         .lang-switch { display: flex; justify-content: flex-end; margin-bottom: 15px; }
         .lang-btn {
-            background: #e1e1e1; border: none; padding: 5px 10px; 
-            border-radius: 5px; cursor: pointer; font-size: 14px; margin-left: 5px;
+            background: var(--tg-theme-secondary-bg-color, #e1e1e1); 
+            color: var(--tg-theme-text-color, #222222);
+            border: none; padding: 6px 12px; 
+            border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 5px;
         }
         .lang-btn.active {
             background: var(--tg-theme-button-color, #2481cc);
@@ -31,7 +33,7 @@
         .form-group { margin-bottom: 12px; }
         label { display: block; font-size: 14px; font-weight: bold; margin-bottom: 5px; }
         input, select, textarea {
-            width: 100%; padding: 10px; border: 1px solid #ccc; 
+            width: 100%; padding: 10px; border: 1px solid var(--tg-theme-hint-color, #ccc); 
             border-radius: 8px; box-sizing: border-box; font-size: 16px;
             background: var(--tg-theme-bg-color, #ffffff); color: var(--tg-theme-text-color, #222222);
         }
@@ -40,17 +42,29 @@
         .radio-label input { width: auto; }
         .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
         .warning { color: #d9534f; font-weight: bold; font-size: 14px; margin-top: 8px; display: none; }
+        
+        /* ИСПРАВЛЕНО: Адаптивный блок стоимости для темной и светлой темы */
         .price-box {
-            background: #e8f4fd; border: 2px dashed #2481cc;
-            padding: 12px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: bold;
+            background: var(--tg-theme-secondary-bg-color, #e8f4fd); 
+            border: 2px dashed var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-text-color, #222222);
+            padding: 14px; border-radius: 8px; text-align: center; font-size: 18px; font-weight: bold;
         }
+        
+        /* ИСПРАВЛЕНО: Кнопка теперь использует нативные цвета Telegram */
         .submit-btn {
             width: 100%; background: var(--tg-theme-button-color, #2481cc);
             color: var(--tg-theme-button-text-color, #ffffff); border: none;
             padding: 14px; border-radius: 10px; font-size: 18px; font-weight: bold;
             cursor: pointer; margin-top: 10px;
+            transition: all 0.2s ease;
         }
-        .submit-btn:disabled { background: #cccccc; cursor: not-allowed; }
+        .submit-btn:disabled { 
+            background: var(--tg-theme-hint-color, #cccccc); 
+            color: var(--tg-theme-bg-color, #ffffff);
+            opacity: 0.6;
+            cursor: not-allowed; 
+        }
     </style>
 </head>
 <body>
@@ -86,7 +100,7 @@
         <h3 id="txt-title-route">Маршрут и Тип доставки</h3>
         <div class="form-group">
             <label id="lbl-city-pickup">Город отправки (забора):</label>
-            <select id="city_pickup">
+            <select id="city_pickup" onchange="calculatePrice()">
                 <option value="Душанбе">Душанбе</option>
                 <option value="Худжанд">Худжанд</option>
                 <option value="Бохтар">Бохтар</option>
@@ -173,7 +187,7 @@
     let currentLang = 'ru';
     const tg = window.Telegram.WebApp;
     tg.ready();
-    tg.expand(); // Расширяем окно на весь экран приложения
+    tg.expand();
 
     const translations = {
         ru: {
@@ -203,7 +217,7 @@
     function setLang(lang) {
         currentLang = lang;
         document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
-        event.target.classList.add('active');
+        if(event) event.target.classList.add('active');
         
         for (let id in translations[lang]) {
             let el = document.getElementById(id);
@@ -232,7 +246,6 @@
         let maxSide = Math.max(l, width, h);
         let sumSides = l + width + h;
 
-        // Проверка лимитов крупногабарита из ТЗ
         if (w > 10 || maxSide > 35 || sumSides > 65) {
             document.getElementById('large-warning').style.display = 'block';
             document.getElementById('price-box').style.display = 'none';
@@ -243,13 +256,11 @@
             document.getElementById('price-box').style.display = 'block';
         }
 
-        // Определение зоны
         let zone = "1";
         if (["Душанбе", "Худжанд", "Бохтар"].includes(city)) zone = "1";
         else if (["Хорог", "РРП", "Хатлонская область"].includes(city)) zone = "2";
         else if (["Согдийская область", "ГБАО"].includes(city)) zone = "3";
 
-        // Сетка тарифов из ТЗ
         const tarifs = {
             "1": {"pvz": 20.80, "door": 31.20},
             "2": {"pvz": 27.30, "door": 35.10},
@@ -272,8 +283,9 @@
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let addressDelivery = document.getElementById('address_delivery').value.trim();
 
-        let isLarge = calculatePrice().isLarge;
+        let isLarge = (parseFloat(document.getElementById('weight').value) > 10);
 
+        // Кнопка станет активной, когда заполнены все эти поля:
         let isValid = offer && sName && sPhone && addressPickup && rName && rPhone && !isLarge;
         if (dtype === 'door' && !addressDelivery) isValid = false;
 
@@ -301,13 +313,11 @@
             price: res.price
         };
 
-        // Отправляем json-пакет данных обратно в телеграм боту
         tg.sendData(JSON.stringify(data));
         tg.close();
     }
 
-    // Первичный запуск валидации
-    validateForm();
+    calculatePrice();
 </script>
 </body>
 </html>
