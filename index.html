@@ -16,39 +16,31 @@
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: var(--sec-bg-color); color: var(--text-color);
-            margin: 0; padding: 0; box-sizing: border-box;
-            overflow-x: hidden;
-            user-select: none; /* Запрещаем выделение текста при перетаскивании на ПК */
-            -webkit-user-select: none;
+            margin: 0; padding: 0; box-sizing: border-box; overflow-x: hidden;
+            user-select: none; -webkit-user-select: none;
         }
         .header-tabs {
-            display: flex; background: var(--bg-color);
-            position: sticky; top: 0; z-index: 100;
-            border-bottom: 1px solid rgba(0,0,0,0.1);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            display: flex; background: var(--bg-color); position: sticky; top: 0; z-index: 100;
+            border-bottom: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         }
         .tab-btn {
             flex: 1; text-align: center; padding: 14px 0; font-size: 15px; font-weight: 600;
             color: var(--hint-color); background: none; border: none; cursor: pointer;
             border-bottom: 3px solid transparent; transition: all 0.2s ease;
         }
-        .tab-btn.active {
-            color: var(--primary-color); border-bottom-color: var(--primary-color);
-        }
+        .tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
         .container { padding: 15px; display: none; }
         .container.active { display: block; }
         .card {
-            background: var(--bg-color); border-radius: 12px; padding: 16px;
-            margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-            border: 1px solid rgba(0,0,0,0.02);
+            background: var(--bg-color); border-radius: 12px; padding: 16px; margin-bottom: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.02);
         }
         h3 { margin-top: 0; color: var(--primary-color); font-size: 16px; margin-bottom: 14px; border-bottom: 1px solid var(--sec-bg-color); padding-bottom: 6px;}
         .form-group { margin-bottom: 14px; }
         label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--hint-color); }
         input, select {
-            width: 100%; padding: 12px; border: 1px solid var(--sec-bg-color); 
-            border-radius: 10px; box-sizing: border-box; font-size: 15px;
-            background: var(--sec-bg-color); color: var(--text-color);
+            width: 100%; padding: 12px; border: 1px solid var(--sec-bg-color); border-radius: 10px;
+            box-sizing: border-box; font-size: 15px; background: var(--sec-bg-color); color: var(--text-color);
         }
         input:focus, select:focus { border-color: var(--primary-color); outline: none; }
         .radio-group { display: flex; gap: 12px; margin-top: 6px; }
@@ -65,67 +57,28 @@
         }
         .submit-btn {
             width: 100%; background: var(--primary-color); color: white; border: none;
-            padding: 15px; border-radius: 12px; font-size: 16px; font-weight: bold;
-            cursor: pointer; transition: all 0.2s;
+            padding: 15px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer;
         }
         .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .lang-switch { display: flex; justify-content: flex-end; padding: 10px 15px 0; background: var(--bg-color); }
         .lang-link { font-size: 13px; color: var(--primary-color); cursor: pointer; margin-left: 10px; font-weight: 500;}
         .warning { color: #d9534f; font-weight: bold; font-size: 14px; margin-top: 8px; display: none; text-align: center; }
 
-        /* Контейнер для нативного свайпа карточек */
         .history-container { margin-top: 10px; }
-        
-        .order-swipe-wrapper {
-            position: relative;
-            overflow: hidden;
-            border-radius: 10px;
-            margin-bottom: 12px;
-            background-color: #e53935;
-        }
-        
+        .order-swipe-wrapper { position: relative; overflow: hidden; border-radius: 10px; margin-bottom: 12px; background-color: #e53935; }
         .order-card {
-            background: var(--bg-color);
-            padding: 12px;
-            border-left: 4px solid var(--primary-color);
-            position: relative;
-            z-index: 2;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.02);
-            border-top: 1px solid var(--sec-bg-color);
-            border-right: 1px solid var(--sec-bg-color);
-            border-bottom: 1px solid var(--sec-bg-color);
-            border-radius: 0 10px 10px 0;
-            transform: translateX(0);
-            cursor: grab; /* Меняем курсор на ПК, показывая, что блок можно тащить */
+            background: var(--bg-color); padding: 12px; border-left: 4px solid var(--primary-color); position: relative; z-index: 2;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.02); border: 1px solid var(--sec-bg-color); border-radius: 0 10px 10px 0; cursor: grab;
         }
-        .order-card:active { cursor: grabbing; }
-        
         .swipe-delete-btn {
-            position: absolute;
-            top: 0; right: 0; bottom: 0;
-            width: 80px;
-            background: #e53935;
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 13px;
-            font-weight: bold;
-            z-index: 1;
-            border: none;
-            cursor: pointer;
+            position: absolute; top: 0; right: 0; bottom: 0; width: 80px; background: #e53935; color: white;
+            display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; z-index: 1; border: none;
         }
-        
-        .order-card-header {
-            display: flex; justify-content: space-between; align-items: center;
-            font-weight: bold; font-size: 14px; margin-bottom: 6px;
-        }
+        .order-card-header { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 14px; margin-bottom: 6px; }
         .order-card-body { font-size: 13px; color: var(--text-color); line-height: 1.4; }
-        .status-badge {
-            background: #e3f2fd; color: #0d47a1; padding: 3px 8px; 
-            border-radius: 6px; font-size: 11px; font-weight: bold; text-transform: uppercase;
-        }
+        .status-badge { background: #e3f2fd; color: #0d47a1; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
         .no-orders { text-align: center; color: var(--hint-color); font-size: 14px; padding: 20px 0; }
+        .profile-text-item { font-size: 15px; margin-bottom: 8px; color: var(--text-color); }
     </style>
 </head>
 <body>
@@ -140,14 +93,8 @@
         <button class="tab-btn" id="tab-profile-btn" onclick="switchTab('profile')">👤 Личный кабинет</button>
     </div>
 
+    <!-- ВКЛАДКА 1: ОФОРМЛЕНИЕ ЗАКАЗА (Оферта удалена!) -->
     <div id="tab-order" class="container active">
-        <div class="card">
-            <label class="radio-label" style="justify-content: flex-start; background: none; padding: 0;">
-                <input type="checkbox" id="offer_agree" onchange="validateForm()">
-                <span id="txt-offer">Я ознакомлен и согласен с публичной офертой</span>
-            </label>
-        </div>
-
         <div class="card">
             <h3 id="txt-title-route">Маршрут и доставка</h3>
             <div class="form-group">
@@ -230,29 +177,22 @@
         <button class="submit-btn" id="submit-btn" disabled onclick="sendDataToBot()">Оформить доставку</button>
     </div>
 
+    <!-- ВКЛАДКА 2: ЛИЧНЫЙ КАБИНЕТ (Данные жестко зафиксированы!) -->
     <div id="tab-profile" class="container">
         <div class="card">
             <h3 id="txt-profile-data">Мои личные данные</h3>
-            <p style="font-size: 12px; color: var(--hint-color); margin-top: -10px;">Заполните один раз, чтобы данные подставлялись автоматически</p>
-            <div class="form-group">
-                <label>Ваше ФИО:</label>
-                <input type="text" id="prof_name" placeholder="Иванов Иван Иванович" oninput="saveProfile()">
-            </div>
-            <div class="form-group">
-                <label>Ваш телефон:</label>
-                <input type="text" id="prof_phone" placeholder="+992XXXXXXXXX" oninput="saveProfile()">
-            </div>
-            <div class="form-group">
+            <div class="profile-text-item"><b>ФИО:</b> <span id="prof-fio-view">-</span></div>
+            <div class="profile-text-item"><b>Телефон:</b> <span id="prof-phone-view">-</span></div>
+            <div class="form-group" style="margin-top: 12px;">
                 <label>Постоянный адрес забора (ОТКУДА):</label>
-                <input type="text" id="prof_address" placeholder="ул. Рудаки, дом 15, кв 4" oninput="saveProfile()">
+                <input type="text" id="prof_address" placeholder="ул. Рудаки, дом 15, кв 4" oninput="localStorage.setItem('prof_address', this.value)">
             </div>
         </div>
 
         <div class="card" style="overflow: visible;">
             <h3 id="txt-orders-history">История моих заказов</h3>
             <p style="font-size: 11px; color: var(--hint-color); margin-top: -10px; margin-bottom: 12px;">← Смахните заказ влево мышкой или пальцем для удаления</p>
-            <div class="history-container" id="history-container">
-                </div>
+            <div class="history-container" id="history-container"></div>
         </div>
     </div>
 
@@ -261,28 +201,20 @@
     const tg = window.Telegram.WebApp;
     tg.ready(); tg.expand();
 
+    // Парсим подтвержденные данные из URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const verifiedFio = urlParams.get('fio') || '';
+    const verifiedPhone = urlParams.get('phone') || '';
+
     const translations = {
         ru: {
             "tab-order-btn": "📦 Новый заказ", "tab-profile-btn": "👤 ЛК",
-            "txt-offer": "Я ознакомлен и согласен с офертой", "txt-title-route": "Маршрут и доставка",
-            "lbl-city-pickup": "Город отправки:", "lbl-address-pickup": "Адрес забора:", "lbl-dtype": "Тип доставки:",
-            "txt-pvz": "До ПВЗ 🏢", "txt-door": "До двери 🚪", "lbl-city-delivery": "Город назначения:",
-            "lbl-address-delivery": "Адрес доставки:", "lbl-comment": "Ориентир для курьера:",
-            "txt-title-receiver": "Получатель", "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:",
-            "txt-title-parcel": "Параметры посылки", "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):",
-            "large-warning": "⚠️ Отправление крупногабаритное! Оформление только через сайт.",
+            "txt-title-route": "Маршрут и доставка", "lbl-city-pickup": "Город отправки:", "lbl-address-pickup": "Адрес забора:", 
+            "lbl-dtype": "Тип доставки:", "txt-pvz": "До ПВЗ 🏢", "txt-door": "До двери 🚪", "lbl-city-delivery": "Город назначения:",
+            "lbl-address-delivery": "Адрес доставки:", "lbl-comment": "Ориентир для курьера:", "txt-title-receiver": "Получатель", 
+            "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:", "txt-title-parcel": "Параметры посылки", 
+            "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):", "large-warning": "⚠️ Отправление крупногабаритное!",
             "price": "Стоимость", "btn-submit": "Оформить доставку", "txt-profile-data": "Мои личные данные", "txt-orders-history": "История моих заказов"
-        },
-        tj: {
-            "tab-order-btn": "📦 Дархости нав", "tab-profile-btn": "👤 Кабинет",
-            "txt-offer": "Шартҳои офертаро қабул мекунам", "txt-title-route": "Маршрут ва расонидан",
-            "lbl-city-pickup": "Шаҳри ирсол:", "lbl-address-pickup": "Суроғаи қабул:", "lbl-dtype": "Намуди расонидан:",
-            "txt-pvz": "То ПВЗ 🏢", "txt-door": "То дари хона 🚪", "lbl-city-delivery": "Шаҳри расонидан:",
-            "lbl-address-delivery": "Суроғаи расонидан:", "lbl-comment": "Ориентир:",
-            "txt-title-receiver": "Қабулкунанда", "lbl-r-name": "ФИО-и Қабулкунанда:", "lbl-r-phone": "Телефони Қабулкунанда:",
-            "txt-title-parcel": "Параметрҳои посылка", "lbl-weight": "Вазн (кг):", "lbl-sizes": "Андозаҳо (см):",
-            "large-warning": "⚠️ Бор калонҳаҷм аст! Расмикунӣ танҳо тавассути сайт.",
-            "price": "Нарх", "btn-submit": "Ороиши дархост", "txt-profile-data": "Маълумоти шахсӣ", "txt-orders-history": "Таърихи дархостҳо"
         }
     };
 
@@ -291,69 +223,33 @@
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.getElementById(`tab-${tabName}`).classList.add('active');
         document.getElementById(`tab-${tabName}-btn`).classList.add('active');
-        
-        if (tabName === 'order') { 
-            loadProfileToForm(); 
-        } else if (tabName === 'profile') {
-            renderOrdersHistory(); 
-        }
+        if (tabName === 'profile') renderOrdersHistory();
     }
 
-    function setLang(lang) {
-        currentLang = lang;
-        document.getElementById('tab-order-btn').innerText = translations[lang]['tab-order-btn'];
-        document.getElementById('tab-profile-btn').innerText = translations[lang]['tab-profile-btn'];
-        for (let id in translations[lang]) {
-            let el = document.getElementById(id);
-            if (el) el.innerText = translations[lang][id];
-        }
-        document.getElementById('submit-btn').innerText = translations[lang]['btn-submit'];
-        calculatePrice();
-        if(document.getElementById('tab-profile').classList.contains('active')) {
-            renderOrdersHistory();
-        }
-    }
-
-    function saveProfile() {
-        localStorage.setItem('prof_name', document.getElementById('prof_name').value);
-        localStorage.setItem('prof_phone', document.getElementById('prof_phone').value);
-        localStorage.setItem('prof_address', document.getElementById('prof_address').value);
-    }
-
-    function loadProfileToForm() {
-        let savedName = localStorage.getItem('prof_name') || '';
-        let savedPhone = localStorage.getItem('prof_phone') || '';
-        let savedAddress = localStorage.getItem('prof_address') || '';
-        document.getElementById('prof_name').value = savedName;
-        document.getElementById('prof_phone').value = savedPhone;
-        document.getElementById('prof_address').value = savedAddress;
-        if(savedAddress) document.getElementById('address_pickup').value = savedAddress;
-        validateForm();
+    function initProfile() {
+        document.getElementById('prof-fio-view').innerText = verifiedFio;
+        document.getElementById('prof-phone-view').innerText = verifiedPhone;
+        let savedAddr = localStorage.getItem('prof_address') || '';
+        document.getElementById('prof_address').value = savedAddr;
+        if(savedAddr) document.getElementById('address_pickup').value = savedAddr;
     }
 
     function renderOrdersHistory() {
         const container = document.getElementById('history-container');
         let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
-        
         if (orders.length === 0) {
-            container.innerHTML = `<div class="no-orders">${currentLang === 'ru' ? '📦 У вас пока нет оформленных заказов.' : '📦 Дархостҳо ёфт нашуданд.'}</div>`;
+            container.innerHTML = `<div class="no-orders">📦 У вас пока нет оформленных заказов.</div>`;
             return;
         }
-
         orders.sort((a,b) => b.timestamp - a.timestamp);
-
         container.innerHTML = '';
         orders.forEach(order => {
             const wrapper = document.createElement('div');
             wrapper.className = 'order-swipe-wrapper';
-            
             wrapper.innerHTML = `
-                <button class="swipe-delete-btn" onclick="confirmDeleteOrder('${order.id}')">${currentLang === 'ru' ? 'Удалить' : 'Ўчириш'}</button>
+                <button class="swipe-delete-btn" onclick="confirmDeleteOrder('${order.id}')">Удалить</button>
                 <div class="order-card" id="card-${order.id}">
-                    <div class="order-card-header">
-                        <span>🆔 ${order.id}</span>
-                        <span class="status-badge">NEW</span>
-                    </div>
+                    <div class="order-card-header"><span>🆔 ${order.id}</span><span class="status-badge">NEW</span></div>
                     <div class="order-card-body">
                         <span style="font-size: 11px; color: var(--hint-color);">📅 ${order.date_str}</span><br>
                         📍 <b>Откуда:</b> ${order.city_pickup}<br>
@@ -363,102 +259,53 @@
                     </div>
                 </div>
             `;
-            
             container.appendChild(wrapper);
-            bindFluidSwipeEvents(order.id); // Подключаем новую плавную физику
+            bindFluidSwipeEvents(order.id);
         });
     }
 
-    // ИСПРАВЛЕНО: Полностью переработанная физика «живого» свайпа для ПК и Смартфонов
-    let globalActiveCardId = null;
-
+    let isDragging = false, startX = 0, currentX = 0, transformX = 0;
     function bindFluidSwipeEvents(orderId) {
         const card = document.getElementById(`card-${orderId}`);
         if (!card) return;
-
-        let isDragging = false;
-        let startX = 0;
-        let currentX = 0;
-        let transformX = 0;
-        const maxSwipe = -80; // Ширина кнопки удаления в пикселях
-
-        // Функция фиксации начала движения
-        function startDrag(screenX) {
-            isDragging = true;
-            startX = screenX;
-            card.style.transition = 'none'; // Отключаем анимацию во время движения за пальцем
-        }
-
-        // Функция обработки перемещения в реальном времени
+        function startDrag(screenX) { isDragging = true; startX = screenX; card.style.transition = 'none'; }
         function moveDrag(screenX) {
             if (!isDragging) return;
             let diffX = screenX - startX;
-            
-            // Если карточка была закрыта, мы можем тянуть её только влево
-            if (transformX === 0) {
-                currentX = Math.min(0, Math.max(maxSwipe, diffX));
-            } else {
-                // Если карточка уже была открыта (смещена на -80px)
-                currentX = Math.min(0, Math.max(maxSwipe, maxSwipe + diffX));
-            }
-            
+            currentX = transformX === 0 ? Math.min(0, Math.max(-80, diffX)) : Math.min(0, Math.max(-80, -80 + diffX));
             card.style.transform = `translateX(${currentX}px)`;
         }
-
-        // Функция завершения жеста и доводки на пружине
         function endDrag() {
-            if (!isDragging) return;
-            isDragging = false;
-            card.style.transition = 'transform 0.2s ease-out'; // Возвращаем плавный довод
-
-            // Физика выбора конечной точки по порогу половины пути (40 пикселей)
-            if (currentX < -40) {
-                card.style.transform = `translateX(${maxSwipe}px)`;
-                transformX = maxSwipe;
-                globalActiveCardId = orderId;
-            } else {
-                card.style.transform = 'translateX(0px)';
-                transformX = 0;
-                if (globalActiveCardId === orderId) globalActiveCardId = null;
-            }
+            if (!isDragging) return; isDragging = false; card.style.transition = 'transform 0.2s ease-out';
+            if (currentX < -40) { card.style.transform = 'translateX(-80px)'; transformX = -80; } 
+            else { card.style.transform = 'translateX(0px)'; transformX = 0; }
         }
-
-        // ПОДДЕРЖКА СМАРТФОНОВ (Touch Events)
-        card.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), {passive: true});
-        card.addEventListener('touchmove', (e) => moveDrag(e.touches[0].clientX), {passive: true});
-        card.addEventListener('touchend', endDrag, {passive: true});
-
-        // ИСПРАВЛЕНО: ПОДДЕРЖКА ПК (Mouse Events)
+        card.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), {passive:true});
+        card.addEventListener('touchmove', (e) => moveDrag(e.touches[0].clientX), {passive:true});
+        card.addEventListener('touchend', endDrag, {passive:true});
         card.addEventListener('mousedown', (e) => startDrag(e.clientX));
         window.addEventListener('mousemove', (e) => { if(isDragging) moveDrag(e.clientX); });
-        window.addEventListener('mouseup', () => { if(isDragging) endDrag(); });
+        window.addEventListener('mouseup', endDrag);
     }
 
     function confirmDeleteOrder(orderId) {
-        tg.showConfirm(
-            currentLang === 'ru' ? `Удалить заказ ${orderId} из истории?` : `Дархости ${orderId}-ро ўчиред?`,
-            (isConfirmed) => {
+        tg.showConfirm(`Удалить заказ ${orderId} из истории?`, (isConfirmed) => {
+            if (isConfirmed) {
+                let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
+                orders = orders.filter(o => o.id !== orderId);
+                localStorage.setItem('user_orders', JSON.stringify(orders));
+                renderOrdersHistory();
+            } else {
                 let card = document.getElementById(`card-${orderId}`);
-                if (isConfirmed) {
-                    let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
-                    orders = orders.filter(o => o.id !== orderId);
-                    localStorage.setItem('user_orders', JSON.stringify(orders));
-                    renderOrdersHistory();
-                } else {
-                    if (card) {
-                        card.style.transition = 'transform 0.2s ease-out';
-                        card.style.transform = 'translateX(0px)';
-                    }
-                }
+                if (card) card.style.transform = 'translateX(0px)';
             }
-        );
+        });
     }
 
     function toggleAddress() {
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
-        let display = dtype === 'door' ? 'block' : 'none';
-        document.getElementById('delivery-address-group').style.display = display;
-        document.getElementById('driver-comment-group').style.display = display;
+        document.getElementById('delivery-address-group').style.display = dtype === 'door' ? 'block' : 'none';
+        document.getElementById('driver-comment-group').style.display = dtype === 'door' ? 'block' : 'none';
         validateForm();
     }
 
@@ -469,111 +316,62 @@
         let l = parseInt(document.getElementById('size_l').value) || 0;
         let width = parseInt(document.getElementById('size_w').value) || 0;
         let h = parseInt(document.getElementById('size_h').value) || 0;
-
-        let maxSide = Math.max(l, width, h);
-        let sumSides = l + width + h;
-
-        if (w > 10 || maxSide > 35 || sumSides > 65) {
+        if (w > 10 || Math.max(l, width, h) > 35 || (l + width + h) > 65) {
             document.getElementById('large-warning').style.display = 'block';
             document.getElementById('price-box').style.display = 'none';
             document.getElementById('submit-btn').disabled = true;
             return {isLarge: true};
-        } else {
-            document.getElementById('large-warning').style.display = 'none';
-            document.getElementById('price-box').style.display = 'block';
         }
-
-        let zone = "1";
-        if (["Душанбе", "Худжанд", "Бохтар"].includes(city)) zone = "1";
-        else if (["Хорог", "РРП", "Хатлонская область"].includes(city)) zone = "2";
-        else if (["Согдийская область", "ГБАО"].includes(city)) zone = "3";
-
-        const tarifs = {
-            "1": {"pvz": 20.80, "door": 31.20},
-            "2": {"pvz": 27.30, "door": 35.10},
-            "3": {"pvz": 31.20, "door": 37.70}
-        };
-
+        document.getElementById('large-warning').style.display = 'none';
+        document.getElementById('price-box').style.display = 'block';
+        let zone = ["Душанбе", "Худжанд", "Бохтар"].includes(city) ? "1" : (["Хорог", "РРП", "Хатлонская область"].includes(city) ? "2" : "3");
+        const tarifs = {"1": {"pvz": 20.80, "door": 31.20}, "2": {"pvz": 27.30, "door": 35.10}, "3": {"pvz": 31.20, "door": 37.70}};
         let finalPrice = tarifs[zone][dtype];
-        document.getElementById('price-box').innerText = `${translations[currentLang]['price']}: ${finalPrice.toFixed(2)} TJS`;
+        document.getElementById('price-box').innerText = `Стоимость: ${finalPrice.toFixed(2)} TJS`;
         validateForm();
         return {isLarge: false, price: finalPrice};
     }
 
     function validateForm() {
-        let offer = document.getElementById('offer_agree').checked;
-        let sName = localStorage.getItem('prof_name') || '';
-        let sPhone = localStorage.getItem('prof_phone') || '';
         let addressPickup = document.getElementById('address_pickup').value.trim();
         let rName = document.getElementById('r_name').value.trim();
         let rPhone = document.getElementById('r_phone').value.trim();
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let addressDelivery = document.getElementById('address_delivery').value.trim();
-
-        let isLarge = (parseFloat(document.getElementById('weight').value) > 10);
-
-        let isValid = offer && sName && sPhone && addressPickup && rName && rPhone && !isLarge;
+        let isValid = addressPickup && rName && rPhone && verifiedFio && verifiedPhone;
         if (dtype === 'door' && !addressDelivery) isValid = false;
-
         document.getElementById('submit-btn').disabled = !isValid;
     }
 
     function sendDataToBot() {
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let res = calculatePrice();
-        
         let now = new Date();
-        let day = String(now.getDate()).padStart(2, '0');
-        let month = String(now.getMonth() + 1).padStart(2, '0');
-        let dateStr = day + month; 
-        
-        let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        let maskedHash = "";
-        for (let i = 0; i < 4; i++) {
-            maskedHash += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        let generatedId = `ORD-${dateStr}-${maskedHash}`; 
-
-        let hours = String(now.getHours()).padStart(2, '0');
-        let minutes = String(now.getMinutes()).padStart(2, '0');
-        let fullDateStr = `${day}.${month}.${now.getFullYear()} ${hours}:${minutes}`;
+        let day = String(now.getDate()).padStart(2, '0'), month = String(now.getMonth() + 1).padStart(2, '0');
+        let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", maskedHash = "";
+        for (let i = 0; i < 4; i++) maskedHash += chars.charAt(Math.floor(Math.random() * chars.length));
+        let generatedId = `ORD-${day}${month}-${maskedHash}`;
+        let fullDateStr = `${day}.${month}.${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
         
         let data = {
-            order_id: generatedId,
-            lang: currentLang,
-            s_name: localStorage.getItem('prof_name'),
-            s_phone: localStorage.getItem('prof_phone'),
-            city_pickup: document.getElementById('city_pickup').value,
-            address_pickup: document.getElementById('address_pickup').value,
-            city_delivery: document.getElementById('city_delivery').value,
-            delivery_type: dtype,
+            order_id: generatedId, lang: currentLang, s_name: verifiedFio, s_phone: verifiedPhone,
+            city_pickup: document.getElementById('city_pickup').value, address_pickup: document.getElementById('address_pickup').value,
+            city_delivery: document.getElementById('city_delivery').value, delivery_type: dtype,
             address_delivery: dtype === 'door' ? document.getElementById('address_delivery').value : "ПВЗ",
             driver_comment: dtype === 'door' ? document.getElementById('driver_comment').value : "Нет",
-            r_name: document.getElementById('r_name').value,
-            r_phone: document.getElementById('r_phone').value,
-            weight: document.getElementById('weight').value,
-            sizes: `${document.getElementById('size_l').value}x${document.getElementById('size_w').value}x${document.getElementById('size_h').value}`,
+            r_name: document.getElementById('r_name').value, r_phone: document.getElementById('r_phone').value,
+            weight: document.getElementById('weight').value, sizes: `${document.getElementById('size_l').value}x${document.getElementById('size_w').value}x${document.getElementById('size_h').value}`,
             price: res.price.toFixed(2)
         };
 
         let localHistory = JSON.parse(localStorage.getItem('user_orders') || '[]');
-        localHistory.push({
-            id: generatedId,
-            timestamp: Date.now(),
-            date_str: fullDateStr,
-            city_pickup: data.city_pickup,
-            city_delivery: data.city_delivery,
-            type: dtype,
-            r_name: data.r_name,
-            price: data.price
-        });
+        localHistory.push({id: generatedId, timestamp: Date.now(), date_str: fullDateStr, city_pickup: data.city_pickup, city_delivery: data.city_delivery, type: dtype, r_name: data.r_name, price: data.price});
         localStorage.setItem('user_orders', JSON.stringify(localHistory));
-
         tg.sendData(JSON.stringify(data));
         tg.close();
     }
 
-    loadProfileToForm();
+    initProfile();
     calculatePrice();
 </script>
 </body>
