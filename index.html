@@ -2,246 +2,502 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Оформление доставки Mavsimi Rason</title>
-    
-    <!-- Подключаем Telegram WebApp API -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mavsimi Rason App</title>
+    <!-- Подключение официального SDK Telegram WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    
-    <!-- Подключаем бесплатные карты Leaflet.js -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
     <style>
         :root {
-            --tg-theme-bg-color: #ffffff;
-            --tg-theme-text-color: #000000;
-            --tg-theme-button-color: #2481cc;
-            --tg-theme-button-text-color: #ffffff;
-            --tg-theme-hint-color: #999999;
+            --primary-color: #2481cc;
+            --bg-color: var(--tg-theme-bg-color, #ffffff);
+            --text-color: var(--tg-theme-text-color, #222222);
+            --sec-bg-color: var(--tg-theme-secondary-bg-color, #f4f4f5);
+            --hint-color: var(--tg-theme-hint-color, #8e8e93);
+            --border-radius: 12px;
         }
-
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--tg-theme-bg-color);
-            color: var(--tg-theme-text-color);
-            margin: 0;
-            padding: 15px;
-            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--sec-bg-color); color: var(--text-color);
+            margin: 0; padding: 0; box-sizing: border-box; overflow-x: hidden;
+            user-select: none; -webkit-user-select: none;
         }
-
-        .form-group {
-            margin-bottom: 15px;
+        .header-tabs {
+            display: flex; background: var(--bg-color); position: sticky; top: 0; z-index: 100;
+            border-bottom: 1px solid rgba(0,0,0,0.08); box-shadow: 0 2px 8px rgba(0,0,0,0.03);
         }
-
-        label {
-            display: block;
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 5px;
+        .tab-btn {
+            flex: 1; text-align: center; padding: 14px 0; font-size: 15px; font-weight: 600;
+            color: var(--hint-color); background: none; border: none; cursor: pointer;
+            border-bottom: 3px solid transparent; transition: all 0.2s ease;
         }
-
+        .tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); }
+        .container { padding: 15px; display: none; }
+        .container.active { display: block; }
+        .card {
+            background: var(--bg-color); border-radius: var(--border-radius); padding: 16px; margin-bottom: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.02);
+        }
+        h3 { margin-top: 0; color: var(--primary-color); font-size: 16px; margin-bottom: 14px; border-bottom: 1px solid var(--sec-bg-color); padding-bottom: 6px;}
+        .form-group { margin-bottom: 14px; }
+        label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--hint-color); }
         input, select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            box-sizing: border-box;
-            font-size: 16px;
-            background-color: #fff;
-            color: #000;
+            width: 100%; padding: 12px; border: 1px solid var(--border-color, rgba(0,0,0,0.05)); border-radius: 10px;
+            box-sizing: border-box; font-size: 15px; background: var(--sec-bg-color); color: var(--text-color);
         }
+        input:focus, select:focus { border-color: var(--primary-color); outline: none; }
+        .radio-group { display: flex; gap: 12px; margin-top: 6px; }
+        .radio-label { 
+            flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
+            padding: 10px; background: var(--sec-bg-color); border-radius: 8px; font-size: 14px; cursor: pointer;
+        }
+        .radio-label input { width: auto; margin: 0; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .price-box {
+            background: rgba(36, 129, 204, 0.08); border: 2px dashed var(--primary-color);
+            padding: 14px; border-radius: 10px; text-align: center; font-size: 18px; font-weight: bold;
+            color: var(--text-color); margin-top: 10px;
+        }
+        .submit-btn {
+            width: 100%; background: var(--primary-color); color: white; border: none;
+            padding: 15px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .lang-switch { display: flex; justify-content: flex-end; padding: 10px 15px 0; background: var(--bg-color); }
+        .lang-link { font-size: 13px; color: var(--primary-color); cursor: pointer; margin-left: 10px; font-weight: 500;}
+        .warning { color: #d9534f; font-weight: bold; font-size: 14px; margin-top: 8px; display: none; text-align: center; }
 
-        .map-section {
-            background: #f5f5f5;
-            padding: 10px;
-            border-radius: 12px;
-            margin-top: 15px;
-            border: 1px solid #ddd;
+        .history-container { margin-top: 10px; }
+        .order-swipe-wrapper { position: relative; overflow: hidden; border-radius: 10px; margin-bottom: 12px; background-color: #e53935; }
+        .order-card {
+            background: var(--bg-color); padding: 12px; border-left: 4px solid var(--primary-color); position: relative; z-index: 2;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.02); border: 1px solid var(--sec-bg-color); border-radius: 0 10px 10px 0; cursor: grab;
         }
-
-        .map-hint {
-            font-size: 12px;
-            color: var(--tg-theme-hint-color);
-            margin-bottom: 8px;
+        .swipe-delete-btn {
+            position: absolute; top: 0; right: 0; bottom: 0; width: 80px; background: #e53935; color: white;
+            display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; z-index: 1; border: none;
         }
-
-        /* Контейнер интерактивной карты */
-        #map {
-            width: 100%;
-            height: 250px;
-            border-radius: 8px;
-            border: 1px solid #ccc;
-        }
-
-        .main-btn {
-            width: 100%;
-            padding: 12px;
-            background-color: var(--tg-theme-button-color);
-            color: var(--tg-theme-button-text-color);
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-            margin-top: 20px;
-        }
-
-        .main-btn:hover {
-            opacity: 0.9;
-        }
+        .order-card-header { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 14px; margin-bottom: 6px; }
+        .order-card-body { font-size: 13px; color: var(--text-color); line-height: 1.4; }
+        .status-badge { background: #e3f2fd; color: #0d47a1; padding: 3px 8px; border-radius: 6px; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        .no-orders { text-align: center; color: var(--hint-color); font-size: 14px; padding: 20px 0; }
+        .profile-text-item { font-size: 15px; margin-bottom: 12px; color: var(--text-color); }
     </style>
 </head>
 <body>
 
-    <h2>Оформление доставки</h2>
-
-    <div class="form-group">
-        <label for="city_pickup">Город забора (Откуда):</label>
-        <input type="text" id="city_pickup" value="Душанбе">
+    <div class="lang-switch">
+        <span class="lang-link" onclick="setLang('ru')">Русский 🇷🇺</span>
+        <span class="lang-link" onclick="setLang('tj')">Тоҷикӣ 🇹🇯</span>
     </div>
 
-    <div class="form-group">
-        <label for="address_pickup">Точный адрес забора:</label>
-        <input type="text" id="address_pickup" placeholder="ул. Рудаки, дом 10">
+    <div class="header-tabs">
+        <button class="tab-btn active" id="tab-order-btn" onclick="switchTab('order')">📦 Новый заказ</button>
+        <button class="tab-btn" id="tab-profile-btn" onclick="switchTab('profile')">👤 Личный кабинет</button>
     </div>
 
-    <div class="form-group">
-        <label for="city_delivery">Город доставки (Куда):</label>
-        <input type="text" id="city_delivery" placeholder="Введите город">
+    <!-- ВКЛАДКА 1: ОФОРМЛЕНИЕ ЗАКАЗА -->
+    <div id="tab-order" class="container active">
+        <div class="card">
+            <h3 id="txt-title-route">Маршрут и доставка</h3>
+            <div class="form-group">
+                <label id="lbl-city-pickup">Город отправки (забора):</label>
+                <select id="city_pickup" onchange="calculatePrice()">
+                    <option value="Душанбе">Душанбе</option>
+                    <option value="Худжанд">Худжанд</option>
+                    <option value="Бохтар">Бохтар</option>
+                    <option value="Хорог">Хорог</option>
+                    <option value="РРП">РРП</option>
+                    <option value="Хатлонская область">Хатлонская область</option>
+                    <option value="Согдийская область">Согдийская область</option>
+                    <option value="ГБАО">ГБАО</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label id="lbl-address-pickup">Адрес забора (ОТКУДА):</label>
+                <input type="text" id="address_pickup" oninput="validateForm()">
+            </div>
+            <div class="form-group">
+                <label id="lbl-dtype">Тип доставки:</label>
+                <div class="radio-group">
+                    <label class="radio-label"><input type="radio" name="dtype" value="pvz" checked onchange="toggleAddress(); calculatePrice()"> <span id="txt-pvz">До ПВЗ</span></label>
+                    <label class="radio-label"><input type="radio" name="dtype" value="door" onchange="toggleAddress(); calculatePrice()"> <span id="txt-door">До двери</span></label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label id="lbl-city-delivery">Город назначения (доставки):</label>
+                <select id="city_delivery" onchange="calculatePrice()">
+                    <option value="Душанбе">Душанбе</option>
+                    <option value="Худжанд">Худжанд</option>
+                    <option value="Бохтар">Бохтар</option>
+                    <option value="Хорог">Хорог</option>
+                    <option value="РРП">РРП</option>
+                    <option value="Хатлонская область">Хатлонская область</option>
+                    <option value="Согдийская область">Согдийская область</option>
+                    <option value="ГБАО">ГБАО</option>
+                </select>
+            </div>
+            <div class="form-group" id="delivery-address-group" style="display:none;">
+                <label id="lbl-address-delivery">Адрес доставки (КУДА):</label>
+                <input type="text" id="address_delivery" oninput="validateForm()">
+            </div>
+            <div class="form-group" id="driver-comment-group" style="display:none;">
+                <label id="lbl-comment">Ориентир для курьера:</label>
+                <input type="text" id="driver_comment">
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 id="txt-title-receiver">Получатель</h3>
+            <div class="form-group">
+                <label id="lbl-r-name">ФИО Получателя:</label>
+                <input type="text" id="r_name" oninput="validateForm()">
+            </div>
+            <div class="form-group">
+                <label id="lbl-r-phone">Телефон Получателя:</label>
+                <input type="text" id="r_phone" placeholder="+992XXXXXXXXX" oninput="validateForm()">
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 id="txt-title-parcel">Параметры посылки</h3>
+            <div class="form-group">
+                <label id="lbl-weight">Вес (кг):</label>
+                <input type="number" id="weight" step="0.1" value="1" oninput="calculatePrice()">
+            </div>
+            <div class="form-group">
+                <label id="lbl-sizes">Габариты Д / Ш / В (см):</label>
+                <div class="grid-3">
+                    <input type="number" id="size_l" value="10" oninput="calculatePrice()">
+                    <input type="number" id="size_w" value="10" oninput="calculatePrice()">
+                    <input type="number" id="size_h" value="10" oninput="calculatePrice()">
+                </div>
+            </div>
+            <div id="large-warning" class="warning">⚠️ Отправление крупногабаритное! Оформление только через сайт.</div>
+            <div class="price-box" id="price-box">Стоимость: 20.80 TJS</div>
+        </div>
+
+        <button class="submit-btn" id="submit-btn" disabled onclick="sendDataToBot()">Оформить доставку</button>
+        <button class="submit-btn" id="large-submit-btn" style="display: none; background-color: #2bca80;" onclick="window.open('https://www.mavsim.com/Home/QuickRequest', '_blank')">Быстрый запрос</button>
     </div>
 
-    <div class="form-group">
-        <label for="address_delivery">Точный адрес доставки:</label>
-        <input type="text" id="address_delivery" placeholder="Куда везти товар">
+    <!-- ВКЛАДКА 2: ЛИЧНЫЙ КАБИНЕТ -->
+    <div id="tab-profile" class="container">
+        <div class="card">
+            <h3 id="txt-profile-data">Мои личные данные</h3>
+            <div class="profile-text-item"><b>Телефон:</b> <span id="prof-phone-view">-</span></div>
+            
+            <div class="form-group" style="margin-top: 12px;">
+                <label id="lbl-prof-fio">Ваше ФИО (Имя отправителя):</label>
+                <input type="text" id="prof_fio_input" placeholder="Введите ФИО">
+            </div>
+            
+            <div class="form-group">
+                <label id="lbl-prof-addr">Постоянный адрес забора (ОТКУДА):</label>
+                <input type="text" id="prof_address" placeholder="ул. Рудаки, дом 15, кв 4" oninput="localStorage.setItem('prof_address', this.value)">
+            </div>
+            
+            <button class="submit-btn" id="btn-save-profile" style="background-color: #2bca80; margin-top: 10px;" onclick="saveProfileData()">Сохранить изменения</button>
+        </div>
+
+        <div class="card" style="overflow: visible;">
+            <h3 id="txt-orders-history">История моих заказов</h3>
+            <p style="font-size: 11px; color: var(--hint-color); margin-top: -10px; margin-bottom: 12px;">← Смахните заказ влево для удаления</p>
+            <div class="history-container" id="history-container"></div>
+        </div>
     </div>
 
-    <div class="form-group">
-        <label for="driver_comment">Ориентир для курьера:</label>
-        <input type="text" id="driver_comment" placeholder="Например: возле ТЦ Садбарг">
-    </div>
+<script>
+    let currentLang = 'ru';
+    // Безопасная инициализация Telegram SDK без крашей во внешнем браузере
+    const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : {
+        ready: function() {},
+        expand: function() {},
+        sendData: function() {},
+        close: function() {},
+        showConfirm: function(msg, callback) { callback(confirm(msg)); },
+        initDataUnsafe: {},
+        initData: ""
+    };
+    tg.ready(); tg.expand();
 
-    <div class="form-group">
-        <label for="delivery_type">Тип доставки:</label>
-        <select id="delivery_type">
-            <option value="door">До двери 🚪</option>
-            <option value="pvz">До ПВЗ 🏢</option>
-        </select>
-    </div>
+    let verifiedFio = "Пользователь";
+    let verifiedPhone = "+992920000000";
 
-    <div class="form-group">
-        <label for="weight">Вес посылки (кг):</label>
-        <input type="number" id="weight" value="1">
-    </div>
+    const userObj = tg.initDataUnsafe && tg.initDataUnsafe.user;
+    if (userObj) {
+        verifiedFio = [userObj.first_name, userObj.last_name].filter(Boolean).join(" ") || userObj.username || "Telegram User";
+    }
 
-    <div class="form-group">
-        <label for="sizes">Габариты (ДхШхВ):</label>
-        <input type="text" id="sizes" value="10x10x10">
-    </div>
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('fio')) verifiedFio = urlParams.get('fio');
+    if (urlParams.get('phone')) verifiedPhone = urlParams.get('phone');
 
-    <div class="form-group">
-        <label for="price">Итоговая стоимость (TJS):</label>
-        <input type="number" id="price" value="20.80">
-    </div>
-
-    <!-- БЛОК ДОБРОВОЛЬНОГО ВЫБОРА ГЕОПОЗИЦИИ -->
-    <div class="map-section">
-        <label>📍 Точное местоположение для курьера</label>
-        <div class="map-hint">Перетащите маркер пальцем или кликните в нужное место на карте, чтобы курьер вас быстро нашёл.</div>
-        
-        <div id="map"></div>
-        
-        <!-- Скрытое поле, куда пишется результат "Широта,Долгота" -->
-        <input type="hidden" id="coords" value="">
-    </div>
-
-    <button class="main-btn" onclick="sendOrderData()">Подтвердить и отправить заказ</button>
-
-    <script>
-        // Инициализируем Telegram WebApp
-        const tg = window.Telegram.WebApp;
-        tg.expand(); // Раскрываем окно на максимум
-
-        // Получаем имя и телефон из адресной строки (переданные из бота)
-        const urlParams = new URLSearchParams(window.location.search);
-        const senderName = urlParams.get('fio') || 'Не указано';
-        const senderPhone = urlParams.get('phone') || 'Не указано';
-
-        // 1. Инициализируем интерактивную карту (по умолчанию ставим центр на Душанбе)
-        let startLat = 38.56, startLon = 68.78;
-        let map = L.map('map').setView([startLat, startLon], 13);
-
-        // 2. Рендерим бесплатную подложку карт OpenStreetMap
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
-        }).addTo(map);
-
-        // 3. Создаем маркер, который пользователь может двигать пальцем (draggable: true)
-        let marker = L.marker([startLat, startLon], { draggable: true }).addTo(map);
-
-        // Функция обновления скрытого поля с координатами
-        function setCoords(lat, lon) {
-            document.getElementById('coords').value = lat.toFixed(6) + "," + lon.toFixed(6);
+    const translations = {
+        ru: {
+            "tab-order-btn": "📦 Новый заказ", "tab-profile-btn": "👤 ЛК",
+            "txt-title-route": "Маршрут и доставка", "lbl-city-pickup": "Город отправки:", "lbl-address-pickup": "Адрес забора:", 
+            "lbl-dtype": "Тип доставки:", "txt-pvz": "До ПВЗ 🏢", "txt-door": "До двери 🚪", "lbl-city-delivery": "Город назначения:",
+            "lbl-address-delivery": "Адрес доставки:", "lbl-comment": "Ориентир для курьера:", "txt-title-receiver": "Получатель", 
+            "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:", "txt-title-parcel": "Параметры посылки", 
+            "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):", "large-warning": "⚠️ Отправление крупногабаритное!",
+            "price": "Стоимость", "btn-submit": "Оформить доставку", "btn-large-submit": "Быстрый запрос на сайте", 
+            "txt-profile-data": "Мои личные данные", "txt-orders-history": "История моих заказов",
+            "lbl-prof-fio": "Ваше ФИО (Имя отправителя):", "lbl-prof-addr": "Постоянный адрес забора (ОТКУДА):",
+            "btn-save-profile": "Сохранить изменения"
+        },
+        tj: {
+            "tab-order-btn": "📦 Дархости нав", "tab-profile-btn": "👤 Профил",
+            "txt-title-route": "Хатсайр ва расонидан", "lbl-city-pickup": "Аз кадом шаҳр:", "lbl-address-pickup": "Суроғаи гирифтан:", 
+            "lbl-dtype": "Намуди расонидан:", "txt-pvz": "Ба ПВЗ 🏢", "txt-door": "То дар 🚪", "lbl-city-delivery": "Ба кадом шаҳр:",
+            "lbl-address-delivery": "Суроғаи расонидан:", "lbl-comment": "Нишонии курьер:", "txt-title-receiver": "Қабулкунанда", 
+            "lbl-r-name": "Ному насаби қабулкунанда:", "lbl-r-phone": "Телефони қабулкунанда:", "txt-title-parcel": "Хусусиятҳои бор", 
+            "lbl-weight": "Вазн (кг):", "lbl-sizes": "Андозаҳо (см):", "large-warning": "⚠️ Бори калонҳаҷм!",
+            "price": "Нарх", "btn-submit": "Ороиши дархост", "btn-large-submit": "Дархости фаврӣ дар сайт", 
+            "txt-profile-data": "Маълумоти шахсии ман", "txt-orders-history": "Таърихи дархостҳо",
+            "lbl-prof-fio": "Ному Насаби шумо (Фиристанда):", "lbl-prof-addr": "Суроғаи доимии гирифтан (АЗ КУҶО):",
+            "btn-save-profile": "Захира кардани тағйирот"
         }
-        
-        // Ставим дефолтное значение
-        setCoords(startLat, startLon);
+    };
 
-        // Клик по карте — перемещает маркер в точку клика
-        map.on('click', function(e) {
-            marker.setLatLng(e.latlng);
-            setCoords(e.latlng.lat, e.latlng.lng);
+    function setLang(lang) {
+        currentLang = lang;
+        const items = translations[lang];
+        for (let key in items) {
+            const el = document.getElementById(key);
+            if (el) el.innerText = items[key];
+        }
+        document.getElementById('lbl-city-pickup').innerText = items["lbl-city-pickup"];
+        document.getElementById('lbl-address-pickup').innerText = items["lbl-address-pickup"];
+        document.getElementById('lbl-dtype').innerText = items["lbl-dtype"];
+        document.getElementById('txt-pvz').innerText = items["txt-pvz"];
+        document.getElementById('txt-door').innerText = items["txt-door"];
+        document.getElementById('lbl-city-delivery').innerText = items["lbl-city-delivery"];
+        document.getElementById('lbl-address-delivery').innerText = items["lbl-address-delivery"];
+        document.getElementById('lbl-comment').innerText = items["lbl-comment"];
+        document.getElementById('lbl-r-name').innerText = items["lbl-r-name"];
+        document.getElementById('lbl-r-phone').innerText = items["lbl-r-phone"];
+        document.getElementById('lbl-weight').innerText = items["lbl-weight"];
+        document.getElementById('lbl-sizes').innerText = items["lbl-sizes"];
+        document.getElementById('submit-btn').innerText = items["btn-submit"];
+        
+        document.getElementById('lbl-prof-fio').innerText = items["lbl-prof-fio"];
+        document.getElementById('lbl-prof-addr').innerText = items["lbl-prof-addr"];
+        document.getElementById('btn-save-profile').innerText = items["btn-save-profile"];
+
+        if (document.getElementById('large-submit-btn')) {
+            document.getElementById('large-submit-btn').innerText = items["btn-large-submit"];
+        }
+        document.getElementById('txt-title-route').innerText = items["txt-title-route"];
+        document.getElementById('txt-title-receiver').innerText = items["txt-title-receiver"];
+        document.getElementById('txt-title-parcel').innerText = items["txt-title-parcel"];
+        document.getElementById('txt-profile-data').innerText = items["txt-profile-data"];
+        document.getElementById('txt-orders-history').innerText = items["txt-orders-history"];
+        calculatePrice();
+    }
+
+    function switchTab(tabName) {
+        document.querySelectorAll('.container').forEach(c => c.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('tab-' + tabName).classList.add('active');
+        document.getElementById('tab-' + tabName + '-btn').classList.add('active');
+        if (tabName === 'profile') renderOrdersHistory();
+    }
+
+    function initProfile() {
+        document.getElementById('prof-phone-view').innerText = verifiedPhone || "Не указан";
+        document.getElementById('prof_fio_input').value = verifiedFio || "";
+        
+        let savedAddr = localStorage.getItem('prof_address') || '';
+        document.getElementById('prof_address').value = savedAddr;
+        if(savedAddr) document.getElementById('address_pickup').value = savedAddr;
+    }
+
+    function saveProfileData() {
+        let updatedFio = document.getElementById('prof_fio_input').value.trim();
+        let updatedAddr = document.getElementById('prof_address').value.trim();
+        
+        if (!updatedFio) {
+            alert(currentLang === 'tj' ? 'Лутфан, Ному Насабро ворид кунед!' : 'Пожалуйста, введите ФИО!');
+            return;
+        }
+
+        // Формируем пакет данных для отправки в bot.py
+        let profileUpdate = {
+            action: "update_profile",
+            fio: updatedFio,
+            address: updatedAddr,
+            phone: verifiedPhone
+        };
+
+        // Обновляем локальные кэшированные данные
+        verifiedFio = updatedFio;
+        localStorage.setItem('prof_address', updatedAddr);
+
+        // Отсылаем JSON боту и закрываем приложение
+        tg.sendData(JSON.stringify(profileUpdate));
+        tg.close();
+    }
+
+    function renderOrdersHistory() {
+        const container = document.getElementById('history-container');
+        let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
+        if (orders.length === 0) {
+            const noOrdersMsg = currentLang === 'tj' ? '📦 Шумо то ҳол дархост ороиш надодаед.' : '📦 У вас пока нет оформленных заказов.';
+            container.innerHTML = '<div class="no-orders">' + noOrdersMsg + '</div>';
+            return;
+        }
+        orders.sort((a,b) => b.timestamp - a.timestamp);
+        container.innerHTML = '';
+        orders.forEach(order => {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'order-swipe-wrapper';
+            wrapper.innerHTML = 
+                '<button class="swipe-delete-btn" onclick="confirmDeleteOrder(\'' + order.id + '\')">Удалить</button>' +
+                '<div class="order-card" id="card-' + order.id + '">' +
+                    '<div class="order-card-header"><span>🆔 ' + order.id + '</span><span class="status-badge">NEW</span></div>' +
+                    '<div class="order-card-body">' +
+                        '<span style="font-size: 11px; color: var(--hint-color);">📅 ' + order.date_str + '</span><br>' +
+                        '📍 <b>Откуда:</b> ' + order.city_pickup + '<br>' +
+                        '🌆 <b>Куда:</b> ' + order.city_delivery + ' (' + (order.type === 'pvz' ? 'ПВЗ' : 'До двери') + ')<br>' +
+                        '👤 <b>Получатель:</b> ' + order.r_name + '<br>' +
+                        '💰 <b>Сумма:</b> <span style="color:var(--primary-color); font-weight:bold;">' + order.price + ' TJS</span>' +
+                    '</div>' +
+                '</div>';
+            container.appendChild(wrapper);
+            bindFluidSwipeEvents(order.id);
         });
+    }
 
-        // Перетаскивание маркера пальцем — обновляет координаты при остановке
-        marker.on('dragend', function(e) {
-            let position = marker.getLatLng();
-            setCoords(position.lat, position.lng);
-        });
+    function bindFluidSwipeEvents(orderId) {
+        const card = document.getElementById('card-' + orderId);
+        if (!card) return;
+        let cardDragging = false;
+        let cardStartX = 0;
+        let cardCurrentX = 0;
+        let cardTransformX = 0;
 
-        // Доброжелательный GPS-запрос: если юзер разрешит, карта сама прыгнет к нему
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(function(position) {
-                let gpsLat = position.coords.latitude;
-                let gpsLon = position.coords.longitude;
-                map.setView([gpsLat, gpsLon], 16);
-                marker.setLatLng([gpsLat, gpsLon]);
-                setCoords(gpsLat, gpsLon);
-            }, function(error) {
-                console.log("Геолокация отклонена или недоступна, используется дефолтный центр.");
-            });
+        function startDrag(screenX) { cardDragging = true; cardStartX = screenX; card.style.transition = 'none'; }
+        function moveDrag(screenX) {
+            if (!cardDragging) return;
+            let diffX = screenX - cardStartX;
+            cardCurrentX = cardTransformX === 0 ? Math.min(0, Math.max(-80, diffX)) : Math.min(0, Math.max(-80, -80 + diffX));
+            card.style.transform = 'translateX(' + cardCurrentX + 'px)';
         }
-
-        // Генерация случайного ID заказа (ORD-XXXX-XXXX)
-        function generateId() {
-            const r = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1).toUpperCase();
-            return `ORD-${r()}-${r()}`;
+        function endDrag() {
+            if (!cardDragging) return; cardDragging = false; card.style.transition = 'transform 0.2s ease-out';
+            if (cardCurrentX < -40) { card.style.transform = 'translateX(-80px)'; cardTransformX = -80; } 
+            else { card.style.transform = 'translateX(0px)'; cardTransformX = 0; }
         }
-
-        // Функция сборки данных и отправки в Telegram
-        function sendOrderData() {
-            const orderData = {
-                order_id: generateId(),
-                lang: "ru",
-                s_name: senderName,
-                s_phone: senderPhone,
-                city_pickup: document.getElementById('city_pickup').value,
-                address_pickup: document.getElementById('address_pickup').value,
-                city_delivery: document.getElementById('city_delivery').value,
-                address_delivery: document.getElementById('address_delivery').value,
-                driver_comment: document.getElementById('driver_comment').value,
-                delivery_type: document.getElementById('delivery_type').value,
-                weight: document.getElementById('weight').value,
-                sizes: document.getElementById('sizes').value,
-                price: document.getElementById('price').value,
-                r_name: "Получатель", // Заглушка, если нет поля
-                r_phone: "Не указан",  // Заглушка, если нет поля
-                coords: document.getElementById('coords').value // Передаем точку с карты!
+        card.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), {passive:true});
+        card.addEventListener('touchmove', (e) => moveDrag(e.touches[0].clientX), {passive:true});
+        card.addEventListener('touchend', endDrag, {passive:true});
+        card.addEventListener('mousedown', (e) => {
+            startDrag(e.clientX);
+            const onMouseMove = (moveEvent) => { if (cardDragging) moveDrag(moveEvent.clientX); };
+            const onMouseUp = () => {
+                endDrag();
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
             };
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
+    }
 
-            // Отправляем JSON-строку обратно в Python-бот
-            tg.sendData(JSON.stringify(orderData));
+    function confirmDeleteOrder(orderId) {
+        const msg = currentLang === 'tj' ? 'Дархости ' + orderId + '-ро аз таърих нест кунед?' : 'Удалить заказ ' + orderId + ' из истории?';
+        tg.showConfirm(msg, (isConfirmed) => {
+            if (isConfirmed) {
+                let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
+                orders = orders.filter(o => o.id !== orderId);
+                localStorage.setItem('user_orders', JSON.stringify(orders));
+                renderOrdersHistory();
+            } else {
+                let card = document.getElementById('card-' + orderId);
+                if (card) card.style.transform = 'translateX(0px)';
+            }
+        });
+    }
+
+    function toggleAddress() {
+        let dtype = document.querySelector('input[name="dtype"]:checked').value;
+        document.getElementById('delivery-address-group').style.display = dtype === 'door' ? 'block' : 'none';
+        document.getElementById('driver-comment-group').style.display = dtype === 'door' ? 'block' : 'none';
+        validateForm();
+    }
+
+    function calculatePrice() {
+        let city = document.getElementById('city_delivery').value;
+        let dtype = document.querySelector('input[name="dtype"]:checked').value;
+        let w = parseFloat(document.getElementById('weight').value) || 0;
+        let l = parseInt(document.getElementById('size_l').value) || 0;
+        let width = parseInt(document.getElementById('size_w').value) || 0;
+        let h = parseInt(document.getElementById('size_h').value) || 0;
+        if (w > 10 || Math.max(l, width, h) > 35 || (l + width + h) > 65) {
+            document.getElementById('large-warning').style.display = 'block';
+            document.getElementById('price-box').style.display = 'none';
+            document.getElementById('submit-btn').style.display = 'none';
+            document.getElementById('large-submit-btn').style.display = 'block';
+            return {isLarge: true};
         }
-    </script>
+        document.getElementById('large-warning').style.display = 'none';
+        document.getElementById('price-box').style.display = 'block';
+        document.getElementById('submit-btn').style.display = 'block';
+        document.getElementById('large-submit-btn').style.none = 'none';
+        let zone = ["Душанбе", "Худжанд", "Бохтар"].includes(city) ? "1" : (["Хорог", "РРП", "Хатлонская область"].includes(city) ? "2" : "3");
+        const tarifs = {"1": {"pvz": 20.80, "door": 31.20}, "2": {"pvz": 27.30, "door": 35.10}, "3": {"pvz": 31.20, "door": 37.70}};
+        let finalPrice = tarifs[zone][dtype];
+        
+        let labelName = currentLang === 'tj' ? 'Нарх' : 'Стоимость';
+        document.getElementById('price-box').innerText = labelName + ': ' + finalPrice.toFixed(2) + ' TJS';
+        validateForm();
+        return {isLarge: false, price: finalPrice};
+    }
+
+    function validateForm() {
+        let addressPickup = document.getElementById('address_pickup').value.trim();
+        let rName = document.getElementById('r_name').value.trim();
+        let rPhone = document.getElementById('r_phone').value.trim();
+        let dtype = document.querySelector('input[name="dtype"]:checked').value;
+        let addressDelivery = document.getElementById('address_delivery').value.trim();
+        let isValid = addressPickup && rName && rPhone;
+        if (dtype === 'door' && !addressDelivery) isValid = false;
+        document.getElementById('submit-btn').disabled = !isValid;
+    }
+
+    function sendDataToBot() {
+        let dtype = document.querySelector('input[name="dtype"]:checked').value;
+        let res = calculatePrice();
+        let now = new Date();
+        let day = String(now.getDate()).padStart(2, '0'), month = String(now.getMonth() + 1).padStart(2, '0');
+        let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", maskedHash = "";
+        for (let i = 0; i < 4; i++) maskedHash += chars.charAt(Math.floor(Math.random() * chars.length));
+        let generatedId = 'ORD-' + day + month + '-' + maskedHash;
+        let fullDateStr = day + '.' + month + '.' + now.getFullYear() + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+        
+        let data = {
+            initData: window.Telegram.WebApp.initData,
+            order_id: generatedId, lang: currentLang, s_name: verifiedFio, s_phone: verifiedPhone,
+            city_pickup: document.getElementById('city_pickup').value, address_pickup: document.getElementById('address_pickup').value,
+            city_delivery: document.getElementById('city_delivery').value, delivery_type: dtype,
+            address_delivery: dtype === 'door' ? document.getElementById('address_delivery').value : "ПВЗ",
+            driver_comment: dtype === 'door' ? document.getElementById('driver_comment').value : "Нет",
+            r_name: document.getElementById('r_name').value, r_phone: document.getElementById('r_phone').value,
+            weight: document.getElementById('weight').value, sizes: document.getElementById('size_l').value + 'x' + document.getElementById('size_w').value + 'x' + document.getElementById('size_h').value,
+            price: res.price.toFixed(2)
+        };
+
+        let localHistory = JSON.parse(localStorage.getItem('user_orders') || '[]');
+        localHistory.push({id: generatedId, timestamp: Date.now(), date_str: fullDateStr, city_pickup: data.city_pickup, city_delivery: data.city_delivery, type: dtype, r_name: data.r_name, price: data.price});
+        localStorage.setItem('user_orders', JSON.stringify(localHistory));
+        
+        tg.sendData(JSON.stringify(data));
+        tg.close();
+    }
+
+    initProfile();
+    setLang('ru');
+</script>
 </body>
 </html>
