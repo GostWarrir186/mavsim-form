@@ -178,6 +178,7 @@
         </div>
 
         <button class="submit-btn" id="submit-btn" disabled onclick="sendDataToBot()">Оформить доставку</button>
+        <button class="submit-btn" id="large-submit-btn" style="display: none; background-color: #2bca80;" onclick="window.open('https://www.mavsim.com/Home/QuickRequest', '_blank')">Быстрый запрос</button>
     </div>
 
     <!-- ВКЛАДКА 2: ЛИЧНЫЙ КАБИНЕТ -->
@@ -235,7 +236,7 @@
             "lbl-address-delivery": "Адрес доставки:", "lbl-comment": "Ориентир для курьера:", "txt-title-receiver": "Получатель", 
             "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:", "txt-title-parcel": "Параметры посылки", 
             "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):", "large-warning": "⚠️ Отправление крупногабаритное!",
-            "price": "Стоимость", "btn-submit": "Оформить доставку", "txt-profile-data": "Мои личные данные", "txt-orders-history": "История моих заказов"
+            "price": "Стоимость", "btn-submit": "Оформить доставку", "btn-large-submit": "Быстрый запрос на сайте", "txt-profile-data": "Мои личные данные", "txt-orders-history": "История моих заказов"
         },
         tj: {
             "tab-order-btn": "📦 Дархости нав", "tab-profile-btn": "👤 Профил",
@@ -244,7 +245,7 @@
             "lbl-address-delivery": "Суроғаи расонидан:", "lbl-comment": "Нишонии курьер:", "txt-title-receiver": "Қабулкунанда", 
             "lbl-r-name": "Ному насаби қабулкунанда:", "lbl-r-phone": "Телефони қабулкунанда:", "txt-title-parcel": "Хусусиятҳои бор", 
             "lbl-weight": "Вазн (кг):", "lbl-sizes": "Андозаҳо (см):", "large-warning": "⚠️ Бори калонҳаҷм!",
-            "price": "Нарх", "btn-submit": "Ороиши дархост", "txt-profile-data": "Маълумоти шахсии ман", "txt-orders-history": "Таърихи дархостҳо"
+            "price": "Нарх", "btn-submit": "Ороиши дархост", "btn-large-submit": "Дархости фаврӣ дар сайт", "txt-profile-data": "Маълумоти шахсии ман", "txt-orders-history": "Таърихи дархостҳо"
         }
     };
 
@@ -269,6 +270,9 @@
         document.getElementById('lbl-weight').innerText = items["lbl-weight"];
         document.getElementById('lbl-sizes').innerText = items["lbl-sizes"];
         document.getElementById('submit-btn').innerText = items["btn-submit"];
+        if (document.getElementById('large-submit-btn')) {
+            document.getElementById('large-submit-btn').innerText = items["btn-large-submit"];
+        }
         document.getElementById('txt-title-route').innerText = items["txt-title-route"];
         document.getElementById('txt-title-receiver').innerText = items["txt-title-receiver"];
         document.getElementById('txt-title-parcel').innerText = items["txt-title-parcel"];
@@ -392,11 +396,14 @@
         if (w > 10 || Math.max(l, width, h) > 35 || (l + width + h) > 65) {
             document.getElementById('large-warning').style.display = 'block';
             document.getElementById('price-box').style.display = 'none';
-            document.getElementById('submit-btn').disabled = true;
+            document.getElementById('submit-btn').style.display = 'none';
+            document.getElementById('large-submit-btn').style.display = 'block';
             return {isLarge: true};
         }
         document.getElementById('large-warning').style.display = 'none';
         document.getElementById('price-box').style.display = 'block';
+        document.getElementById('submit-btn').style.display = 'block';
+        document.getElementById('large-submit-btn').style.display = 'none';
         let zone = ["Душанбе", "Худжанд", "Бохтар"].includes(city) ? "1" : (["Хорог", "РРП", "Хатлонская область"].includes(city) ? "2" : "3");
         const tarifs = {"1": {"pvz": 20.80, "door": 31.20}, "2": {"pvz": 27.30, "door": 35.10}, "3": {"pvz": 31.20, "door": 37.70}};
         let finalPrice = tarifs[zone][dtype];
