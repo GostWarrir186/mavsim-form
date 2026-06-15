@@ -214,7 +214,6 @@
     };
     tg.ready(); tg.expand();
 
-    // 🌟 БЕЗОПАСНЫЙ ИМПОРТ ИЗ TELEGRAM SDK С ПРИОРИТЕТОМ НА ИСТИННЫЙ USER ИЗ INITDATA И БЕЗОПАСНЫМИ ФОЛЛБЕКАМИ ДЛЯ ТЕСТА
     let verifiedFio = "Пользователь";
     let verifiedPhone = "+992920000000";
 
@@ -223,7 +222,6 @@
         verifiedFio = [userObj.first_name, userObj.last_name].filter(Boolean).join(" ") || userObj.username || "Telegram User";
     }
 
-    // Если нет в SDK, берем из URL параметров, либо оставляем значение по умолчанию для успешной валидации
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('fio')) verifiedFio = urlParams.get('fio');
     if (urlParams.get('phone')) verifiedPhone = urlParams.get('phone');
@@ -256,7 +254,6 @@
             const el = document.getElementById(key);
             if (el) el.innerText = items[key];
         }
-        // Обновляем метки
         document.getElementById('lbl-city-pickup').innerText = items["lbl-city-pickup"];
         document.getElementById('lbl-address-pickup').innerText = items["lbl-address-pickup"];
         document.getElementById('lbl-dtype').innerText = items["lbl-dtype"];
@@ -310,19 +307,18 @@
         orders.forEach(order => {
             const wrapper = document.createElement('div');
             wrapper.className = 'order-swipe-wrapper';
-            wrapper.innerHTML = `
-                <button class="swipe-delete-btn" onclick="confirmDeleteOrder('${order.id}')">Удалить</button>
-                <div class="order-card" id="card-${order.id}">
-                    <div class="order-card-header"><span>🆔 ${order.id}</span><span class="status-badge">NEW</span></div>
-                    <div class="order-card-body">
-                        <span style="font-size: 11px; color: var(--hint-color);">📅 ${order.date_str}</span><br>
-                        📍 <b>Откуда:</b> ${order.city_pickup}<br>
-                        🌆 <b>Куда:</b> ${order.city_delivery} (${order.type === 'pvz' ? 'ПВЗ' : 'До двери'})<br>
-                        👤 <b>Получатель:</b> ${order.r_name}<br>
-                        💰 <b>Сумма:</b> <span style="color:var(--primary-color); font-weight:bold;">${order.price} TJS</span>
-                    </div>
-                </div>
-            `;
+            wrapper.innerHTML = 
+                '<button class="swipe-delete-btn" onclick="confirmDeleteOrder(\'' + order.id + '\')">Удалить</button>' +
+                '<div class="order-card" id="card-' + order.id + '">' +
+                    '<div class="order-card-header"><span>🆔 ' + order.id + '</span><span class="status-badge">NEW</span></div>' +
+                    '<div class="order-card-body">' +
+                        '<span style="font-size: 11px; color: var(--hint-color);">📅 ' + order.date_str + '</span><br>' +
+                        '📍 <b>Откуда:</b> ' + order.city_pickup + '<br>' +
+                        '🌆 <b>Куда:</b> ' + order.city_delivery + ' (' + (order.type === 'pvz' ? 'ПВЗ' : 'До двери') + ')<br>' +
+                        '👤 <b>Получатель:</b> ' + order.r_name + '<br>' +
+                        '💰 <b>Сумма:</b> <span style="color:var(--primary-color); font-weight:bold;">' + order.price + ' TJS</span>' +
+                    '</div>' +
+                '</div>';
             container.appendChild(wrapper);
             bindFluidSwipeEvents(order.id);
         });
@@ -420,7 +416,6 @@
         let rPhone = document.getElementById('r_phone').value.trim();
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let addressDelivery = document.getElementById('address_delivery').value.trim();
-        // Упрощаем валидацию: проверяем заполнение полей формы, чтобы незаполненные профили в телеграме/внешнем вебе не ломали форму оформления
         let isValid = addressPickup && rName && rPhone;
         if (dtype === 'door' && !addressDelivery) isValid = false;
         document.getElementById('submit-btn').disabled = !isValid;
@@ -436,9 +431,9 @@
         let generatedId = 'ORD-' + day + month + '-' + maskedHash;
         let fullDateStr = day + '.' + month + '.' + now.getFullYear() + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
         
-        // 🌟 ВБРАСЫВАЕМ window.Telegram.WebApp.initData ДЛЯ СЕРВЕРНОЙ ПРОВЕРКИ!
+        // 🌟 Передаем объект данных
         let data = {
-            initData: window.Telegram.WebApp.initData, // Хэшированная строка инициализации
+            initData: window.Telegram.WebApp.initData,
             order_id: generatedId, lang: currentLang, s_name: verifiedFio, s_phone: verifiedPhone,
             city_pickup: document.getElementById('city_pickup').value, address_pickup: document.getElementById('address_pickup').value,
             city_delivery: document.getElementById('city_delivery').value, delivery_type: dtype,
