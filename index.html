@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mavsimi Rason App</title>
+    <!-- Подключение официального SDK Telegram WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
@@ -12,6 +13,7 @@
             --text-color: var(--tg-theme-text-color, #222222);
             --sec-bg-color: var(--tg-theme-secondary-bg-color, #f4f4f5);
             --hint-color: var(--tg-theme-hint-color, #8e8e93);
+            --border-radius: 12px;
         }
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -21,7 +23,7 @@
         }
         .header-tabs {
             display: flex; background: var(--bg-color); position: sticky; top: 0; z-index: 100;
-            border-bottom: 1px solid rgba(0,0,0,0.1); box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            border-bottom: 1px solid rgba(0,0,0,0.08); box-shadow: 0 2px 8px rgba(0,0,0,0.03);
         }
         .tab-btn {
             flex: 1; text-align: center; padding: 14px 0; font-size: 15px; font-weight: 600;
@@ -32,14 +34,14 @@
         .container { padding: 15px; display: none; }
         .container.active { display: block; }
         .card {
-            background: var(--bg-color); border-radius: 12px; padding: 16px; margin-bottom: 16px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.03); border: 1px solid rgba(0,0,0,0.02);
+            background: var(--bg-color); border-radius: var(--border-radius); padding: 16px; margin-bottom: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.02);
         }
         h3 { margin-top: 0; color: var(--primary-color); font-size: 16px; margin-bottom: 14px; border-bottom: 1px solid var(--sec-bg-color); padding-bottom: 6px;}
         .form-group { margin-bottom: 14px; }
         label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--hint-color); }
         input, select {
-            width: 100%; padding: 12px; border: 1px solid var(--sec-bg-color); border-radius: 10px;
+            width: 100%; padding: 12px; border: 1px solid var(--border-color, rgba(0,0,0,0.05)); border-radius: 10px;
             box-sizing: border-box; font-size: 15px; background: var(--sec-bg-color); color: var(--text-color);
         }
         input:focus, select:focus { border-color: var(--primary-color); outline: none; }
@@ -51,13 +53,14 @@
         .radio-label input { width: auto; margin: 0; }
         .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
         .price-box {
-            background: rgba(36, 129, 204, 0.07); border: 2px dashed var(--primary-color);
+            background: rgba(36, 129, 204, 0.08); border: 2px dashed var(--primary-color);
             padding: 14px; border-radius: 10px; text-align: center; font-size: 18px; font-weight: bold;
             color: var(--text-color); margin-top: 10px;
         }
         .submit-btn {
             width: 100%; background: var(--primary-color); color: white; border: none;
             padding: 15px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer;
+            transition: all 0.2s ease;
         }
         .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .lang-switch { display: flex; justify-content: flex-end; padding: 10px 15px 0; background: var(--bg-color); }
@@ -93,7 +96,7 @@
         <button class="tab-btn" id="tab-profile-btn" onclick="switchTab('profile')">👤 Личный кабинет</button>
     </div>
 
-    <!-- ВКЛАДКА 1: ОФОРМЛЕНИЕ ЗАКАЗА (Оферта удалена!) -->
+    <!-- ВКЛАДКА 1: ОФОРМЛЕНИЕ ЗАКАЗА -->
     <div id="tab-order" class="container active">
         <div class="card">
             <h3 id="txt-title-route">Маршрут и доставка</h3>
@@ -177,7 +180,7 @@
         <button class="submit-btn" id="submit-btn" disabled onclick="sendDataToBot()">Оформить доставку</button>
     </div>
 
-    <!-- ВКЛАДКА 2: ЛИЧНЫЙ КАБИНЕТ (Данные жестко зафиксированы!) -->
+    <!-- ВКЛАДКА 2: ЛИЧНЫЙ КАБИНЕТ -->
     <div id="tab-profile" class="container">
         <div class="card">
             <h3 id="txt-profile-data">Мои личные данные</h3>
@@ -191,7 +194,7 @@
 
         <div class="card" style="overflow: visible;">
             <h3 id="txt-orders-history">История моих заказов</h3>
-            <p style="font-size: 11px; color: var(--hint-color); margin-top: -10px; margin-bottom: 12px;">← Смахните заказ влево мышкой или пальцем для удаления</p>
+            <p style="font-size: 11px; color: var(--hint-color); margin-top: -10px; margin-bottom: 12px;">← Смахните заказ влево для удаления</p>
             <div class="history-container" id="history-container"></div>
         </div>
     </div>
@@ -201,10 +204,19 @@
     const tg = window.Telegram.WebApp;
     tg.ready(); tg.expand();
 
-    // Парсим подтвержденные данные из URL
+    // 🌟 БЕЗОПАСНЫЙ ИМПОРТ ИЗ TELEGRAM SDK С ПРИОРИТЕТОМ НА ИСТИННЫЙ USER ИЗ INITDATA
+    let verifiedFio = "";
+    let verifiedPhone = "";
+
+    const userObj = tg.initDataUnsafe && tg.initDataUnsafe.user;
+    if (userObj) {
+        verifiedFio = [userObj.first_name, userObj.last_name].filter(Boolean).join(" ") || userObj.username || "Telegram User";
+    }
+
+    // Если нет, откатываемся на URL (но помечаем, что верификация подписи будет проведена на стороне WebApp initData!)
     const urlParams = new URLSearchParams(window.location.search);
-    const verifiedFio = urlParams.get('fio') || '';
-    const verifiedPhone = urlParams.get('phone') || '';
+    if (!verifiedFio) verifiedFio = urlParams.get('fio') || '';
+    verifiedPhone = urlParams.get('phone') || '';
 
     const translations = {
         ru: {
@@ -215,8 +227,46 @@
             "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:", "txt-title-parcel": "Параметры посылки", 
             "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):", "large-warning": "⚠️ Отправление крупногабаритное!",
             "price": "Стоимость", "btn-submit": "Оформить доставку", "txt-profile-data": "Мои личные данные", "txt-orders-history": "История моих заказов"
+        },
+        tj: {
+            "tab-order-btn": "📦 Дархости нав", "tab-profile-btn": "👤 Профил",
+            "txt-title-route": "Хатсайр ва расонидан", "lbl-city-pickup": "Аз кадом шаҳр:", "lbl-address-pickup": "Суроғаи гирифтан:", 
+            "lbl-dtype": "Намуди расонидан:", "txt-pvz": "Ба ПВЗ 🏢", "txt-door": "То дар 🚪", "lbl-city-delivery": "Ба кадом шаҳр:",
+            "lbl-address-delivery": "Суроғаи расонидан:", "lbl-comment": "Нишонии курьер:", "txt-title-receiver": "Қабулкунанда", 
+            "lbl-r-name": "Ному насаби қабулкунанда:", "lbl-r-phone": "Телефони қабулкунанда:", "txt-title-parcel": "Хусусиятҳои бор", 
+            "lbl-weight": "Вазн (кг):", "lbl-sizes": "Андозаҳо (см):", "large-warning": "⚠️ Бори калонҳаҷм!",
+            "price": "Нарх", "btn-submit": "Ороиши дархост", "txt-profile-data": "Маълумоти шахсии ман", "txt-orders-history": "Таърихи дархостҳо"
         }
     };
+
+    function setLang(lang) {
+        currentLang = lang;
+        const items = translations[lang];
+        for (let key in items) {
+            const el = document.getElementById(key);
+            if (el) el.innerText = items[key];
+        }
+        // Обновляем метки
+        document.getElementById('lbl-city-pickup').innerText = items["lbl-city-pickup"];
+        document.getElementById('lbl-address-pickup').innerText = items["lbl-address-pickup"];
+        document.getElementById('lbl-dtype').innerText = items["lbl-dtype"];
+        document.getElementById('txt-pvz').innerText = items["txt-pvz"];
+        document.getElementById('txt-door').innerText = items["txt-door"];
+        document.getElementById('lbl-city-delivery').innerText = items["lbl-city-delivery"];
+        document.getElementById('lbl-address-delivery').innerText = items["lbl-address-delivery"];
+        document.getElementById('lbl-comment').innerText = items["lbl-comment"];
+        document.getElementById('lbl-r-name').innerText = items["lbl-r-name"];
+        document.getElementById('lbl-r-phone').innerText = items["lbl-r-phone"];
+        document.getElementById('lbl-weight').innerText = items["lbl-weight"];
+        document.getElementById('lbl-sizes').innerText = items["lbl-sizes"];
+        document.getElementById('submit-btn').innerText = items["btn-submit"];
+        document.getElementById('txt-title-route').innerText = items["txt-title-route"];
+        document.getElementById('txt-title-receiver').innerText = items["txt-title-receiver"];
+        document.getElementById('txt-title-parcel').innerText = items["txt-title-parcel"];
+        document.getElementById('txt-profile-data').innerText = items["txt-profile-data"];
+        document.getElementById('txt-orders-history').innerText = items["txt-orders-history"];
+        calculatePrice();
+    }
 
     function switchTab(tabName) {
         document.querySelectorAll('.container').forEach(c => c.classList.remove('active'));
@@ -227,8 +277,8 @@
     }
 
     function initProfile() {
-        document.getElementById('prof-fio-view').innerText = verifiedFio;
-        document.getElementById('prof-phone-view').innerText = verifiedPhone;
+        document.getElementById('prof-fio-view').innerText = verifiedFio || "Не указано";
+        document.getElementById('prof-phone-view').innerText = verifiedPhone || "Не указан";
         let savedAddr = localStorage.getItem('prof_address') || '';
         document.getElementById('prof_address').value = savedAddr;
         if(savedAddr) document.getElementById('address_pickup').value = savedAddr;
@@ -247,15 +297,15 @@
             const wrapper = document.createElement('div');
             wrapper.className = 'order-swipe-wrapper';
             wrapper.innerHTML = `
-                <button class="swipe-delete-btn" onclick="confirmDeleteOrder('${order.id}')">Удалить</button>
-                <div class="order-card" id="card-${order.id}">
-                    <div class="order-card-header"><span>🆔 ${order.id}</span><span class="status-badge">NEW</span></div>
+                <button class="swipe-delete-btn" onclick="confirmDeleteOrder('\${order.id}')">Удалить</button>
+                <div class="order-card" id="card-\${order.id}">
+                    <div class="order-card-header"><span>🆔 \${order.id}</span><span class="status-badge">NEW</span></div>
                     <div class="order-card-body">
-                        <span style="font-size: 11px; color: var(--hint-color);">📅 ${order.date_str}</span><br>
-                        📍 <b>Откуда:</b> ${order.city_pickup}<br>
-                        🌆 <b>Куда:</b> ${order.city_delivery} (${order.type === 'pvz' ? 'ПВЗ' : 'До двери'})<br>
-                        👤 <b>Получатель:</b> ${order.r_name}<br>
-                        💰 <b>Сумма:</b> <span style="color:var(--primary-color); font-weight:bold;">${order.price} TJS</span>
+                        <span style="font-size: 11px; color: var(--hint-color);">📅 \${order.date_str}</span><br>
+                        📍 <b>Откуда:</b> \${order.city_pickup}<br>
+                        🌆 <b>Куда:</b> \${order.city_delivery} (\${order.type === 'pvz' ? 'ПВЗ' : 'До двери'})<br>
+                        👤 <b>Получатель:</b> \${order.r_name}<br>
+                        💰 <b>Сумма:</b> <span style="color:var(--primary-color); font-weight:bold;">\${order.price} TJS</span>
                     </div>
                 </div>
             `;
@@ -266,7 +316,7 @@
 
     let isDragging = false, startX = 0, currentX = 0, transformX = 0;
     function bindFluidSwipeEvents(orderId) {
-        const card = document.getElementById(`card-${orderId}`);
+        const card = document.getElementById(`card-\${orderId}`);
         if (!card) return;
         function startDrag(screenX) { isDragging = true; startX = screenX; card.style.transition = 'none'; }
         function moveDrag(screenX) {
@@ -327,7 +377,9 @@
         let zone = ["Душанбе", "Худжанд", "Бохтар"].includes(city) ? "1" : (["Хорог", "РРП", "Хатлонская область"].includes(city) ? "2" : "3");
         const tarifs = {"1": {"pvz": 20.80, "door": 31.20}, "2": {"pvz": 27.30, "door": 35.10}, "3": {"pvz": 31.20, "door": 37.70}};
         let finalPrice = tarifs[zone][dtype];
-        document.getElementById('price-box').innerText = `Стоимость: ${finalPrice.toFixed(2)} TJS`;
+        
+        let labelName = currentLang === 'tj' ? 'Нарх' : 'Стоимость';
+        document.getElementById('price-box').innerText = `${labelName}: ${finalPrice.toFixed(2)} TJS`;
         validateForm();
         return {isLarge: false, price: finalPrice};
     }
@@ -353,7 +405,9 @@
         let generatedId = `ORD-${day}${month}-${maskedHash}`;
         let fullDateStr = `${day}.${month}.${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
         
+        // 🌟 ВБРАСЫВАЕМ window.Telegram.WebApp.initData ДЛЯ СЕРВЕРНОЙ ПРОВЕРКИ!
         let data = {
+            initData: window.Telegram.WebApp.initData, // Хэшированная строка инициализации
             order_id: generatedId, lang: currentLang, s_name: verifiedFio, s_phone: verifiedPhone,
             city_pickup: document.getElementById('city_pickup').value, address_pickup: document.getElementById('address_pickup').value,
             city_delivery: document.getElementById('city_delivery').value, delivery_type: dtype,
@@ -367,12 +421,13 @@
         let localHistory = JSON.parse(localStorage.getItem('user_orders') || '[]');
         localHistory.push({id: generatedId, timestamp: Date.now(), date_str: fullDateStr, city_pickup: data.city_pickup, city_delivery: data.city_delivery, type: dtype, r_name: data.r_name, price: data.price});
         localStorage.setItem('user_orders', JSON.stringify(localHistory));
+        
         tg.sendData(JSON.stringify(data));
         tg.close();
     }
 
     initProfile();
-    calculatePrice();
+    setLang('ru');
 </script>
 </body>
 </html>
