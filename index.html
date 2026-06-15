@@ -271,8 +271,8 @@
     function switchTab(tabName) {
         document.querySelectorAll('.container').forEach(c => c.classList.remove('active'));
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.getElementById(`tab-${tabName}`).classList.add('active');
-        document.getElementById(`tab-${tabName}-btn`).classList.add('active');
+        document.getElementById('tab-' + tabName).classList.add('active');
+        document.getElementById('tab-' + tabName + '-btn').classList.add('active');
         if (tabName === 'profile') renderOrdersHistory();
     }
 
@@ -288,7 +288,8 @@
         const container = document.getElementById('history-container');
         let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
         if (orders.length === 0) {
-            container.innerHTML = `<div class="no-orders">📦 У вас пока нет оформленных заказов.</div>`;
+            const noOrdersMsg = currentLang === 'tj' ? '📦 Шумо то ҳол дархост ороиш надодаед.' : '📦 У вас пока нет оформленных заказов.';
+            container.innerHTML = '<div class="no-orders">' + noOrdersMsg + '</div>';
             return;
         }
         orders.sort((a,b) => b.timestamp - a.timestamp);
@@ -296,57 +297,69 @@
         orders.forEach(order => {
             const wrapper = document.createElement('div');
             wrapper.className = 'order-swipe-wrapper';
-            wrapper.innerHTML = `
-                <button class="swipe-delete-btn" onclick="confirmDeleteOrder('\${order.id}')">Удалить</button>
-                <div class="order-card" id="card-\${order.id}">
-                    <div class="order-card-header"><span>🆔 \${order.id}</span><span class="status-badge">NEW</span></div>
-                    <div class="order-card-body">
-                        <span style="font-size: 11px; color: var(--hint-color);">📅 \${order.date_str}</span><br>
-                        📍 <b>Откуда:</b> \${order.city_pickup}<br>
-                        🌆 <b>Куда:</b> \${order.city_delivery} (\${order.type === 'pvz' ? 'ПВЗ' : 'До двери'})<br>
-                        👤 <b>Получатель:</b> \${order.r_name}<br>
-                        💰 <b>Сумма:</b> <span style="color:var(--primary-color); font-weight:bold;">\${order.price} TJS</span>
-                    </div>
-                </div>
-            `;
+            wrapper.innerHTML = 
+                '<button class="swipe-delete-btn" onclick="confirmDeleteOrder('' + order.id + '')">Удалить</button>' +
+                '<div class="order-card" id="card-' + order.id + '">' +
+                    '<div class="order-card-header"><span>🆔 ' + order.id + '</span><span class="status-badge">NEW</span></div>' +
+                    '<div class="order-card-body">' +
+                        '<span style="font-size: 11px; color: var(--hint-color);">📅 ' + order.date_str + '</span><br>' +
+                        '📍 <b>Откуда:</b> ' + order.city_pickup + '<br>' +
+                        '🌆 <b>Куда:</b> ' + order.city_delivery + ' (' + (order.type === 'pvz' ? 'ПВЗ' : 'До двери') + ')<br>' +
+                        '👤 <b>Получатель:</b> ' + order.r_name + '<br>' +
+                        '💰 <b>Сумма:</b> <span style="color:var(--primary-color); font-weight:bold;">' + order.price + ' TJS</span>' +
+                    '</div>' +
+                '</div>';
             container.appendChild(wrapper);
             bindFluidSwipeEvents(order.id);
         });
     }
 
-    let isDragging = false, startX = 0, currentX = 0, transformX = 0;
     function bindFluidSwipeEvents(orderId) {
-        const card = document.getElementById(`card-\${orderId}`);
+        const card = document.getElementById('card-' + orderId);
         if (!card) return;
-        function startDrag(screenX) { isDragging = true; startX = screenX; card.style.transition = 'none'; }
+        let cardDragging = false;
+        let cardStartX = 0;
+        let cardCurrentX = 0;
+        let cardTransformX = 0;
+
+        function startDrag(screenX) { cardDragging = true; cardStartX = screenX; card.style.transition = 'none'; }
         function moveDrag(screenX) {
-            if (!isDragging) return;
-            let diffX = screenX - startX;
-            currentX = transformX === 0 ? Math.min(0, Math.max(-80, diffX)) : Math.min(0, Math.max(-80, -80 + diffX));
-            card.style.transform = `translateX(${currentX}px)`;
+            if (!cardDragging) return;
+            let diffX = screenX - cardStartX;
+            cardCurrentX = cardTransformX === 0 ? Math.min(0, Math.max(-80, diffX)) : Math.min(0, Math.max(-80, -80 + diffX));
+            card.style.transform = 'translateX(' + cardCurrentX + 'px)';
         }
         function endDrag() {
-            if (!isDragging) return; isDragging = false; card.style.transition = 'transform 0.2s ease-out';
-            if (currentX < -40) { card.style.transform = 'translateX(-80px)'; transformX = -80; } 
-            else { card.style.transform = 'translateX(0px)'; transformX = 0; }
+            if (!cardDragging) return; cardDragging = false; card.style.transition = 'transform 0.2s ease-out';
+            if (cardCurrentX < -40) { card.style.transform = 'translateX(-80px)'; cardTransformX = -80; } 
+            else { card.style.transform = 'translateX(0px)'; cardTransformX = 0; }
         }
         card.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), {passive:true});
         card.addEventListener('touchmove', (e) => moveDrag(e.touches[0].clientX), {passive:true});
         card.addEventListener('touchend', endDrag, {passive:true});
-        card.addEventListener('mousedown', (e) => startDrag(e.clientX));
-        window.addEventListener('mousemove', (e) => { if(isDragging) moveDrag(e.clientX); });
-        window.addEventListener('mouseup', endDrag);
+        card.addEventListener('mousedown', (e) => {
+            startDrag(e.clientX);
+            const onMouseMove = (moveEvent) => { if (cardDragging) moveDrag(moveEvent.clientX); };
+            const onMouseUp = () => {
+                endDrag();
+                window.removeEventListener('mousemove', onMouseMove);
+                window.removeEventListener('mouseup', onMouseUp);
+            };
+            window.addEventListener('mousemove', onMouseMove);
+            window.addEventListener('mouseup', onMouseUp);
+        });
     }
 
     function confirmDeleteOrder(orderId) {
-        tg.showConfirm(`Удалить заказ ${orderId} из истории?`, (isConfirmed) => {
+        const msg = currentLang === 'tj' ? 'Дархости ' + orderId + '-ро аз таърих нест кунед?' : 'Удалить заказ ' + orderId + ' из истории?';
+        tg.showConfirm(msg, (isConfirmed) => {
             if (isConfirmed) {
                 let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
                 orders = orders.filter(o => o.id !== orderId);
                 localStorage.setItem('user_orders', JSON.stringify(orders));
                 renderOrdersHistory();
             } else {
-                let card = document.getElementById(`card-${orderId}`);
+                let card = document.getElementById('card-' + orderId);
                 if (card) card.style.transform = 'translateX(0px)';
             }
         });
@@ -379,7 +392,7 @@
         let finalPrice = tarifs[zone][dtype];
         
         let labelName = currentLang === 'tj' ? 'Нарх' : 'Стоимость';
-        document.getElementById('price-box').innerText = `${labelName}: ${finalPrice.toFixed(2)} TJS`;
+        document.getElementById('price-box').innerText = labelName + ': ' + finalPrice.toFixed(2) + ' TJS';
         validateForm();
         return {isLarge: false, price: finalPrice};
     }
@@ -402,8 +415,8 @@
         let day = String(now.getDate()).padStart(2, '0'), month = String(now.getMonth() + 1).padStart(2, '0');
         let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", maskedHash = "";
         for (let i = 0; i < 4; i++) maskedHash += chars.charAt(Math.floor(Math.random() * chars.length));
-        let generatedId = `ORD-${day}${month}-${maskedHash}`;
-        let fullDateStr = `${day}.${month}.${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        let generatedId = 'ORD-' + day + month + '-' + maskedHash;
+        let fullDateStr = day + '.' + month + '.' + now.getFullYear() + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
         
         // 🌟 ВБРАСЫВАЕМ window.Telegram.WebApp.initData ДЛЯ СЕРВЕРНОЙ ПРОВЕРКИ!
         let data = {
@@ -414,7 +427,7 @@
             address_delivery: dtype === 'door' ? document.getElementById('address_delivery').value : "ПВЗ",
             driver_comment: dtype === 'door' ? document.getElementById('driver_comment').value : "Нет",
             r_name: document.getElementById('r_name').value, r_phone: document.getElementById('r_phone').value,
-            weight: document.getElementById('weight').value, sizes: `${document.getElementById('size_l').value}x${document.getElementById('size_w').value}x${document.getElementById('size_h').value}`,
+            weight: document.getElementById('weight').value, sizes: document.getElementById('size_l').value + 'x' + document.getElementById('size_w').value + 'x' + document.getElementById('size_h').value,
             price: res.price.toFixed(2)
         };
 
