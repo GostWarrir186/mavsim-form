@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Mavsimi Rason App</title>
-    <!-- Подключение официального SDK Telegram WebApp -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
@@ -46,7 +45,7 @@
         }
         input:focus, select:focus { border-color: var(--primary-color); outline: none; }
         .radio-group { display: flex; gap: 12px; margin-top: 6px; }
-        .radio-label { 
+        .radio-label {
             flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
             padding: 10px; background: var(--sec-bg-color); border-radius: 8px; font-size: 14px; cursor: pointer;
         }
@@ -186,17 +185,17 @@
         <div class="card">
             <h3 id="txt-profile-data">Мои личные данные</h3>
             <div class="profile-text-item"><b>Телефон:</b> <span id="prof-phone-view">-</span></div>
-            
+
             <div class="form-group" style="margin-top: 12px;">
                 <label id="lbl-prof-fio">Ваше ФИО (Имя отправителя):</label>
                 <input type="text" id="prof_fio_input" placeholder="Введите ФИО">
             </div>
-            
+
             <div class="form-group">
                 <label id="lbl-prof-addr">Постоянный адрес забора (ОТКУДА):</label>
                 <input type="text" id="prof_address" placeholder="ул. Рудаки, дом 15, кв 4" oninput="localStorage.setItem('prof_address', this.value)">
             </div>
-            
+
             <button class="submit-btn" id="btn-save-profile" style="background-color: #2bca80; margin-top: 10px;" onclick="saveProfileData()">Сохранить изменения</button>
         </div>
 
@@ -209,6 +208,7 @@
 
 <script>
     let currentLang = 'ru';
+
     // Безопасная инициализация Telegram SDK без крашей во внешнем браузере
     const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : {
         ready: function() {},
@@ -224,42 +224,52 @@
     let verifiedFio = "Пользователь";
     let verifiedPhone = "+992920000000";
 
+    // Получаем данные из Telegram WebApp (более надёжный источник)
     const userObj = tg.initDataUnsafe && tg.initDataUnsafe.user;
     if (userObj) {
         verifiedFio = [userObj.first_name, userObj.last_name].filter(Boolean).join(" ") || userObj.username || "Telegram User";
     }
 
+    // URL-параметры — запасной источник (переданы ботом при открытии WebApp)
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('fio')) verifiedFio = urlParams.get('fio');
     if (urlParams.get('phone')) verifiedPhone = urlParams.get('phone');
 
+    // --- БЕЗОПАСНОСТЬ: экранирование HTML для защиты от XSS ---
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.appendChild(document.createTextNode(String(str || '')));
+        return div.innerHTML;
+    }
+
     const translations = {
         ru: {
             "tab-order-btn": "📦 Новый заказ", "tab-profile-btn": "👤 ЛК",
-            "txt-title-route": "Маршрут и доставка", "lbl-city-pickup": "Город отправки:", "lbl-address-pickup": "Адрес забора:", 
+            "txt-title-route": "Маршрут и доставка", "lbl-city-pickup": "Город отправки:", "lbl-address-pickup": "Адрес забора:",
             "lbl-dtype": "Тип доставки:", "txt-pvz": "До ПВЗ 🏢", "txt-door": "До двери 🚪", "lbl-city-delivery": "Город назначения:",
-            "lbl-address-delivery": "Адрес доставки:", "lbl-comment": "Ориентир для курьера:", "txt-title-receiver": "Получатель", 
-            "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:", "txt-title-parcel": "Параметры посылки", 
+            "lbl-address-delivery": "Адрес доставки:", "lbl-comment": "Ориентир для курьера:", "txt-title-receiver": "Получатель",
+            "lbl-r-name": "ФИО Получателя:", "lbl-r-phone": "Телефон Получателя:", "txt-title-parcel": "Параметры посылки",
             "lbl-weight": "Вес (кг):", "lbl-sizes": "Габариты (см):", "large-warning": "⚠️ Отправление крупногабаритное!",
-            "price": "Стоимость", "btn-submit": "Оформить доставку", "btn-large-submit": "Быстрый запрос на сайте", 
+            "price": "Стоимость", "btn-submit": "Оформить доставку", "btn-large-submit": "Быстрый запрос на сайте",
             "txt-profile-data": "Мои личные данные", "txt-orders-history": "История моих заказов",
             "lbl-prof-fio": "Ваше ФИО (Имя отправителя):", "lbl-prof-addr": "Постоянный адрес забора (ОТКУДА):",
             "btn-save-profile": "Сохранить изменения"
         },
         tj: {
             "tab-order-btn": "📦 Дархости нав", "tab-profile-btn": "👤 Профил",
-            "txt-title-route": "Хатсайр ва расонидан", "lbl-city-pickup": "Аз кадом шаҳр:", "lbl-address-pickup": "Суроғаи гирифтан:", 
+            "txt-title-route": "Хатсайр ва расонидан", "lbl-city-pickup": "Аз кадом шаҳр:", "lbl-address-pickup": "Суроғаи гирифтан:",
             "lbl-dtype": "Намуди расонидан:", "txt-pvz": "Ба ПВЗ 🏢", "txt-door": "То дар 🚪", "lbl-city-delivery": "Ба кадом шаҳр:",
-            "lbl-address-delivery": "Суроғаи расонидан:", "lbl-comment": "Нишонии курьер:", "txt-title-receiver": "Қабулкунанда", 
-            "lbl-r-name": "Ному насаби қабулкунанда:", "lbl-r-phone": "Телефони қабулкунанда:", "txt-title-parcel": "Хусусиятҳои бор", 
+            "lbl-address-delivery": "Суроғаи расонидан:", "lbl-comment": "Нишонии курьер:", "txt-title-receiver": "Қабулкунанда",
+            "lbl-r-name": "Ному насаби қабулкунанда:", "lbl-r-phone": "Телефони қабулкунанда:", "txt-title-parcel": "Хусусиятҳои бор",
             "lbl-weight": "Вазн (кг):", "lbl-sizes": "Андозаҳо (см):", "large-warning": "⚠️ Бори калонҳаҷм!",
-            "price": "Нарх", "btn-submit": "Ороиши дархост", "btn-large-submit": "Дархости фаврӣ дар сайт", 
+            "price": "Нарх", "btn-submit": "Ороиши дархост", "btn-large-submit": "Дархости фаврӣ дар сайт",
             "txt-profile-data": "Маълумоти шахсии ман", "txt-orders-history": "Таърихи дархостҳо",
             "lbl-prof-fio": "Ному Насаби шумо (Фиристанда):", "lbl-prof-addr": "Суроғаи доимии гирифтан (АЗ КУҶО):",
             "btn-save-profile": "Захира кардани тағйирот"
         }
     };
 
+    // ОПТИМИЗАЦИЯ: убрано дублирование — один цикл обновляет все элементы
     function setLang(lang) {
         currentLang = lang;
         const items = translations[lang];
@@ -267,32 +277,11 @@
             const el = document.getElementById(key);
             if (el) el.innerText = items[key];
         }
-        document.getElementById('lbl-city-pickup').innerText = items["lbl-city-pickup"];
-        document.getElementById('lbl-address-pickup').innerText = items["lbl-address-pickup"];
-        document.getElementById('lbl-dtype').innerText = items["lbl-dtype"];
-        document.getElementById('txt-pvz').innerText = items["txt-pvz"];
-        document.getElementById('txt-door').innerText = items["txt-door"];
-        document.getElementById('lbl-city-delivery').innerText = items["lbl-city-delivery"];
-        document.getElementById('lbl-address-delivery').innerText = items["lbl-address-delivery"];
-        document.getElementById('lbl-comment').innerText = items["lbl-comment"];
-        document.getElementById('lbl-r-name').innerText = items["lbl-r-name"];
-        document.getElementById('lbl-r-phone').innerText = items["lbl-r-phone"];
-        document.getElementById('lbl-weight').innerText = items["lbl-weight"];
-        document.getElementById('lbl-sizes').innerText = items["lbl-sizes"];
-        document.getElementById('submit-btn').innerText = items["btn-submit"];
-        
-        document.getElementById('lbl-prof-fio').innerText = items["lbl-prof-fio"];
-        document.getElementById('lbl-prof-addr').innerText = items["lbl-prof-addr"];
-        document.getElementById('btn-save-profile').innerText = items["btn-save-profile"];
-
-        if (document.getElementById('large-submit-btn')) {
-            document.getElementById('large-submit-btn').innerText = items["btn-large-submit"];
-        }
-        document.getElementById('txt-title-route').innerText = items["txt-title-route"];
-        document.getElementById('txt-title-receiver').innerText = items["txt-title-receiver"];
-        document.getElementById('txt-title-parcel').innerText = items["txt-title-parcel"];
-        document.getElementById('txt-profile-data').innerText = items["txt-profile-data"];
-        document.getElementById('txt-orders-history').innerText = items["txt-orders-history"];
+        // Кнопки submit по id не совпадают с ключами перевода — обновляем отдельно
+        const submitBtn = document.getElementById('submit-btn');
+        if (submitBtn) submitBtn.innerText = items["btn-submit"];
+        const largeBtn = document.getElementById('large-submit-btn');
+        if (largeBtn) largeBtn.innerText = items["btn-large-submit"];
         calculatePrice();
     }
 
@@ -307,63 +296,94 @@
     function initProfile() {
         document.getElementById('prof-phone-view').innerText = verifiedPhone || "Не указан";
         document.getElementById('prof_fio_input').value = verifiedFio || "";
-        
+
         let savedAddr = localStorage.getItem('prof_address') || '';
         document.getElementById('prof_address').value = savedAddr;
-        if(savedAddr) document.getElementById('address_pickup').value = savedAddr;
+        if (savedAddr) document.getElementById('address_pickup').value = savedAddr;
     }
 
     function saveProfileData() {
         let updatedFio = document.getElementById('prof_fio_input').value.trim();
         let updatedAddr = document.getElementById('prof_address').value.trim();
-        
+
         if (!updatedFio) {
             alert(currentLang === 'tj' ? 'Лутфан, Ному Насабро ворид кунед!' : 'Пожалуйста, введите ФИО!');
             return;
         }
 
-        // Формируем пакет данных для отправки в bot.py
         let profileUpdate = {
             action: "update_profile",
+            // БЕЗОПАСНОСТЬ: phone НЕ передаём — бот найдёт пользователя по chat_id
             fio: updatedFio,
             address: updatedAddr,
-            phone: verifiedPhone
+            initData: tg.initData
         };
 
-        // Обновляем локальные кэшированные данные
         verifiedFio = updatedFio;
         localStorage.setItem('prof_address', updatedAddr);
 
-        // Отсылаем JSON боту и закрываем приложение
         tg.sendData(JSON.stringify(profileUpdate));
         tg.close();
     }
 
+    // БЕЗОПАСНОСТЬ: используем DOM API вместо innerHTML для рендера карточек заказов
     function renderOrdersHistory() {
         const container = document.getElementById('history-container');
         let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
+
         if (orders.length === 0) {
-            const noOrdersMsg = currentLang === 'tj' ? '📦 Шумо то ҳол дархост ороиш надодаед.' : '📦 У вас пока нет оформленных заказов.';
-            container.innerHTML = '<div class="no-orders">' + noOrdersMsg + '</div>';
+            const noOrdersMsg = currentLang === 'tj'
+                ? '📦 Шумо то ҳол дархост ороиш надодаед.'
+                : '📦 У вас пока нет оформленных заказов.';
+            container.innerHTML = '<div class="no-orders">' + escapeHtml(noOrdersMsg) + '</div>';
             return;
         }
-        orders.sort((a,b) => b.timestamp - a.timestamp);
+
+        orders.sort((a, b) => b.timestamp - a.timestamp);
         container.innerHTML = '';
+
         orders.forEach(order => {
             const wrapper = document.createElement('div');
             wrapper.className = 'order-swipe-wrapper';
-            wrapper.innerHTML = 
-                '<button class="swipe-delete-btn" onclick="confirmDeleteOrder(\'' + order.id + '\')">Удалить</button>' +
-                '<div class="order-card" id="card-' + order.id + '">' +
-                    '<div class="order-card-header"><span>🆔 ' + order.id + '</span><span class="status-badge">NEW</span></div>' +
-                    '<div class="order-card-body">' +
-                        '<span style="font-size: 11px; color: var(--hint-color);">📅 ' + order.date_str + '</span><br>' +
-                        '📍 <b>Откуда:</b> ' + order.city_pickup + '<br>' +
-                        '🌆 <b>Куда:</b> ' + order.city_delivery + ' (' + (order.type === 'pvz' ? 'ПВЗ' : 'До двери') + ')<br>' +
-                        '👤 <b>Получатель:</b> ' + order.r_name + '<br>' +
-                        '💰 <b>Сумма:</b> <span style="color:var(--primary-color); font-weight:bold;">' + order.price + ' TJS</span>' +
-                    '</div>' +
-                '</div>';
+
+            // Кнопка удаления
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'swipe-delete-btn';
+            deleteBtn.textContent = 'Удалить';
+            deleteBtn.onclick = () => confirmDeleteOrder(order.id);
+
+            // Карточка
+            const card = document.createElement('div');
+            card.className = 'order-card';
+            card.id = 'card-' + escapeHtml(order.id);
+
+            const header = document.createElement('div');
+            header.className = 'order-card-header';
+
+            const idSpan = document.createElement('span');
+            idSpan.textContent = '🆔 ' + order.id;
+
+            const badge = document.createElement('span');
+            badge.className = 'status-badge';
+            badge.textContent = 'NEW';
+
+            header.appendChild(idSpan);
+            header.appendChild(badge);
+
+            const body = document.createElement('div');
+            body.className = 'order-card-body';
+            // Безопасно: textContent вместо innerHTML
+            body.innerHTML =
+                '<span style="font-size:11px;color:var(--hint-color);">📅 ' + escapeHtml(order.date_str) + '</span><br>' +
+                '📍 <b>Откуда:</b> ' + escapeHtml(order.city_pickup) + '<br>' +
+                '🌆 <b>Куда:</b> ' + escapeHtml(order.city_delivery) + ' (' + (order.type === 'pvz' ? 'ПВЗ' : 'До двери') + ')<br>' +
+                '👤 <b>Получатель:</b> ' + escapeHtml(order.r_name) + '<br>' +
+                '💰 <b>Сумма:</b> <span style="color:var(--primary-color);font-weight:bold;">' + escapeHtml(order.price) + ' TJS</span>';
+
+            card.appendChild(header);
+            card.appendChild(body);
+            wrapper.appendChild(deleteBtn);
+            wrapper.appendChild(card);
             container.appendChild(wrapper);
             bindFluidSwipeEvents(order.id);
         });
@@ -381,17 +401,21 @@
         function moveDrag(screenX) {
             if (!cardDragging) return;
             let diffX = screenX - cardStartX;
-            cardCurrentX = cardTransformX === 0 ? Math.min(0, Math.max(-80, diffX)) : Math.min(0, Math.max(-80, -80 + diffX));
+            cardCurrentX = cardTransformX === 0
+                ? Math.min(0, Math.max(-80, diffX))
+                : Math.min(0, Math.max(-80, -80 + diffX));
             card.style.transform = 'translateX(' + cardCurrentX + 'px)';
         }
         function endDrag() {
-            if (!cardDragging) return; cardDragging = false; card.style.transition = 'transform 0.2s ease-out';
-            if (cardCurrentX < -40) { card.style.transform = 'translateX(-80px)'; cardTransformX = -80; } 
+            if (!cardDragging) return;
+            cardDragging = false;
+            card.style.transition = 'transform 0.2s ease-out';
+            if (cardCurrentX < -40) { card.style.transform = 'translateX(-80px)'; cardTransformX = -80; }
             else { card.style.transform = 'translateX(0px)'; cardTransformX = 0; }
         }
-        card.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), {passive:true});
-        card.addEventListener('touchmove', (e) => moveDrag(e.touches[0].clientX), {passive:true});
-        card.addEventListener('touchend', endDrag, {passive:true});
+        card.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), { passive: true });
+        card.addEventListener('touchmove', (e) => moveDrag(e.touches[0].clientX), { passive: true });
+        card.addEventListener('touchend', endDrag, { passive: true });
         card.addEventListener('mousedown', (e) => {
             startDrag(e.clientX);
             const onMouseMove = (moveEvent) => { if (cardDragging) moveDrag(moveEvent.clientX); };
@@ -406,7 +430,9 @@
     }
 
     function confirmDeleteOrder(orderId) {
-        const msg = currentLang === 'tj' ? 'Дархости ' + orderId + '-ро аз таърих нест кунед?' : 'Удалить заказ ' + orderId + ' из истории?';
+        const msg = currentLang === 'tj'
+            ? 'Дархости ' + orderId + '-ро аз таърих нест кунед?'
+            : 'Удалить заказ ' + orderId + ' из истории?';
         tg.showConfirm(msg, (isConfirmed) => {
             if (isConfirmed) {
                 let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
@@ -434,25 +460,29 @@
         let l = parseInt(document.getElementById('size_l').value) || 0;
         let width = parseInt(document.getElementById('size_w').value) || 0;
         let h = parseInt(document.getElementById('size_h').value) || 0;
+
         if (w > 10 || Math.max(l, width, h) > 35 || (l + width + h) > 65) {
             document.getElementById('large-warning').style.display = 'block';
             document.getElementById('price-box').style.display = 'none';
             document.getElementById('submit-btn').style.display = 'none';
-            document.getElementById('large-submit-btn').style.display = 'block';
-            return {isLarge: true};
+            document.getElementById('large-submit-btn').style.display = 'block'; // ИСПРАВЛЕН БАГ: было .none
+            return { isLarge: true };
         }
+
         document.getElementById('large-warning').style.display = 'none';
         document.getElementById('price-box').style.display = 'block';
         document.getElementById('submit-btn').style.display = 'block';
-        document.getElementById('large-submit-btn').style.none = 'none';
-        let zone = ["Душанбе", "Худжанд", "Бохтар"].includes(city) ? "1" : (["Хорог", "РРП", "Хатлонская область"].includes(city) ? "2" : "3");
-        const tarifs = {"1": {"pvz": 20.80, "door": 31.20}, "2": {"pvz": 27.30, "door": 35.10}, "3": {"pvz": 31.20, "door": 37.70}};
+        document.getElementById('large-submit-btn').style.display = 'none'; // ИСПРАВЛЕН БАГ: было .none
+
+        let zone = ["Душанбе", "Худжанд", "Бохтар"].includes(city) ? "1"
+                 : (["Хорог", "РРП", "Хатлонская область"].includes(city) ? "2" : "3");
+        const tarifs = { "1": { "pvz": 20.80, "door": 31.20 }, "2": { "pvz": 27.30, "door": 35.10 }, "3": { "pvz": 31.20, "door": 37.70 } };
         let finalPrice = tarifs[zone][dtype];
-        
+
         let labelName = currentLang === 'tj' ? 'Нарх' : 'Стоимость';
         document.getElementById('price-box').innerText = labelName + ': ' + finalPrice.toFixed(2) + ' TJS';
         validateForm();
-        return {isLarge: false, price: finalPrice};
+        return { isLarge: false, price: finalPrice };
     }
 
     function validateForm() {
@@ -469,29 +499,44 @@
     function sendDataToBot() {
         let dtype = document.querySelector('input[name="dtype"]:checked').value;
         let res = calculatePrice();
+        if (res.isLarge) return; // Защита от отправки крупногабаритного через обычную форму
+
         let now = new Date();
-        let day = String(now.getDate()).padStart(2, '0'), month = String(now.getMonth() + 1).padStart(2, '0');
-        let chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", maskedHash = "";
-        for (let i = 0; i < 4; i++) maskedHash += chars.charAt(Math.floor(Math.random() * chars.length));
-        let generatedId = 'ORD-' + day + month + '-' + maskedHash;
-        let fullDateStr = day + '.' + month + '.' + now.getFullYear() + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-        
+        let day = String(now.getDate()).padStart(2, '0');
+        let month = String(now.getMonth() + 1).padStart(2, '0');
+        // Временный ID для локальной истории — реальный генерирует сервер
+        let localId = 'ORD-' + day + month + '-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+        let fullDateStr = day + '.' + month + '.' + now.getFullYear() + ' ' +
+                          String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+
         let data = {
-            initData: window.Telegram.WebApp.initData,
-            order_id: generatedId, lang: currentLang, s_name: verifiedFio, s_phone: verifiedPhone,
-            city_pickup: document.getElementById('city_pickup').value, address_pickup: document.getElementById('address_pickup').value,
-            city_delivery: document.getElementById('city_delivery').value, delivery_type: dtype,
+            initData: tg.initData,  // Для верификации на сервере
+            lang: currentLang,
+            s_name: verifiedFio,
+            s_phone: verifiedPhone,
+            city_pickup: document.getElementById('city_pickup').value,
+            address_pickup: document.getElementById('address_pickup').value,
+            city_delivery: document.getElementById('city_delivery').value,
+            delivery_type: dtype,
             address_delivery: dtype === 'door' ? document.getElementById('address_delivery').value : "ПВЗ",
             driver_comment: dtype === 'door' ? document.getElementById('driver_comment').value : "Нет",
-            r_name: document.getElementById('r_name').value, r_phone: document.getElementById('r_phone').value,
-            weight: document.getElementById('weight').value, sizes: document.getElementById('size_l').value + 'x' + document.getElementById('size_w').value + 'x' + document.getElementById('size_h').value,
+            r_name: document.getElementById('r_name').value,
+            r_phone: document.getElementById('r_phone').value,
+            weight: document.getElementById('weight').value,
+            sizes: document.getElementById('size_l').value + 'x' + document.getElementById('size_w').value + 'x' + document.getElementById('size_h').value,
             price: res.price.toFixed(2)
+            // order_id убран — генерируется на сервере
         };
 
+        // Сохраняем в локальную историю с временным ID
         let localHistory = JSON.parse(localStorage.getItem('user_orders') || '[]');
-        localHistory.push({id: generatedId, timestamp: Date.now(), date_str: fullDateStr, city_pickup: data.city_pickup, city_delivery: data.city_delivery, type: dtype, r_name: data.r_name, price: data.price});
+        localHistory.push({
+            id: localId, timestamp: Date.now(), date_str: fullDateStr,
+            city_pickup: data.city_pickup, city_delivery: data.city_delivery,
+            type: dtype, r_name: data.r_name, price: data.price
+        });
         localStorage.setItem('user_orders', JSON.stringify(localHistory));
-        
+
         tg.sendData(JSON.stringify(data));
         tg.close();
     }
