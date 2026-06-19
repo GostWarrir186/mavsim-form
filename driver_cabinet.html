@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Кабинет курьера</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --primary: #2481cc;
+            --primary-light: rgba(36,129,204,0.1);
+            --primary-grad: linear-gradient(135deg, #2a8de0, #1a6db5);
+            --success: #2bca80;
+            --success-grad: linear-gradient(135deg, #2bca80, #22a368);
+            --warning: #f59e0b;
+            --danger: #e53935;
+            --bg: var(--tg-theme-bg-color, #ffffff);
+            --sec-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
+            --text: var(--tg-theme-text-color, #1c1c1e);
+            --hint: var(--tg-theme-hint-color, #8e8e93);
+            --radius: 14px;
+            --radius-sm: 10px;
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--sec-bg); color: var(--text);
+            overflow-x: hidden; padding-bottom: 24px;
+        }
+
+        /* ─── Header ─── */
+        .header {
+            background: var(--primary-grad);
+            padding: 20px 16px 24px;
+            position: relative;
+        }
+        .header-title { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
+        .header-name  { font-size: 22px; font-weight: 800; color: white; margin-bottom: 2px; }
+        .header-month { font-size: 13px; color: rgba(255,255,255,0.75); font-weight: 500; }
+
+        /* ─── Stats Cards ─── */
+        .stats-row {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+            padding: 0 14px; margin-top: -18px; margin-bottom: 14px;
+        }
+        .stat-card {
+            background: var(--bg); border-radius: var(--radius-sm);
+            padding: 13px 10px; text-align: center;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        }
+        .stat-value { font-size: 20px; font-weight: 800; color: var(--primary); line-height: 1; }
+        .stat-value.green { color: var(--success); }
+        .stat-label { font-size: 10px; color: var(--hint); font-weight: 600; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
+
+        /* ─── Section ─── */
+        .section { padding: 0 14px; margin-bottom: 14px; }
+        .section-title {
+            font-size: 12px; font-weight: 700; color: var(--hint); text-transform: uppercase;
+            letter-spacing: 0.6px; margin-bottom: 10px; padding-left: 2px;
+        }
+
+        /* ─── Week Calendar ─── */
+        .week-card { background: var(--bg); border-radius: var(--radius); padding: 14px; box-shadow: 0 1px 8px rgba(0,0,0,0.05); }
+        .week-nav {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 12px;
+        }
+        .week-label { font-size: 14px; font-weight: 700; color: var(--text); }
+        .week-btn {
+            width: 32px; height: 32px; border-radius: 50%; border: none;
+            background: var(--sec-bg); color: var(--primary); cursor: pointer;
+            font-size: 16px; display: flex; align-items: center; justify-content: center;
+            font-weight: 700; transition: background 0.15s;
+        }
+        .week-btn:active { background: var(--primary-light); }
+
+        .days-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .day-cell {
+            display: flex; flex-direction: column; align-items: center; gap: 3px;
+            padding: 8px 2px; border-radius: 10px; cursor: pointer;
+            transition: background 0.15s; position: relative;
+        }
+        .day-cell:active { background: var(--primary-light); }
+        .day-cell.selected { background: var(--primary); }
+        .day-cell.today:not(.selected) { border: 2px solid var(--primary); }
+        .day-name { font-size: 9px; font-weight: 700; color: var(--hint); text-transform: uppercase; letter-spacing: 0.3px; }
+        .day-cell.selected .day-name { color: rgba(255,255,255,0.75); }
+        .day-num { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1; }
+        .day-cell.selected .day-num { color: white; }
+        .day-cell.other-month .day-num { color: var(--hint); opacity: 0.5; }
+        .day-dot {
+            width: 5px; height: 5px; border-radius: 50%; background: var(--primary);
+        }
+        .day-cell.selected .day-dot { background: white; }
+        .day-count {
+            font-size: 9px; font-weight: 700; color: white;
+            background: var(--primary); border-radius: 10px; padding: 1px 5px;
+            min-width: 16px; text-align: center;
+        }
+        .day-cell.selected .day-count { background: rgba(255,255,255,0.3); }
+
+        /* ─── Filter Chips ─── */
+        .chips { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 2px; margin-bottom: 10px; }
+        .chips::-webkit-scrollbar { display: none; }
+        .chip {
+            flex-shrink: 0; padding: 6px 13px; border-radius: 20px; font-size: 12px; font-weight: 600;
+            border: 1.5px solid rgba(0,0,0,0.08); background: var(--bg); color: var(--hint);
+            cursor: pointer; transition: all 0.15s; white-space: nowrap;
+        }
+        .chip.active { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+
+        /* ─── Delivery Cards ─── */
+        .delivery-card {
+            background: var(--bg); border-radius: var(--radius-sm);
+            padding: 13px 14px; margin-bottom: 8px;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+            border-left: 3px solid var(--primary);
+            display: flex; gap: 12px; align-items: flex-start;
+        }
+        .delivery-card.delivered { border-left-color: var(--success); }
+        .delivery-card.in-progress { border-left-color: var(--warning); }
+
+        .time-col { flex-shrink: 0; text-align: center; }
+        .time-badge {
+            font-size: 13px; font-weight: 800; color: var(--primary); display: block; line-height: 1;
+        }
+        .delivery-card.delivered .time-badge { color: var(--success); }
+        .time-date { font-size: 10px; color: var(--hint); margin-top: 3px; }
+
+        .card-body { flex: 1; min-width: 0; }
+        .card-route {
+            display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 700;
+            margin-bottom: 4px; flex-wrap: wrap;
+        }
+        .card-route .city { color: var(--text); }
+        .card-route .arrow { color: var(--hint); font-size: 11px; }
+        .card-meta { font-size: 11.5px; color: var(--hint); display: flex; gap: 8px; flex-wrap: wrap; }
+        .meta-tag {
+            display: inline-flex; align-items: center; gap: 3px; background: var(--sec-bg);
+            padding: 2px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 600;
+        }
+
+        .earn-col { flex-shrink: 0; text-align: right; }
+        .earn-amount {
+            font-size: 15px; font-weight: 800; color: var(--success); display: block;
+        }
+        .earn-label { font-size: 9.5px; color: var(--hint); font-weight: 600; text-transform: uppercase; }
+
+        .status-pill {
+            display: inline-block; padding: 2px 8px; border-radius: 6px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; margin-top: 5px;
+        }
+        .s-delivered  { background: #e8f5e9; color: #2e7d32; }
+        .s-transit    { background: #e8f5e9; color: #388e3c; }
+        .s-loading    { background: #fff8e1; color: #f57f17; }
+        .s-taken      { background: #f3e5f5; color: #7b1fa2; }
+        .s-arrived    { background: #e0f7fa; color: #00695c; }
+        .s-new        { background: #e3f2fd; color: #1565c0; }
+
+        /* ─── Empty ─── */
+        .empty {
+            text-align: center; padding: 40px 20px; color: var(--hint);
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+        }
+        .empty-icon { font-size: 44px; }
+        .empty-text { font-size: 14px; font-weight: 500; }
+
+        /* ─── Error ─── */
+        .error-screen {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            min-height: 80vh; text-align: center; padding: 20px; color: var(--hint);
+        }
+        .error-icon { font-size: 52px; margin-bottom: 14px; }
+        .error-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+        .error-sub { font-size: 13px; }
+    </style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+    const tg = (window.Telegram && window.Telegram.WebApp)
+        ? window.Telegram.WebApp
+        : { ready: () => {}, expand: () => {}, close: () => {} };
+    tg.ready(); tg.expand();
+
+    // ─── Загрузка данных из URL hash ────────────────────────────────────────
+    let DATA = null;
+    try {
+        const hash = window.location.hash.slice(1);
+        const params = new URLSearchParams(hash);
+        const raw = params.get('d');
+        if (raw) {
+            const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+            DATA = JSON.parse(atob(b64));
+        }
+    } catch(e) {
+        console.error('Ошибка парсинга данных:', e);
+    }
+
+    const app = document.getElementById('app');
+
+    if (!DATA) {
+        app.innerHTML = `
+            <div class="error-screen">
+                <div class="error-icon">🔗</div>
+                <div class="error-title">Нет данных</div>
+                <div class="error-sub">Откройте кабинет через бота Mavsimi Rason.</div>
+            </div>`;
+        return;
+    }
+
+    // ─── Утилиты ────────────────────────────────────────────────────────────
+    const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь',
+                       'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    const MONTHS_SHORT = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
+    const DAYS_SHORT = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+
+    function parseDate(iso) { /* "2026-06-19" → Date */
+        const [y, m, d] = iso.split('-').map(Number);
+        return new Date(y, m - 1, d);
+    }
+    function isoFromDate(d) {
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+    function getMondayOf(date) {
+        const d = new Date(date);
+        const day = d.getDay() === 0 ? 7 : d.getDay(); // Mon=1..Sun=7
+        d.setDate(d.getDate() - day + 1);
+        return d;
+    }
+    function addDays(date, n) {
+        const d = new Date(date);
+        d.setDate(d.getDate() + n);
+        return d;
+    }
+    function sameDay(a, b) { return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
+
+    // ─── Состояние ──────────────────────────────────────────────────────────
+    const deliveries = DATA.deliveries || [];
+    const rate       = DATA.rate || 15;
+    const driverName = DATA.name || 'Курьер';
+    const monthLabel = DATA.month_label || '';
+
+    // Группировка по дате
+    const byDate = {};
+    deliveries.forEach(d => {
+        if (!byDate[d.d]) byDate[d.d] = [];
+        byDate[d.d].push(d);
+    });
+
+    const today = new Date();
+    let weekStart = getMondayOf(today);   // Текущая неделя
+    let selectedDate = isoFromDate(today); // Выбранный день
+
+    // ─── Статистика ─────────────────────────────────────────────────────────
+    function calcStats() {
+        const done = deliveries.filter(d => d.s === 'DELIVERED');
+        const monthEarn = done.length * rate;
+        const avg = done.length ? (monthEarn / done.length) : 0;
+        // Текущая неделя
+        const ws = isoFromDate(weekStart);
+        const we = isoFromDate(addDays(weekStart, 6));
+        const weekDone = done.filter(d => d.d >= ws && d.d <= we);
+        return { total: done.length, monthEarn, avg, weekDone: weekDone.length, weekEarn: weekDone.length * rate };
+    }
+
+    // ─── Рендер ─────────────────────────────────────────────────────────────
+    function statusClass(s) {
+        return { DELIVERED:'s-delivered', IN_TRANSIT:'s-transit', LOADING:'s-loading',
+                 TAKEN:'s-taken', ARRIVED:'s-arrived' }[s] || 's-new';
+    }
+    function statusLabel(s) {
+        return { DELIVERED:'✓ Доставлен', IN_TRANSIT:'В пути', LOADING:'Погрузка',
+                 TAKEN:'Взят', ARRIVED:'На месте', NEW:'Новый' }[s] || s;
+    }
+    function cardClass(s) {
+        if (s === 'DELIVERED') return 'delivery-card delivered';
+        if (['IN_TRANSIT','LOADING','TAKEN','ARRIVED'].includes(s)) return 'delivery-card in-progress';
+        return 'delivery-card';
+    }
+
+    function renderWeekLabel() {
+        const end = addDays(weekStart, 6);
+        const sm = MONTHS_SHORT[weekStart.getMonth()];
+        const em = MONTHS_SHORT[end.getMonth()];
+        if (weekStart.getMonth() === end.getMonth()) {
+            return `${weekStart.getDate()} — ${end.getDate()} ${sm}`;
+        }
+        return `${weekStart.getDate()} ${sm} — ${end.getDate()} ${em}`;
+    }
+
+    function renderDaysGrid() {
+        let html = '<div class="days-grid">';
+        for (let i = 0; i < 7; i++) {
+            const d = addDays(weekStart, i);
+            const iso = isoFromDate(d);
+            const isToday = sameDay(d, today);
+            const isSelected = iso === selectedDate;
+            const count = byDate[iso] ? byDate[iso].length : 0;
+            const [,mm] = DATA.month ? DATA.month.split('.') : [null, null];
+            const inMonth = !mm || String(d.getMonth() + 1).padStart(2,'0') === mm.padStart(2,'0');
+
+            let cls = 'day-cell';
+            if (isSelected) cls += ' selected';
+            if (isToday && !isSelected) cls += ' today';
+            if (!inMonth) cls += ' other-month';
+
+            const countHtml = count > 0 ? `<span class="day-count">${count}</span>` : `<span style="height:14px"></span>`;
+            html += `<div class="${cls}" onclick="selectDay('${iso}')">
+                <span class="day-name">${DAYS_SHORT[(i+1)%7]}</span>
+                <span class="day-num">${d.getDate()}</span>
+                ${countHtml}
+            </div>`;
+        }
+        html += '</div>';
+        return html;
+    }
+
+    function renderDeliveryCard(d) {
+        const isDelivered = d.s === 'DELIVERED';
+        const earn = isDelivered ? rate : 0;
+        return `
+        <div class="${cardClass(d.s)}">
+            <div class="time-col">
+                <span class="time-badge">${d.t}</span>
+                <div class="time-date">${d.d.slice(8)}.${d.d.slice(5,7)}</div>
+            </div>
+            <div class="card-body">
+                <div class="card-route">
+                    <span class="city">${d.f}</span>
+                    <span class="arrow">→</span>
+                    <span class="city">${d.to}</span>
+                </div>
+                <div class="card-meta">
+                    <span class="meta-tag">${d.tp === 'PVZ' ? '🏢 ПВЗ' : '🚪 До двери'}</span>
+                    <span class="meta-tag">🆔 ${d.i}</span>
+                </div>
+                <span class="status-pill ${statusClass(d.s)}">${statusLabel(d.s)}</span>
+            </div>
+            <div class="earn-col">
+                <span class="earn-amount">${isDelivered ? earn.toFixed(0) : '—'}</span>
+                <span class="earn-label">TJS</span>
+            </div>
+        </div>`;
+    }
+
+    function getFilteredDeliveries() {
+        if (!selectedDate) return deliveries;
+        return (byDate[selectedDate] || []);
+    }
+
+    function render() {
+        const stats = calcStats();
+        const filtered = getFilteredDeliveries();
+        filtered.sort((a, b) => b.t.localeCompare(a.t)); // Newest first
+
+        const selDateObj = selectedDate ? parseDate(selectedDate) : null;
+        const selLabel = selDateObj
+            ? `${selDateObj.getDate()} ${MONTHS_SHORT[selDateObj.getMonth()]}`
+            : 'Все';
+
+        const deliveriesHtml = filtered.length
+            ? filtered.map(renderDeliveryCard).join('')
+            : `<div class="empty">
+                <span class="empty-icon">📭</span>
+                <span class="empty-text">${selLabel === 'Все' ? 'Нет доставок за месяц' : `Нет доставок за ${selLabel}`}</span>
+               </div>`;
+
+        app.innerHTML = `
+        <!-- Header -->
+        <div class="header">
+            <div class="header-title">Кабинет курьера</div>
+            <div class="header-name">${driverName}</div>
+            <div class="header-month">${monthLabel}</div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-value">${stats.total}</div>
+                <div class="stat-label">Доставок</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value green">${stats.monthEarn.toFixed(0)}</div>
+                <div class="stat-label">TJS заработок</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${stats.weekDone}</div>
+                <div class="stat-label">За неделю</div>
+            </div>
+        </div>
+
+        <!-- Calendar -->
+        <div class="section">
+            <div class="section-title">Неделя</div>
+            <div class="week-card">
+                <div class="week-nav">
+                    <button class="week-btn" onclick="prevWeek()">‹</button>
+                    <span class="week-label">${renderWeekLabel()}</span>
+                    <button class="week-btn" onclick="nextWeek()">›</button>
+                </div>
+                ${renderDaysGrid()}
+            </div>
+        </div>
+
+        <!-- Deliveries -->
+        <div class="section">
+            <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>${selectedDate ? selLabel : 'Все доставки'}</span>
+                <span style="font-size:11px;color:var(--primary);cursor:pointer;" onclick="clearDay()">
+                    ${selectedDate ? 'Сбросить' : ''}
+                </span>
+            </div>
+            ${deliveriesHtml}
+        </div>`;
+    }
+
+    // ─── Действия ───────────────────────────────────────────────────────────
+    function selectDay(iso) {
+        selectedDate = (selectedDate === iso) ? null : iso;
+        render();
+    }
+    function clearDay() {
+        selectedDate = null;
+        render();
+    }
+    function prevWeek() {
+        weekStart = addDays(weekStart, -7);
+        render();
+    }
+    function nextWeek() {
+        weekStart = addDays(weekStart, 7);
+        render();
+    }
+
+    render();
+</script>
+</body>
+</html>

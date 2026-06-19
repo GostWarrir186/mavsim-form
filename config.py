@@ -22,19 +22,34 @@ driver_bot = Bot(token=DRIVER_TOKEN)
 client_dp = Dispatcher()
 driver_dp = Dispatcher()
 
-scope = ["https://www.googleapis.com/auth/spreadsheets"]
+scope = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive.readonly",
+]
 creds_path = os.getenv("GOOGLE_CREDS_PATH", "creds.json")
 sheet_name = os.getenv("GOOGLE_SHEET_NAME", "Заявки Mavsimi Rason")
 
 sheet = None
+drivers_sheet = None
 try:
     if os.path.exists(creds_path):
         creds = Credentials.from_service_account_file(creds_path, scopes=scope)
-        client = gspread.authorize(creds)
-        sheet = client.open(sheet_name).worksheet("Лист1")
+        gc = gspread.authorize(creds)
+        spreadsheet = gc.open(sheet_name)
+        sheet = spreadsheet.worksheet("Лист1")
+
+        try:
+            drivers_sheet = spreadsheet.worksheet("Водители")
+        except gspread.WorksheetNotFound:
+            drivers_sheet = spreadsheet.add_worksheet(title="Водители", rows=1000, cols=8)
+            drivers_sheet.append_row([
+                "Статус", "Дата рег.", "ФИО", "Telegram ID",
+                "Ставка (TJS)", "Дата оферты", "", ""
+            ])
+            logging.info("✅ Создан лист 'Водители'")
+
         logging.info("✅ База данных Google Sheets успешно подключена!")
     else:
-        # Критическая ошибка — без Google Sheets боты бесполезны
         logging.critical(f"❌ Файл авторизации {creds_path} не найден! Запуск невозможен.")
         sys.exit(1)
 except Exception as e:
