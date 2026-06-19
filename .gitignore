@@ -2,3 +2,6 @@
 .env
 .venv/
 creds.json
+__pycache__/
+*.pyc
+.rtk
