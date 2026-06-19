@@ -25,10 +25,17 @@ ALLOWED_DRIVER_IDS: set[int] = {
     int(x.strip()) for x in _raw_ids.split(",") if x.strip().isdigit()
 }
 DRIVER_WEBAPP_URL = os.getenv("DRIVER_WEBAPP_URL", "")
+REPORT_PICKER_URL = os.getenv("REPORT_PICKER_URL", "")
 DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "15.0"))
 LINK_TO_DRIVER_OFFER = os.getenv("DRIVER_OFFER_URL", "https://www.google.com")
 
 DUSHANBE_TZ = timezone(timedelta(hours=5))
+
+RU_MONTHS = {
+    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
+    5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+    9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
+}
 
 
 class DriverRegistration(StatesGroup):
@@ -48,6 +55,17 @@ def _pad_row(row: list, size: int = 20) -> list:
 
 def _now_dushanbe() -> str:
     return datetime.now(DUSHANBE_TZ).strftime("%d.%m.%Y %H:%M")
+
+
+def _month_label(month_str: str) -> str:
+    """'06.2026' → 'Июнь 2026'"""
+    try:
+        dt = datetime.strptime(month_str, "%m.%Y")
+        return f"{RU_MONTHS[dt.month]} {dt.year}"
+    except ValueError:
+        return month_str
+
+
 
 
 # ─── Google Sheets: Водители ─────────────────────────────────────────────────
@@ -417,41 +435,61 @@ async def send_monthly_report(message: types.Message):
     if not is_authorized_driver(message.from_user.id):
         await message.answer("⛔ Доступ запрещён.")
         return
-
-    driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
-    if not driver_data:
-        await message.answer("❌ Вы не зарегистрированы. Нажмите /start.")
+    if not REPORT_PICKER_URL:
+        await message.answer("⚙️ Функция временно недоступна. Обратитесь к администратору.")
         return
+    b = InlineKeyboardBuilder()
+    b.button(text="📅 Выбрать период", web_app=types.WebAppInfo(url=REPORT_PICKER_URL))
+    await message.answer("Выберите период для отчёта:", reply_markup=b.as_markup())
 
-    fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
-    try:
-        rate = float(driver_data[4]) if len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
-    except (ValueError, TypeError):
-        rate = DEFAULT_DRIVER_RATE
 
-    now = datetime.now(DUSHANBE_TZ)
-    month_str   = now.strftime("%m.%Y")
-    month_label = now.strftime("%B %Y")
-
-    wait_msg = await message.answer("⏳ Формирую отчёт...")
-    deliveries = await asyncio.to_thread(
-        _sync_get_driver_deliveries, str(message.from_user.id), month_str
-    )
-
-    if not deliveries:
-        await wait_msg.delete()
-        await message.answer(f"📭 За {month_label} доставок не найдено.")
+@dp.message(F.web_app_data)
+async def handle_report_webapp(message: types.Message):
+    if not is_authorized_driver(message.from_user.id):
         return
-
     try:
-        excel_buf = await asyncio.to_thread(generate_excel_report, fio, rate, deliveries, month_label)
-        filename = f"report_{now.strftime('%Y_%m')}_{message.from_user.id}.xlsx"
+        data = json.loads(message.web_app_data.data)
+        if data.get("action") != "generate_report":
+            return
+
+        month_str = data.get("month", "")
+        try:
+            datetime.strptime(month_str, "%m.%Y")
+        except ValueError:
+            await message.answer("❌ Некорректный формат даты.")
+            return
+
+        driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+        if not driver_data:
+            await message.answer("❌ Вы не зарегистрированы. Нажмите /start.")
+            return
+
+        fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
+        try:
+            rate = float(driver_data[4]) if len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
+        except (ValueError, TypeError):
+            rate = DEFAULT_DRIVER_RATE
+
+        label = _month_label(month_str)
+        wait_msg = await message.answer("⏳ Формирую отчёт...")
+
+        deliveries = await asyncio.to_thread(
+            _sync_get_driver_deliveries, str(message.from_user.id), month_str
+        )
+
+        if not deliveries:
+            await wait_msg.delete()
+            await message.answer(f"📭 За {label} доставок не найдено.")
+            return
+
+        excel_buf = await asyncio.to_thread(generate_excel_report, fio, rate, deliveries, label)
+        filename = f"report_{month_str.replace('.', '_')}_{message.from_user.id}.xlsx"
         delivered_count = sum(1 for d in deliveries if d["s"] == "DELIVERED")
         await wait_msg.delete()
         await message.answer_document(
             types.BufferedInputFile(excel_buf.read(), filename=filename),
             caption=(
-                f"📄 **Отчёт за {month_label}**\n"
+                f"📄 **Отчёт за {label}**\n"
                 f"👤 {fio}\n"
                 f"✅ Доставлено: {delivered_count}\n"
                 f"💰 К выплате: {delivered_count * rate:.2f} TJS"
@@ -459,8 +497,7 @@ async def send_monthly_report(message: types.Message):
             parse_mode="Markdown"
         )
     except Exception as e:
-        logging.error(f"Ошибка генерации Excel для {message.from_user.id}: {e}", exc_info=True)
-        await wait_msg.delete()
+        logging.error(f"Ошибка обработки report webapp для {message.from_user.id}: {e}", exc_info=True)
         await message.answer("❌ Ошибка при создании отчёта. Попробуйте позже.")
 
 
