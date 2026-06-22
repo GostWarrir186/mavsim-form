@@ -188,8 +188,7 @@
     // ─── Загрузка данных из URL hash ────────────────────────────────────────
     let DATA = null;
     try {
-        const hash = window.location.hash.slice(1); // "d=<base64>"
-        const raw = hash.startsWith('d=') ? hash.slice(2) : null;
+        const raw = new URLSearchParams(window.location.search).get('d');
         if (raw) {
             const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
             const pad = '='.repeat((4 - b64.length % 4) % 4);
