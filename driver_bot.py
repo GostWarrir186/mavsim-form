@@ -20,10 +20,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from config import driver_bot as bot, client_bot, driver_dp as dp, sheet, drivers_sheet
 
 # ─── Конфигурация ───────────────────────────────────────────────────────────
-_raw_ids = os.getenv("ALLOWED_DRIVER_IDS", "")
-ALLOWED_DRIVER_IDS: set[int] = {
-    int(x.strip()) for x in _raw_ids.split(",") if x.strip().isdigit()
-}
 DRIVER_WEBAPP_URL = os.getenv("DRIVER_WEBAPP_URL", "")
 REPORT_PICKER_URL = os.getenv("REPORT_PICKER_URL", "")
 DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "15.0"))
@@ -43,10 +39,10 @@ class DriverRegistration(StatesGroup):
 
 
 # ─── Вспомогательные функции ────────────────────────────────────────────────
-def is_authorized_driver(user_id: int) -> bool:
-    if not ALLOWED_DRIVER_IDS:
-        return True
-    return user_id in ALLOWED_DRIVER_IDS
+async def _get_active_driver(user_id: int) -> list | None:
+    """Возвращает строку из 'Водители' если статус ACTIVE, иначе None."""
+    data = await asyncio.to_thread(_sync_get_driver, str(user_id))
+    return data if (data and data[0].upper() == "ACTIVE") else None
 
 
 def _pad_row(row: list, size: int = 20) -> list:
@@ -87,7 +83,7 @@ def _sync_register_driver(chat_id: str, fio: str) -> bool:
     try:
         now = _now_dushanbe()
         drivers_sheet.append_row([
-            "ACTIVE", now, fio, str(chat_id),
+            "PENDING", now, fio, str(chat_id),
             str(DEFAULT_DRIVER_RATE), now, "", ""
         ])
         return True
@@ -323,19 +319,9 @@ async def send_client_push(chat_id: str, text: str):
 @dp.message(CommandStart())
 async def cmd_start_driver(message: types.Message, state: FSMContext):
     await state.clear()
-    if not is_authorized_driver(message.from_user.id):
-        await message.answer("⛔ Доступ запрещён. Обратитесь к администратору.")
-        return
-
     driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
-    if driver_data and driver_data[0].upper() == "ACTIVE":
-        fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
-        await message.answer(
-            f"👋 **С возвращением, {fio}!**\n\nВыберите действие:",
-            reply_markup=get_driver_main_menu(),
-            parse_mode="Markdown"
-        )
-    else:
+
+    if not driver_data:
         b = ReplyKeyboardBuilder()
         b.button(text="📝 Принять оферту и зарегистрироваться")
         await message.answer(
@@ -347,6 +333,22 @@ async def cmd_start_driver(message: types.Message, state: FSMContext):
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
+    elif driver_data[0].upper() == "PENDING":
+        await message.answer(
+            "⏳ **Заявка на рассмотрении.**\n\n"
+            "Менеджер проверит ваши данные и активирует аккаунт.\n"
+            "Попробуйте позже — нажмите /start чтобы проверить статус.",
+            parse_mode="Markdown"
+        )
+    elif driver_data[0].upper() == "ACTIVE":
+        fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
+        await message.answer(
+            f"👋 **С возвращением, {fio}!**\n\nВыберите действие:",
+            reply_markup=get_driver_main_menu(),
+            parse_mode="Markdown"
+        )
+    else:
+        await message.answer("⛔ Аккаунт заблокирован. Обратитесь к администратору.")
 
 
 @dp.message(F.text == "📝 Принять оферту и зарегистрироваться")
@@ -372,9 +374,9 @@ async def save_driver_fio(message: types.Message, state: FSMContext):
     success = await asyncio.to_thread(_sync_register_driver, str(message.from_user.id), fio)
     if success:
         await message.answer(
-            f"🎉 **Регистрация завершена!**\n\nДобро пожаловать, **{fio}**!\n"
-            "Теперь вы можете брать заказы и отслеживать свои доставки.",
-            reply_markup=get_driver_main_menu(),
+            f"✅ **Заявка отправлена, {fio}!**\n\n"
+            "Менеджер проверит данные и активирует ваш аккаунт.\n"
+            "Нажмите /start чтобы проверить статус.",
             parse_mode="Markdown"
         )
     else:
@@ -384,16 +386,12 @@ async def save_driver_fio(message: types.Message, state: FSMContext):
 # ─── Хэндлеры: кабинет и отчёт ──────────────────────────────────────────────
 @dp.message(F.text == "📊 Мой кабинет")
 async def open_cabinet(message: types.Message):
-    if not is_authorized_driver(message.from_user.id):
-        await message.answer("⛔ Доступ запрещён.")
+    driver_data = await _get_active_driver(message.from_user.id)
+    if not driver_data:
+        await message.answer("⛔ Доступ запрещён. Нажмите /start.")
         return
     if not DRIVER_WEBAPP_URL:
         await message.answer("⚙️ Кабинет временно недоступен. Обратитесь к администратору.")
-        return
-
-    driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
-    if not driver_data:
-        await message.answer("❌ Вы не зарегистрированы. Нажмите /start.")
         return
 
     fio  = driver_data[2] if len(driver_data) > 2 else "Курьер"
@@ -432,8 +430,8 @@ async def open_cabinet(message: types.Message):
 
 @dp.message(F.text == "📄 Отчёт за месяц")
 async def send_monthly_report(message: types.Message):
-    if not is_authorized_driver(message.from_user.id):
-        await message.answer("⛔ Доступ запрещён.")
+    if not await _get_active_driver(message.from_user.id):
+        await message.answer("⛔ Доступ запрещён. Нажмите /start.")
         return
     if not REPORT_PICKER_URL:
         await message.answer("⚙️ Функция временно недоступна. Обратитесь к администратору.")
@@ -504,8 +502,8 @@ async def handle_report_webapp(message: types.Message):
 # ─── Хэндлеры: биржа заказов ─────────────────────────────────────────────────
 @dp.message(F.text == "🔍 Свободные заказы")
 async def show_jobs(message: types.Message):
-    if not is_authorized_driver(message.from_user.id):
-        await message.answer("⛔ Доступ запрещён.")
+    if not await _get_active_driver(message.from_user.id):
+        await message.answer("⛔ Доступ запрещён. Нажмите /start.")
         return
     free_jobs = await asyncio.to_thread(_sync_get_free_orders)
     if not free_jobs:
@@ -534,16 +532,17 @@ async def show_jobs(message: types.Message):
 # ─── Хэндлеры: управление заказом ────────────────────────────────────────────
 @dp.callback_query(F.data.startswith("take:"))
 async def accept_order(callback: types.CallbackQuery):
-    if not is_authorized_driver(callback.from_user.id):
-        await callback.answer("⛔ Доступ запрещён.", show_alert=True)
+    await callback.answer()
+    if not await _get_active_driver(callback.from_user.id):
+        await callback.message.answer("⛔ Доступ запрещён. Нажмите /start.")
         return
     try:
         row_num = int(callback.data.split(":")[1])
         if row_num < 2:
-            await callback.answer("❌ Некорректный номер заказа.", show_alert=True)
+            await callback.message.answer("❌ Некорректный номер заказа.")
             return
         if not sheet:
-            await callback.answer("❌ База данных недоступна.", show_alert=True)
+            await callback.message.answer("❌ База данных недоступна.")
             return
 
         c_name = callback.from_user.full_name
@@ -554,7 +553,7 @@ async def accept_order(callback: types.CallbackQuery):
 
         success = await asyncio.to_thread(_sync_take_order, row_num, c_name, c_id)
         if not success:
-            await callback.answer("❌ Этот заказ уже забрал другой водитель!", show_alert=True)
+            await callback.message.answer("❌ Этот заказ уже забрал другой водитель!")
             return
 
         b = InlineKeyboardBuilder()
@@ -564,24 +563,24 @@ async def accept_order(callback: types.CallbackQuery):
             "Отправляйтесь на точку забора и нажмите кнопку, когда начнёте погрузку.",
             reply_markup=b.as_markup(), parse_mode="Markdown"
         )
-        await callback.answer()
         if client_chat_id:
             await send_client_push(client_chat_id,
                 f"🚚 **Ваш заказ {order_id} принят курьером!**\n👤 **Курьер:** {c_name}\n\n*Ожидайте погрузки.*")
     except Exception:
         logging.error(f"Сбой take: {traceback.format_exc()}")
-        await callback.answer("❌ Ошибка на сервере. Попробуйте позже.", show_alert=True)
+        await callback.message.answer("❌ Ошибка на сервере. Попробуйте позже.")
 
 
 @dp.callback_query(F.data.startswith("load:"))
 async def load_order(callback: types.CallbackQuery):
-    if not is_authorized_driver(callback.from_user.id):
-        await callback.answer("⛔ Доступ запрещён.", show_alert=True)
+    await callback.answer()
+    if not await _get_active_driver(callback.from_user.id):
+        await callback.message.answer("⛔ Доступ запрещён.")
         return
     try:
         row_num = int(callback.data.split(":")[1])
         if not sheet:
-            await callback.answer("❌ База данных недоступна.", show_alert=True)
+            await callback.message.answer("❌ База данных недоступна.")
             return
         c_name   = callback.from_user.full_name
         row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
@@ -594,23 +593,23 @@ async def load_order(callback: types.CallbackQuery):
             f"📦 **Заказ {order_id}: Погрузка**\n\nСтатус: **[Погрузка]**.\nПосле укомплектовки нажмите кнопку выезда.",
             reply_markup=b.as_markup(), parse_mode="Markdown"
         )
-        await callback.answer()
         if client_chat_id:
             await send_client_push(client_chat_id, f"📦 **Курьер {c_name} начал погрузку вашего заказа {order_id}.**")
     except Exception as e:
         logging.error(f"Ошибка load (строка {row_num}): {e}", exc_info=True)
-        await callback.answer("❌ Ошибка при погрузке. Попробуйте позже.", show_alert=True)
+        await callback.message.answer("❌ Ошибка при погрузке. Попробуйте позже.")
 
 
 @dp.callback_query(F.data.startswith("transit:"))
 async def transit_order(callback: types.CallbackQuery):
-    if not is_authorized_driver(callback.from_user.id):
-        await callback.answer("⛔ Доступ запрещён.", show_alert=True)
+    await callback.answer()
+    if not await _get_active_driver(callback.from_user.id):
+        await callback.message.answer("⛔ Доступ запрещён.")
         return
     try:
         row_num = int(callback.data.split(":")[1])
         if not sheet:
-            await callback.answer("❌ База данных недоступна.", show_alert=True)
+            await callback.message.answer("❌ База данных недоступна.")
             return
         row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
         order_id       = row_vals[1]
@@ -622,23 +621,23 @@ async def transit_order(callback: types.CallbackQuery):
             f"🚚 **Заказ {order_id}: В пути**\n\nСтатус: **[В пути]**.\nКак будете у получателя — нажмите «На месте».",
             reply_markup=b.as_markup(), parse_mode="Markdown"
         )
-        await callback.answer()
         if client_chat_id:
             await send_client_push(client_chat_id, f"🚀 **Ваш заказ {order_id} уже в пути!**")
     except Exception as e:
         logging.error(f"Ошибка transit (строка {row_num}): {e}", exc_info=True)
-        await callback.answer("❌ Ошибка при выезде. Попробуйте позже.", show_alert=True)
+        await callback.message.answer("❌ Ошибка при выезде. Попробуйте позже.")
 
 
 @dp.callback_query(F.data.startswith("arrived:"))
 async def arrived_order(callback: types.CallbackQuery):
-    if not is_authorized_driver(callback.from_user.id):
-        await callback.answer("⛔ Доступ запрещён.", show_alert=True)
+    await callback.answer()
+    if not await _get_active_driver(callback.from_user.id):
+        await callback.message.answer("⛔ Доступ запрещён.")
         return
     try:
         row_num = int(callback.data.split(":")[1])
         if not sheet:
-            await callback.answer("❌ База данных недоступна.", show_alert=True)
+            await callback.message.answer("❌ База данных недоступна.")
             return
         row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
         order_id       = row_vals[1]
@@ -650,23 +649,23 @@ async def arrived_order(callback: types.CallbackQuery):
             f"📍 **Заказ {order_id}: На месте**\n\nСтатус: **[На месте]**.\nПередайте посылку, проверьте оплату.",
             reply_markup=b.as_markup(), parse_mode="Markdown"
         )
-        await callback.answer()
         if client_chat_id:
             await send_client_push(client_chat_id, f"🔔 **Курьер прибыл с вашим заказом {order_id}!**")
     except Exception as e:
         logging.error(f"Ошибка arrived (строка {row_num}): {e}", exc_info=True)
-        await callback.answer("❌ Ошибка при прибытии. Попробуйте позже.", show_alert=True)
+        await callback.message.answer("❌ Ошибка при прибытии. Попробуйте позже.")
 
 
 @dp.callback_query(F.data.startswith("done:"))
 async def finish_order(callback: types.CallbackQuery):
-    if not is_authorized_driver(callback.from_user.id):
-        await callback.answer("⛔ Доступ запрещён.", show_alert=True)
+    await callback.answer()
+    if not await _get_active_driver(callback.from_user.id):
+        await callback.message.answer("⛔ Доступ запрещён.")
         return
     try:
         row_num = int(callback.data.split(":")[1])
         if not sheet:
-            await callback.answer("❌ База данных недоступна.", show_alert=True)
+            await callback.message.answer("❌ База данных недоступна.")
             return
         row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
         order_id       = row_vals[1]
@@ -676,10 +675,9 @@ async def finish_order(callback: types.CallbackQuery):
             f"🏁 **Заказ {order_id} закрыт!**\n\nСтатус: **[Доставлен]**. Отличная работа! 💪",
             reply_markup=None, parse_mode="Markdown"
         )
-        await callback.answer()
         if client_chat_id:
             await send_client_push(client_chat_id,
                 f"✅ **Ваш заказ {order_id} успешно доставлен!**\nСпасибо, что выбрали Mavsimi Rason!")
     except Exception as e:
         logging.error(f"Ошибка done (строка {row_num}): {e}", exc_info=True)
-        await callback.answer("❌ Ошибка при завершении. Попробуйте позже.", show_alert=True)
+        await callback.message.answer("❌ Ошибка при завершении. Попробуйте позже.")
