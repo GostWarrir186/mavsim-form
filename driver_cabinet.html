@@ -190,9 +190,10 @@
     try {
         const raw = new URLSearchParams(window.location.search).get('d');
         if (raw) {
-            const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
-            const pad = '='.repeat((4 - b64.length % 4) % 4);
-            DATA = JSON.parse(atob(b64 + pad));
+            const b64  = raw.replace(/-/g, '+').replace(/_/g, '/');
+            const pad  = '='.repeat((4 - b64.length % 4) % 4);
+            const bytes = Uint8Array.from(atob(b64 + pad), c => c.charCodeAt(0));
+            DATA = JSON.parse(new TextDecoder('utf-8').decode(bytes));
         }
     } catch(e) {
         console.error('Ошибка парсинга данных:', e);
