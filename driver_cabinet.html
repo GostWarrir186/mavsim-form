@@ -188,12 +188,12 @@
     // ─── Загрузка данных из URL hash ────────────────────────────────────────
     let DATA = null;
     try {
-        const hash = window.location.hash.slice(1);
-        const params = new URLSearchParams(hash);
-        const raw = params.get('d');
+        const hash = window.location.hash.slice(1); // "d=<base64>"
+        const raw = hash.startsWith('d=') ? hash.slice(2) : null;
         if (raw) {
             const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
-            DATA = JSON.parse(atob(b64));
+            const pad = '='.repeat((4 - b64.length % 4) % 4);
+            DATA = JSON.parse(atob(b64 + pad));
         }
     } catch(e) {
         console.error('Ошибка парсинга данных:', e);

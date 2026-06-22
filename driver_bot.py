@@ -416,7 +416,7 @@ async def open_cabinet(message: types.Message):
         "deliveries": deliveries,
     }
     raw_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    b64 = base64.urlsafe_b64encode(raw_json.encode()).decode()
+    b64 = base64.urlsafe_b64encode(raw_json.encode()).decode().rstrip("=")
     webapp_url = f"{DRIVER_WEBAPP_URL}#d={b64}"
 
     b = InlineKeyboardBuilder()
