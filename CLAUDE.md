@@ -3,6 +3,79 @@
 
 Before editing any file, read it first. Before modifying a function, grep for all callers. Research before you edit.
 
+# Карта файлов (используй для точечного чтения)
+
+## bot.py — клиентский бот
+| Строка | Что |
+|--------|-----|
+| 19 | FSM: Registration, Support, Feedback |
+| 79 | verify_telegram_init_data |
+| 102 | generate_order_id |
+| 108 | sanitize_for_sheet |
+| 123 | validate_order_data |
+| 142 | _sync_check_user_by_phone |
+| 153 | _sync_check_user_by_chat_id |
+| 164 | _sync_update_profile |
+| 185 | _sync_register_client |
+| 196 | _sync_get_support_topic |
+| 210 | _sync_save_support_topic |
+| 221 | _sync_get_client_by_topic |
+| 239 | cmd_start |
+| 257 | go_main_menu (глобальная кнопка «🔙 Главное меню») |
+| 266 | process_contact (авторизация по телефону) |
+| 306 | start_fio_step (регистрация) |
+| 330 | get_main_menu |
+| 346 | handle_webapp_data (заказы + профиль) |
+| 448 | support_start |
+| 461 | support_send (создаёт/ищет топик) |
+| 506 | support_continue (чат в режиме поддержки) |
+| 527 | support_group_message (ответы менеджера → клиенту) |
+| 557 | feedback_start |
+| 572 | feedback_send |
+
+## driver_bot.py — курьерский бот
+| Строка | Что |
+|--------|-----|
+| 38 | FSM: DriverRegistration, DriverSupport, DriverFeedback |
+| 50 | _get_active_driver |
+| 64 | _month_label |
+| 76 | _sync_get_driver |
+| 88 | _sync_get_driver_support_topic |
+| 102 | _sync_save_driver_support_topic |
+| 113 | _sync_get_driver_by_topic |
+| 127 | _sync_register_driver |
+| 142 | _sync_get_driver_deliveries |
+| 184 | _sync_get_free_orders |
+| 214 | _sync_take_order |
+| 232 | _sync_update_status |
+| 244 | generate_excel_report |
+| 348 | get_driver_main_menu |
+| 369 | driver_go_main_menu (глобальная кнопка «🔙 Главное меню») |
+| 376 | cmd_start_driver |
+| 444 | open_cabinet (кабинет курьера) |
+| 488 | send_monthly_report |
+| 501 | handle_report_webapp (Excel-отчёт) |
+| 560 | show_jobs (биржа заказов) |
+| 590 | accept_order (take) |
+| 631 | load_order |
+| 660 | transit_order |
+| 688 | arrived_order |
+| 716 | finish_order |
+| 745 | driver_support_start |
+| 761 | driver_support_send |
+| 799 | driver_support_continue |
+| 820 | driver_support_group_message (ответы менеджера → курьеру) |
+| 850 | driver_feedback_start |
+| 865 | driver_feedback_send |
+
+## config.py
+| Строка | Что |
+|--------|-----|
+| 19 | client_bot, driver_bot, dispatchers |
+| 32 | gspread init, sheet / drivers_sheet / clients_sheet |
+| 65 | SUPPORT_CHAT_ID, feedback_topic_id |
+| 71 | get_or_create_feedback_topic |
+
 # RTK (Rust Token Killer) - Token-Optimized Commands
 
 ## Golden Rule
