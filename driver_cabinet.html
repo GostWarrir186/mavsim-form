@@ -208,8 +208,7 @@
                 <div class="error-title">Нет данных</div>
                 <div class="error-sub">Откройте кабинет через бота Mavsimi Rason.</div>
             </div>`;
-        return;
-    }
+    } else {
 
     // ─── Утилиты ────────────────────────────────────────────────────────────
     const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь',
@@ -436,6 +435,7 @@
     }
 
     render();
+    } // end else (DATA exists)
 </script>
 </body>
 </html>
