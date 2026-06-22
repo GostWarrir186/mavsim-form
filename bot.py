@@ -26,7 +26,7 @@ class Support(StatesGroup):
 class Feedback(StatesGroup):
     waiting_for_message = State()
 
-WEB_APP_URL = "https://gostwarrir186.github.io/mavsim-form/?v=18"
+WEB_APP_URL = os.getenv("WEB_APP_URL", "https://gostwarrir186.github.io/mavsim-form/web/?v=19")
 LINK_TO_OFFER = "https://www.google.com"
 SUPPORT_CHAT_ID = os.getenv("SUPPORT_CHAT_ID", "")
 

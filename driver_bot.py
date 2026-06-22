@@ -492,9 +492,11 @@ async def send_monthly_report(message: types.Message):
     if not REPORT_PICKER_URL:
         await message.answer("⚙️ Функция временно недоступна. Обратитесь к администратору.")
         return
-    b = InlineKeyboardBuilder()
+    b = ReplyKeyboardBuilder()
     b.button(text="📅 Выбрать период", web_app=types.WebAppInfo(url=REPORT_PICKER_URL))
-    await message.answer("Выберите период для отчёта:", reply_markup=b.as_markup())
+    b.button(text="🔙 Главное меню")
+    b.adjust(1)
+    await message.answer("Выберите период для отчёта:", reply_markup=b.as_markup(resize_keyboard=True, one_time_keyboard=True))
 
 
 @dp.message(F.web_app_data)
