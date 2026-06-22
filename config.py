@@ -31,6 +31,7 @@ sheet_name = os.getenv("GOOGLE_SHEET_NAME", "Заявки Mavsimi Rason")
 
 sheet = None
 drivers_sheet = None
+clients_sheet = None
 try:
     if os.path.exists(creds_path):
         creds = Credentials.from_service_account_file(creds_path, scopes=scope)
@@ -47,6 +48,15 @@ try:
                 "Ставка (TJS)", "Дата оферты", "", ""
             ])
             logging.info("✅ Создан лист 'Водители'")
+
+        try:
+            clients_sheet = spreadsheet.worksheet("Клиенты")
+        except gspread.WorksheetNotFound:
+            clients_sheet = spreadsheet.add_worksheet(title="Клиенты", rows=5000, cols=6)
+            clients_sheet.append_row([
+                "Статус", "Дата рег.", "ФИО", "Телефон", "Адрес забора", "Chat ID"
+            ])
+            logging.info("✅ Создан лист 'Клиенты'")
 
         logging.info("✅ База данных Google Sheets успешно подключена!")
     else:

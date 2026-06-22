@@ -13,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-from config import client_bot as bot, client_dp as dp, sheet, CLIENT_TOKEN
+from config import client_bot as bot, client_dp as dp, sheet, clients_sheet, CLIENT_TOKEN
 
 class Registration(StatesGroup):
     waiting_for_fio = State()
@@ -131,41 +131,38 @@ def validate_order_data(data: dict) -> str | None:
 # --- Синхронные операции с Google Sheets ---
 
 def _sync_check_user_by_phone(phone: str):
-    """Ищет пользователя по номеру телефона (столбец N = 14)."""
-    if not sheet:
+    """Ищет клиента по телефону в листе 'Клиенты' (столбец D = 4)."""
+    if not clients_sheet:
         return None
     try:
-        cell = sheet.find(phone, in_column=14)
-        return sheet.row_values(cell.row) if cell else None
+        cell = clients_sheet.find(phone, in_column=4)
+        return clients_sheet.row_values(cell.row) if cell else None
     except Exception as e:
-        logging.error(f"Ошибка поиска пользователя по телефону {phone}: {e}")
+        logging.error(f"Ошибка поиска клиента по телефону {phone}: {e}")
         return None
 
 def _sync_check_user_by_chat_id(chat_id: str):
-    """Ищет пользователя по Telegram Chat ID (столбец S = 19)."""
-    if not sheet:
+    """Ищет клиента по Chat ID в листе 'Клиенты' (столбец F = 6)."""
+    if not clients_sheet:
         return None
     try:
-        cell = sheet.find(str(chat_id), in_column=19)
-        return sheet.row_values(cell.row) if cell else None
+        cell = clients_sheet.find(str(chat_id), in_column=6)
+        return clients_sheet.row_values(cell.row) if cell else None
     except Exception as e:
-        logging.error(f"Ошибка поиска пользователя по chat_id {chat_id}: {e}")
+        logging.error(f"Ошибка поиска клиента по chat_id {chat_id}: {e}")
         return None
 
 def _sync_update_profile(chat_id: str, new_fio: str, new_address: str) -> bool:
-    """
-    Обновляет профиль пользователя, ища его по chat_id (столбец S = 19).
-    БЕЗОПАСНО: phone берётся из бд по chat_id, не из запроса.
-    """
-    if not sheet:
+    """Обновляет ФИО (C) и адрес забора (E) клиента по Chat ID (F = 6)."""
+    if not clients_sheet:
         return False
     try:
-        cell = sheet.find(str(chat_id), in_column=19)
+        cell = clients_sheet.find(str(chat_id), in_column=6)
         if not cell:
             return False
-        sheet.batch_update([
-            {'range': f'M{cell.row}', 'values': [[new_fio]]},
-            {'range': f'F{cell.row}', 'values': [[new_address or '']]},
+        clients_sheet.batch_update([
+            {'range': f'C{cell.row}', 'values': [[new_fio]]},
+            {'range': f'E{cell.row}', 'values': [[new_address or '']]},
         ])
         return True
     except Exception as e:
@@ -175,6 +172,17 @@ def _sync_update_profile(chat_id: str, new_fio: str, new_address: str) -> bool:
 def _sync_append_row(row_data: list):
     if sheet:
         sheet.append_row(row_data)
+
+def _sync_register_client(chat_id: str, fio: str, phone: str) -> bool:
+    if not clients_sheet:
+        return False
+    try:
+        now = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5)).strftime("%d.%m.%Y %H:%M")
+        clients_sheet.append_row(["ACTIVE", now, fio, phone, "", str(chat_id)])
+        return True
+    except Exception as e:
+        logging.error(f"Ошибка регистрации клиента chat_id={chat_id}: {e}")
+        return False
 
 
 # --- Хэндлеры ---
@@ -208,7 +216,7 @@ async def process_contact(message: types.Message, state: FSMContext):
 
     if user_data:
         # ФИО из столбца M (индекс 12)
-        fio = user_data[12] if len(user_data) > 12 else "Пользователь"
+        fio = user_data[2] if len(user_data) > 2 else "Пользователь"
         menu_text = (
             f"👋 **Мо хурсандем, ки шуморо боз дидем, {fio}!**\n\n"
             f"───────────────────────\n\n"
@@ -253,13 +261,7 @@ async def save_fio(message: types.Message, state: FSMContext):
         await message.answer("❌ Сессия истекла. Нажмите /start и авторизуйтесь снова.")
         return
 
-    now = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5)).strftime("%d.%m.%Y %H:%M")
-
-    new_user = [
-        "ACTIVE", "", now, "", "", "", "", "", "", "",
-        "", "", fio, phone, "", "", "bot_reg", "", str(message.chat.id), ""
-    ]
-    await asyncio.to_thread(_sync_append_row, new_user)
+    await asyncio.to_thread(_sync_register_client, str(message.chat.id), fio, phone)
 
     success_text = f"🎉 **Бақайдгирӣ анҷом ёфт! / Регистрация завершена!**\n\nРады вас видеть, **{fio}**!"
     await message.answer(
@@ -304,7 +306,7 @@ async def handle_webapp_data(message: types.Message):
             if success:
                 # Получаем актуальный телефон из базы для меню
                 user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
-                phone_from_db = user_data[13] if user_data and len(user_data) > 13 else ""
+                phone_from_db = user_data[3] if user_data and len(user_data) > 3 else ""
                 await message.answer(
                     f"✅ **Данные профиля успешно обновлены!**\n\n"
                     f"• **Новое ФИО:** {updated_fio}\n"
