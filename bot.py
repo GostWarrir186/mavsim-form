@@ -4,6 +4,8 @@ import hmac
 import hashlib
 import json
 import logging
+import os
+import re
 import urllib.parse
 import uuid
 
@@ -18,8 +20,12 @@ from config import client_bot as bot, client_dp as dp, sheet, clients_sheet, CLI
 class Registration(StatesGroup):
     waiting_for_fio = State()
 
+class Support(StatesGroup):
+    waiting_for_message = State()
+
 WEB_APP_URL = "https://gostwarrir186.github.io/mavsim-form/?v=18"
 LINK_TO_OFFER = "https://www.google.com"
+SUPPORT_CHAT_ID = os.getenv("SUPPORT_CHAT_ID", "")
 
 RECEIPTS = {
     "ru": (
@@ -280,6 +286,8 @@ def get_main_menu(fio: str, phone: str):
         text="📦 Оформить доставку / Ороиши дархост",
         web_app=types.WebAppInfo(url=final_url)
     ))
+    builder.add(types.KeyboardButton(text="📞 Поддержка / Дастгирӣ"))
+    builder.adjust(1)
     return builder.as_markup(resize_keyboard=True)
 
 @dp.message(F.web_app_data)
@@ -380,3 +388,67 @@ async def handle_webapp_data(message: types.Message):
     except Exception as e:
         logging.error(f"Критическая ошибка обработки webapp_data: {e}", exc_info=True)
         await message.answer("❌ Системная ошибка обработки формы. Попробуйте позже.")
+
+
+# ─── Поддержка ───────────────────────────────────────────────────────────────
+
+@dp.message(F.text == "📞 Поддержка / Дастгирӣ")
+async def support_start(message: types.Message, state: FSMContext):
+    if not SUPPORT_CHAT_ID:
+        await message.answer("⚙️ Поддержка временно недоступна.")
+        return
+    await message.answer(
+        "📞 **Напишите ваш вопрос или проблему:**\n\nМы ответим в ближайшее время.",
+        reply_markup=types.ReplyKeyboardRemove(),
+        parse_mode="Markdown"
+    )
+    await state.set_state(Support.waiting_for_message)
+
+
+@dp.message(Support.waiting_for_message)
+async def support_send(message: types.Message, state: FSMContext):
+    await state.clear()
+    user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
+    fio   = user_data[2] if user_data and len(user_data) > 2 else "Неизвестно"
+    phone = user_data[3] if user_data and len(user_data) > 3 else "Неизвестно"
+
+    text = (
+        f"📨 **Обращение в поддержку**\n"
+        f"👤 {fio} | {phone}\n"
+        f"🆔 `{message.chat.id}`\n"
+        f"───────────────\n"
+        f"{message.text}"
+    )
+    try:
+        await bot.send_message(chat_id=int(SUPPORT_CHAT_ID), text=text, parse_mode="Markdown")
+        await message.answer(
+            "✅ Обращение отправлено! Мы ответим вам в ближайшее время.",
+            reply_markup=get_main_menu(fio, phone),
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logging.error(f"Ошибка отправки обращения в поддержку: {e}")
+        await message.answer("❌ Ошибка. Попробуйте позже.", reply_markup=get_main_menu(fio, phone))
+
+
+@dp.message(F.reply_to_message)
+async def support_reply(message: types.Message):
+    if not SUPPORT_CHAT_ID or str(message.chat.id) != str(SUPPORT_CHAT_ID):
+        return
+    original = message.reply_to_message
+    if not original or not original.text:
+        return
+    match = re.search(r'🆔 `(\d+)`', original.text)
+    if not match:
+        return
+    client_chat_id = int(match.group(1))
+    try:
+        await bot.send_message(
+            chat_id=client_chat_id,
+            text=f"💬 **Ответ от поддержки:**\n\n{message.text}",
+            parse_mode="Markdown"
+        )
+        await message.reply("✅ Ответ отправлен клиенту.")
+    except Exception as e:
+        logging.error(f"Ошибка отправки ответа клиенту {client_chat_id}: {e}")
+        await message.reply(f"❌ Не удалось отправить клиенту.")
