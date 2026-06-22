@@ -17,13 +17,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
-from config import driver_bot as bot, client_bot, driver_dp as dp, sheet, drivers_sheet
+from config import driver_bot as bot, client_bot, driver_dp as dp, sheet, drivers_sheet, get_or_create_feedback_topic
 
 # ─── Конфигурация ───────────────────────────────────────────────────────────
 DRIVER_WEBAPP_URL = os.getenv("DRIVER_WEBAPP_URL", "")
 REPORT_PICKER_URL = os.getenv("REPORT_PICKER_URL", "")
 DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "15.0"))
 LINK_TO_DRIVER_OFFER = os.getenv("DRIVER_OFFER_URL", "https://www.google.com")
+SUPPORT_CHAT_ID = os.getenv("SUPPORT_CHAT_ID", "")
 
 DUSHANBE_TZ = timezone(timedelta(hours=5))
 
@@ -36,6 +37,13 @@ RU_MONTHS = {
 
 class DriverRegistration(StatesGroup):
     waiting_for_fio = State()
+
+class DriverSupport(StatesGroup):
+    waiting_for_message = State()
+    chatting = State()
+
+class DriverFeedback(StatesGroup):
+    waiting_for_message = State()
 
 
 # ─── Вспомогательные функции ────────────────────────────────────────────────
@@ -76,6 +84,45 @@ def _sync_get_driver(chat_id: str) -> list | None:
         logging.error(f"Ошибка поиска водителя {chat_id}: {e}")
         return None
 
+
+def _sync_get_driver_support_topic(chat_id: str) -> str | None:
+    """Возвращает topic_id из колонки G(7) листа Водители."""
+    if not drivers_sheet:
+        return None
+    try:
+        cell = drivers_sheet.find(str(chat_id), in_column=4)
+        if not cell:
+            return None
+        row = drivers_sheet.row_values(cell.row)
+        return row[6] if len(row) > 6 and row[6] else None
+    except Exception as e:
+        logging.error(f"Ошибка получения driver support_topic для chat_id={chat_id}: {e}")
+        return None
+
+def _sync_save_driver_support_topic(chat_id: str, topic_id: int) -> None:
+    """Сохраняет topic_id в колонку G(7) листа Водители."""
+    if not drivers_sheet:
+        return
+    try:
+        cell = drivers_sheet.find(str(chat_id), in_column=4)
+        if cell:
+            drivers_sheet.update_cell(cell.row, 7, str(topic_id))
+    except Exception as e:
+        logging.error(f"Ошибка сохранения driver support_topic для chat_id={chat_id}: {e}")
+
+def _sync_get_driver_by_topic(topic_id: str) -> str | None:
+    """Ищет telegram_id водителя по topic_id из колонки G(7) листа Водители."""
+    if not drivers_sheet:
+        return None
+    try:
+        cell = drivers_sheet.find(str(topic_id), in_column=7)
+        if not cell:
+            return None
+        row = drivers_sheet.row_values(cell.row)
+        return row[3] if len(row) > 3 else None
+    except Exception as e:
+        logging.error(f"Ошибка поиска водителя по topic_id={topic_id}: {e}")
+        return None
 
 def _sync_register_driver(chat_id: str, fio: str) -> bool:
     if not drivers_sheet:
@@ -303,6 +350,8 @@ def get_driver_main_menu():
     b.button(text="🔍 Свободные заказы")
     b.button(text="📊 Мой кабинет")
     b.button(text="📄 Отчёт за месяц")
+    b.button(text="📞 Поддержка")
+    b.button(text="💡 Обратная связь")
     b.adjust(1)
     return b.as_markup(resize_keyboard=True)
 
@@ -313,6 +362,13 @@ async def send_client_push(chat_id: str, text: str):
             await client_bot.send_message(chat_id=int(chat_id), text=text, parse_mode="Markdown")
         except Exception as e:
             logging.error(f"Не удалось отправить пуш клиенту {chat_id}: {e}")
+
+
+# ─── Хэндлеры: глобальная навигация ─────────────────────────────────────────
+@dp.message(F.text == "🔙 Главное меню")
+async def driver_go_main_menu(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("👋 Выберите действие:", reply_markup=get_driver_main_menu())
 
 
 # ─── Хэндлеры: регистрация ───────────────────────────────────────────────────
@@ -443,7 +499,7 @@ async def send_monthly_report(message: types.Message):
 
 @dp.message(F.web_app_data)
 async def handle_report_webapp(message: types.Message):
-    if not is_authorized_driver(message.from_user.id):
+    if not await _get_active_driver(message.from_user.id):
         return
     try:
         data = json.loads(message.web_app_data.data)
@@ -681,3 +737,159 @@ async def finish_order(callback: types.CallbackQuery):
     except Exception as e:
         logging.error(f"Ошибка done (строка {row_num}): {e}", exc_info=True)
         await callback.message.answer("❌ Ошибка при завершении. Попробуйте позже.")
+
+
+# ─── Поддержка курьеров (Topics) ─────────────────────────────────────────────
+
+@dp.message(F.text == "📞 Поддержка")
+async def driver_support_start(message: types.Message, state: FSMContext):
+    if not await _get_active_driver(message.from_user.id):
+        await message.answer("⛔ Доступ запрещён. Нажмите /start.")
+        return
+    if not SUPPORT_CHAT_ID:
+        await message.answer("⚙️ Поддержка временно недоступна.")
+        return
+    await message.answer(
+        "📞 <b>Напишите ваш вопрос или проблему:</b>\n\nМы ответим в ближайшее время.",
+        reply_markup=types.ReplyKeyboardRemove(),
+        parse_mode="HTML"
+    )
+    await state.set_state(DriverSupport.waiting_for_message)
+
+
+@dp.message(DriverSupport.waiting_for_message)
+async def driver_support_send(message: types.Message, state: FSMContext):
+    driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+    fio = driver_data[2] if driver_data and len(driver_data) > 2 else "Курьер"
+    chat_id_str = str(message.from_user.id)
+
+    try:
+        topic_id_str = await asyncio.to_thread(_sync_get_driver_support_topic, chat_id_str)
+        if topic_id_str:
+            topic_id = int(topic_id_str)
+        else:
+            topic = await bot.create_forum_topic(
+                chat_id=int(SUPPORT_CHAT_ID),
+                name=f"🚗 Курьер: {fio}"
+            )
+            topic_id = topic.message_thread_id
+            await asyncio.to_thread(_sync_save_driver_support_topic, chat_id_str, topic_id)
+
+        await bot.send_message(
+            chat_id=int(SUPPORT_CHAT_ID),
+            message_thread_id=topic_id,
+            text=f"🚗 <b>Курьер:</b> {message.text}",
+            parse_mode="HTML"
+        )
+        back_kb = ReplyKeyboardBuilder()
+        back_kb.button(text="🔙 Главное меню")
+        await state.update_data(fio=fio, topic_id=topic_id)
+        await state.set_state(DriverSupport.chatting)
+        await message.answer(
+            "✅ Отправлено! Менеджер ответит здесь.\n\nМожете написать ещё или вернуться в меню.",
+            reply_markup=back_kb.as_markup(resize_keyboard=True),
+        )
+    except Exception as e:
+        await state.clear()
+        logging.error(f"Ошибка поддержки курьера (SUPPORT_CHAT_ID={SUPPORT_CHAT_ID}): {type(e).__name__}: {e}")
+        await message.answer("❌ Ошибка. Попробуйте позже.", reply_markup=get_driver_main_menu())
+
+
+@dp.message(DriverSupport.chatting)
+async def driver_support_continue(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    topic_id = data.get("topic_id")
+    if not topic_id:
+        await state.clear()
+        await message.answer("❌ Сессия истекла. Нажмите кнопку поддержки снова.", reply_markup=get_driver_main_menu())
+        return
+
+    try:
+        await bot.send_message(
+            chat_id=int(SUPPORT_CHAT_ID),
+            message_thread_id=topic_id,
+            text=f"🚗 <b>Курьер:</b> {message.text}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Ошибка отправки сообщения курьера в топик: {type(e).__name__}: {e}")
+        await message.answer("❌ Не удалось отправить. Попробуйте позже.")
+
+
+@dp.message(F.chat.type.in_({"group", "supergroup"}))
+async def driver_support_group_message(message: types.Message):
+    """Пересылает ответы менеджеров из топиков поддержки курьерам."""
+    if not SUPPORT_CHAT_ID or str(message.chat.id) != str(SUPPORT_CHAT_ID):
+        return
+    if not message.message_thread_id:
+        return
+    if not message.from_user or message.from_user.is_bot:
+        return
+    if not message.text:
+        return
+
+    driver_telegram_id = await asyncio.to_thread(
+        _sync_get_driver_by_topic, str(message.message_thread_id)
+    )
+    if not driver_telegram_id:
+        return
+
+    try:
+        await bot.send_message(
+            chat_id=int(driver_telegram_id),
+            text=f"💬 <b>Ответ от поддержки:</b>\n\n{message.text}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Ошибка отправки ответа курьеру {driver_telegram_id}: {type(e).__name__}: {e}")
+
+
+# ─── Обратная связь ───────────────────────────────────────────────────────────
+
+@dp.message(F.text == "💡 Обратная связь")
+async def driver_feedback_start(message: types.Message, state: FSMContext):
+    if not SUPPORT_CHAT_ID:
+        await message.answer("⚙️ Обратная связь временно недоступна.")
+        return
+    await message.answer(
+        "💡 <b>Обратная связь</b>\n\n"
+        "Опишите баг, косяк или предложение по улучшению бота.\n"
+        "Постарайтесь написать подробно — это поможет нам стать лучше 🙏",
+        reply_markup=types.ReplyKeyboardRemove(),
+        parse_mode="HTML"
+    )
+    await state.set_state(DriverFeedback.waiting_for_message)
+
+
+@dp.message(DriverFeedback.waiting_for_message)
+async def driver_feedback_send(message: types.Message, state: FSMContext):
+    await state.clear()
+    driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+    fio = driver_data[2] if driver_data and len(driver_data) > 2 else "Курьер"
+
+    topic_id = await get_or_create_feedback_topic(bot)
+    if not topic_id:
+        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=get_driver_main_menu())
+        return
+
+    text = (
+        f"💡 <b>Обратная связь [Курьер]</b>\n"
+        f"👤 {fio}\n"
+        f"🆔 <code>{message.from_user.id}</code>\n"
+        f"───────────────\n"
+        f"{message.text}"
+    )
+    try:
+        await bot.send_message(
+            chat_id=int(SUPPORT_CHAT_ID),
+            message_thread_id=topic_id,
+            text=text,
+            parse_mode="HTML"
+        )
+        await message.answer(
+            "✅ Спасибо! Ваш отзыв получен — мы обязательно его рассмотрим.",
+            reply_markup=get_driver_main_menu(),
+        )
+    except Exception as e:
+        logging.error(f"Ошибка отправки обратной связи курьера: {type(e).__name__}: {e}")
+        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=get_driver_main_menu())

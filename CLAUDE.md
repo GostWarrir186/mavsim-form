@@ -1,4 +1,8 @@
 <!-- rtk-instructions v2 -->
+# Правила работы с кодом
+
+Before editing any file, read it first. Before modifying a function, grep for all callers. Research before you edit.
+
 # RTK (Rust Token Killer) - Token-Optimized Commands
 
 ## Golden Rule

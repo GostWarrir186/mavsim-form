@@ -5,6 +5,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 load_dotenv()
@@ -65,3 +66,35 @@ try:
 except Exception as e:
     logging.critical(f"❌ Критическая ошибка подключения к Google Таблицам: {e}")
     sys.exit(1)
+
+SUPPORT_CHAT_ID: str = os.getenv("SUPPORT_CHAT_ID", "")
+
+# Общий топик обратной связи — шарится обоими ботами в одном процессе
+feedback_topic_id: Optional[int] = None
+
+
+async def get_or_create_feedback_topic(bot_instance: Bot) -> Optional[int]:
+    """Возвращает topic_id топика обратной связи. Создаёт его при первом вызове."""
+    global feedback_topic_id
+    if feedback_topic_id:
+        return feedback_topic_id
+    env_id = os.getenv("FEEDBACK_TOPIC_ID", "")
+    if env_id:
+        feedback_topic_id = int(env_id)
+        return feedback_topic_id
+    if not SUPPORT_CHAT_ID:
+        return None
+    try:
+        topic = await bot_instance.create_forum_topic(
+            chat_id=int(SUPPORT_CHAT_ID),
+            name="📋 Обратная связь"
+        )
+        feedback_topic_id = topic.message_thread_id
+        logging.info(
+            f"✅ Создан топик обратной связи ID={feedback_topic_id}. "
+            f"Добавьте в .env: FEEDBACK_TOPIC_ID={feedback_topic_id}"
+        )
+        return feedback_topic_id
+    except Exception as e:
+        logging.error(f"Ошибка создания топика обратной связи: {e}")
+        return None

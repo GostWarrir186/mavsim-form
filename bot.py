@@ -5,7 +5,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import urllib.parse
 import uuid
 
@@ -15,12 +14,16 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-from config import client_bot as bot, client_dp as dp, sheet, clients_sheet, CLIENT_TOKEN
+from config import client_bot as bot, client_dp as dp, sheet, clients_sheet, CLIENT_TOKEN, get_or_create_feedback_topic
 
 class Registration(StatesGroup):
     waiting_for_fio = State()
 
 class Support(StatesGroup):
+    waiting_for_message = State()
+    chatting = State()
+
+class Feedback(StatesGroup):
     waiting_for_message = State()
 
 WEB_APP_URL = "https://gostwarrir186.github.io/mavsim-form/?v=18"
@@ -184,11 +187,50 @@ def _sync_register_client(chat_id: str, fio: str, phone: str) -> bool:
         return False
     try:
         now = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5)).strftime("%d.%m.%Y %H:%M")
-        clients_sheet.append_row(["ACTIVE", now, fio, phone, "", str(chat_id)])
+        clients_sheet.append_row(["ACTIVE", now, fio, phone, "", str(chat_id), ""])
         return True
     except Exception as e:
         logging.error(f"Ошибка регистрации клиента chat_id={chat_id}: {e}")
         return False
+
+def _sync_get_support_topic(chat_id: str) -> str | None:
+    """Возвращает topic_id из колонки G(7) листа Клиенты."""
+    if not clients_sheet:
+        return None
+    try:
+        cell = clients_sheet.find(str(chat_id), in_column=6)
+        if not cell:
+            return None
+        row = clients_sheet.row_values(cell.row)
+        return row[6] if len(row) > 6 and row[6] else None
+    except Exception as e:
+        logging.error(f"Ошибка получения support_topic для chat_id={chat_id}: {e}")
+        return None
+
+def _sync_save_support_topic(chat_id: str, topic_id: int) -> None:
+    """Сохраняет topic_id в колонку G(7) листа Клиенты."""
+    if not clients_sheet:
+        return
+    try:
+        cell = clients_sheet.find(str(chat_id), in_column=6)
+        if cell:
+            clients_sheet.update_cell(cell.row, 7, str(topic_id))
+    except Exception as e:
+        logging.error(f"Ошибка сохранения support_topic для chat_id={chat_id}: {e}")
+
+def _sync_get_client_by_topic(topic_id: str) -> str | None:
+    """Ищет chat_id клиента по topic_id из колонки G(7) листа Клиенты."""
+    if not clients_sheet:
+        return None
+    try:
+        cell = clients_sheet.find(str(topic_id), in_column=7)
+        if not cell:
+            return None
+        row = clients_sheet.row_values(cell.row)
+        return row[5] if len(row) > 5 else None
+    except Exception as e:
+        logging.error(f"Ошибка поиска клиента по topic_id={topic_id}: {e}")
+        return None
 
 
 # --- Хэндлеры ---
@@ -210,6 +252,15 @@ async def cmd_start(message: types.Message, state: FSMContext):
         reply_markup=builder.as_markup(resize_keyboard=True),
         parse_mode="Markdown"
     )
+
+@dp.message(F.text == "🔙 Главное меню")
+async def go_main_menu(message: types.Message, state: FSMContext):
+    await state.clear()
+    user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
+    fio   = user_data[2] if user_data and len(user_data) > 2 else "Пользователь"
+    phone = user_data[3] if user_data and len(user_data) > 3 else ""
+    await message.answer("👋 Главное меню:", reply_markup=get_main_menu(fio, phone))
+
 
 @dp.message(F.contact)
 async def process_contact(message: types.Message, state: FSMContext):
@@ -287,6 +338,7 @@ def get_main_menu(fio: str, phone: str):
         web_app=types.WebAppInfo(url=final_url)
     ))
     builder.add(types.KeyboardButton(text="📞 Поддержка / Дастгирӣ"))
+    builder.add(types.KeyboardButton(text="💡 Обратная связь"))
     builder.adjust(1)
     return builder.as_markup(resize_keyboard=True)
 
@@ -390,7 +442,7 @@ async def handle_webapp_data(message: types.Message):
         await message.answer("❌ Системная ошибка обработки формы. Попробуйте позже.")
 
 
-# ─── Поддержка ───────────────────────────────────────────────────────────────
+# ─── Поддержка (Topics) ──────────────────────────────────────────────────────
 
 @dp.message(F.text == "📞 Поддержка / Дастгирӣ")
 async def support_start(message: types.Message, state: FSMContext):
@@ -398,57 +450,154 @@ async def support_start(message: types.Message, state: FSMContext):
         await message.answer("⚙️ Поддержка временно недоступна.")
         return
     await message.answer(
-        "📞 **Напишите ваш вопрос или проблему:**\n\nМы ответим в ближайшее время.",
+        "📞 <b>Напишите ваш вопрос или проблему:</b>\n\nМы ответим в ближайшее время.",
         reply_markup=types.ReplyKeyboardRemove(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
     await state.set_state(Support.waiting_for_message)
 
 
 @dp.message(Support.waiting_for_message)
 async def support_send(message: types.Message, state: FSMContext):
+    user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
+    fio   = user_data[2] if user_data and len(user_data) > 2 else "Неизвестно"
+    phone = user_data[3] if user_data and len(user_data) > 3 else "Неизвестно"
+    chat_id_str = str(message.chat.id)
+
+    topic_id = None
+    try:
+        topic_id_str = await asyncio.to_thread(_sync_get_support_topic, chat_id_str)
+        if topic_id_str:
+            topic_id = int(topic_id_str)
+        else:
+            topic = await bot.create_forum_topic(
+                chat_id=int(SUPPORT_CHAT_ID),
+                name=f"{fio} | {phone}"
+            )
+            topic_id = topic.message_thread_id
+            await asyncio.to_thread(_sync_save_support_topic, chat_id_str, topic_id)
+
+        await bot.send_message(
+            chat_id=int(SUPPORT_CHAT_ID),
+            message_thread_id=topic_id,
+            text=f"📨 <b>Клиент:</b> {message.text}",
+            parse_mode="HTML"
+        )
+        back_kb = ReplyKeyboardBuilder()
+        back_kb.button(text="🔙 Главное меню")
+        await state.update_data(fio=fio, phone=phone, topic_id=topic_id)
+        await state.set_state(Support.chatting)
+        await message.answer(
+            "✅ Отправлено! Менеджер ответит здесь.\n\nМожете написать ещё или вернуться в меню.",
+            reply_markup=back_kb.as_markup(resize_keyboard=True),
+        )
+    except Exception as e:
+        logging.error(f"Ошибка поддержки (SUPPORT_CHAT_ID={SUPPORT_CHAT_ID}): {type(e).__name__}: {e}")
+        if topic_id:
+            # топик создан, но отправка не удалась — сохраняем state чтобы не создавать дубль
+            await state.update_data(fio=fio, phone=phone, topic_id=topic_id)
+            await state.set_state(Support.chatting)
+        else:
+            await state.clear()
+        await message.answer("❌ Ошибка. Попробуйте позже.", reply_markup=get_main_menu(fio, phone))
+
+
+@dp.message(Support.chatting)
+async def support_continue(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    topic_id = data.get("topic_id")
+    if not topic_id:
+        await state.clear()
+        await message.answer("❌ Сессия истекла. Нажмите кнопку поддержки снова.")
+        return
+
+    try:
+        await bot.send_message(
+            chat_id=int(SUPPORT_CHAT_ID),
+            message_thread_id=topic_id,
+            text=f"📨 <b>Клиент:</b> {message.text}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Ошибка отправки в топик: {type(e).__name__}: {e}")
+        await message.answer("❌ Не удалось отправить. Попробуйте позже.")
+
+
+@dp.message(F.chat.type.in_({"group", "supergroup"}))
+async def support_group_message(message: types.Message):
+    """Пересылает ответы менеджеров из топиков поддержки клиентам."""
+    if not SUPPORT_CHAT_ID or str(message.chat.id) != str(SUPPORT_CHAT_ID):
+        return
+    if not message.message_thread_id:
+        return
+    if not message.from_user or message.from_user.is_bot:
+        return
+    if not message.text:
+        return
+
+    client_chat_id = await asyncio.to_thread(
+        _sync_get_client_by_topic, str(message.message_thread_id)
+    )
+    if not client_chat_id:
+        return
+
+    try:
+        await bot.send_message(
+            chat_id=int(client_chat_id),
+            text=f"💬 <b>Ответ от поддержки:</b>\n\n{message.text}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Ошибка отправки ответа клиенту {client_chat_id}: {type(e).__name__}: {e}")
+
+
+# ─── Обратная связь ───────────────────────────────────────────────────────────
+
+@dp.message(F.text == "💡 Обратная связь")
+async def feedback_start(message: types.Message, state: FSMContext):
+    if not SUPPORT_CHAT_ID:
+        await message.answer("⚙️ Обратная связь временно недоступна.")
+        return
+    await message.answer(
+        "💡 <b>Обратная связь</b>\n\n"
+        "Опишите баг, косяк или предложение по улучшению бота.\n"
+        "Постарайтесь написать подробно — это поможет нам стать лучше 🙏",
+        reply_markup=types.ReplyKeyboardRemove(),
+        parse_mode="HTML"
+    )
+    await state.set_state(Feedback.waiting_for_message)
+
+
+@dp.message(Feedback.waiting_for_message)
+async def feedback_send(message: types.Message, state: FSMContext):
     await state.clear()
     user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
     fio   = user_data[2] if user_data and len(user_data) > 2 else "Неизвестно"
     phone = user_data[3] if user_data and len(user_data) > 3 else "Неизвестно"
 
+    topic_id = await get_or_create_feedback_topic(bot)
+    if not topic_id:
+        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=get_main_menu(fio, phone))
+        return
+
     text = (
-        f"📨 **Обращение в поддержку**\n"
+        f"💡 <b>Обратная связь [Клиент]</b>\n"
         f"👤 {fio} | {phone}\n"
-        f"🆔 `{message.chat.id}`\n"
+        f"🆔 <code>{message.chat.id}</code>\n"
         f"───────────────\n"
         f"{message.text}"
     )
     try:
-        await bot.send_message(chat_id=int(SUPPORT_CHAT_ID), text=text, parse_mode="Markdown")
-        await message.answer(
-            "✅ Обращение отправлено! Мы ответим вам в ближайшее время.",
-            reply_markup=get_main_menu(fio, phone),
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logging.error(f"Ошибка отправки обращения в поддержку: {e}")
-        await message.answer("❌ Ошибка. Попробуйте позже.", reply_markup=get_main_menu(fio, phone))
-
-
-@dp.message(F.reply_to_message)
-async def support_reply(message: types.Message):
-    if not SUPPORT_CHAT_ID or str(message.chat.id) != str(SUPPORT_CHAT_ID):
-        return
-    original = message.reply_to_message
-    if not original or not original.text:
-        return
-    match = re.search(r'🆔 `(\d+)`', original.text)
-    if not match:
-        return
-    client_chat_id = int(match.group(1))
-    try:
         await bot.send_message(
-            chat_id=client_chat_id,
-            text=f"💬 **Ответ от поддержки:**\n\n{message.text}",
-            parse_mode="Markdown"
+            chat_id=int(SUPPORT_CHAT_ID),
+            message_thread_id=topic_id,
+            text=text,
+            parse_mode="HTML"
         )
-        await message.reply("✅ Ответ отправлен клиенту.")
+        await message.answer(
+            "✅ Спасибо! Ваш отзыв получен — мы обязательно его рассмотрим.",
+            reply_markup=get_main_menu(fio, phone),
+        )
     except Exception as e:
-        logging.error(f"Ошибка отправки ответа клиенту {client_chat_id}: {e}")
-        await message.reply(f"❌ Не удалось отправить клиенту.")
+        logging.error(f"Ошибка отправки обратной связи: {type(e).__name__}: {e}")
+        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=get_main_menu(fio, phone))
