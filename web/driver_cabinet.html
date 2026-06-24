@@ -157,6 +157,15 @@
         .s-arrived    { background: #e0f7fa; color: #00695c; }
         .s-new        { background: #e3f2fd; color: #1565c0; }
 
+        /* ─── Report Button ─── */
+        .btn-report {
+            width: 100%; padding: 14px; border: none; border-radius: var(--radius);
+            background: var(--success-grad); color: #fff;
+            font-size: 14px; font-weight: 700; cursor: pointer; margin-bottom: 14px;
+            display: flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .btn-report:active { opacity: .85; }
+
         /* ─── Empty ─── */
         .empty {
             text-align: center; padding: 40px 20px; color: var(--hint);
@@ -404,6 +413,13 @@
             </div>
         </div>
 
+        <!-- Report Button -->
+        <div class="section">
+            <button class="btn-report" onclick="downloadReport()">
+                📄 Скачать отчёт за ${renderWeekLabel()}
+            </button>
+        </div>
+
         <!-- Deliveries -->
         <div class="section">
             <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
@@ -414,6 +430,12 @@
             </div>
             ${deliveriesHtml}
         </div>`;
+    }
+
+    // ─── Отчёт ──────────────────────────────────────────────────────────────
+    function downloadReport() {
+        const ws = isoFromDate(weekStart);
+        tg.sendData(JSON.stringify({ action: 'generate_report', week_start: ws }));
     }
 
     // ─── Действия ───────────────────────────────────────────────────────────
