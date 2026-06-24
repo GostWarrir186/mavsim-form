@@ -89,6 +89,26 @@
         }
         .btn-reassign:active { background: rgba(36,129,204,.2); }
 
+        /* New order (awaiting manager approval) */
+        .new-card {
+            background: var(--bg); border-radius: var(--r);
+            margin-bottom: 8px; padding: 11px 14px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.05);
+            border-left: 3px solid var(--danger);
+        }
+        .new-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .new-order-id { font-size: 12px; font-weight: 700; }
+        .new-pill { background: rgba(229,57,53,.1); color: var(--danger); font-size: 9.5px; font-weight: 700; padding: 3px 8px; border-radius: 20px; }
+        .new-route { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+        .new-route .arr { color: var(--hint); font-size: 10px; margin: 0 3px; }
+        .new-meta { font-size: 10.5px; color: var(--hint); margin-bottom: 8px; }
+        .btn-accept {
+            width: 100%; padding: 9px; border: none; border-radius: 8px;
+            background: rgba(43,202,128,.15); color: var(--success);
+            font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s;
+        }
+        .btn-accept:active { background: rgba(43,202,128,.3); }
+
         /* Free order */
         .free-card {
             background: var(--bg); border-radius: var(--r);
@@ -364,6 +384,23 @@
         </div>`;
     }
 
+    function renderNewCard(o) {
+        return `
+        <div class="new-card">
+            <div class="new-card-top">
+                <span class="new-order-id">№ ${o.id}</span>
+                <span class="new-pill">⏳ Новый</span>
+            </div>
+            <div class="new-route">${o.city_from}<span class="arr">→</span>${o.city_to}</div>
+            <div class="new-meta">👤 ${o.s_name || '—'} &nbsp;·&nbsp; 💰 ${o.price} TJS</div>
+            <button class="btn-accept" onclick="acceptOrder(${o.row},'${o.id}')">✅ Принять в доставку</button>
+        </div>`;
+    }
+
+    function acceptOrder(orderRow, orderId) {
+        tg.sendData(JSON.stringify({ action: 'set_ready', order_id: orderId, order_row: orderRow }));
+    }
+
     function renderFreeCard(o) {
         return `
         <div class="free-card">
@@ -416,11 +453,28 @@
     function render() {
         const orders   = DATA.orders   || [];
         const free     = DATA.free     || [];
+        const newOrds  = DATA.new      || [];
         const couriers = DATA.couriers || [];
         const busy     = couriers.filter(c => c.busy).length;
 
         const { start, end } = getWeekDates(weekOffset);
         const wLabel = weekLabel(start, end);
+
+        const birzhaCount = newOrds.length + free.length;
+
+        let birzhaHtml = '';
+        if (!newOrds.length && !free.length) {
+            birzhaHtml = '<div class="empty"><div class="empty-icon">🕳️</div><div class="empty-text">Нет заказов</div></div>';
+        } else {
+            if (newOrds.length) {
+                birzhaHtml += `<div class="section-lbl">⏳ Ожидают подтверждения (${newOrds.length})</div>`;
+                birzhaHtml += newOrds.map(renderNewCard).join('');
+            }
+            if (free.length) {
+                birzhaHtml += `<div class="section-lbl" style="margin-top:${newOrds.length ? 12 : 2}px">📋 На бирже (${free.length})</div>`;
+                birzhaHtml += free.map(renderFreeCard).join('');
+            }
+        }
 
         app.innerHTML = `
         <div class="header">
@@ -434,8 +488,8 @@
                 <div class="stat-lbl">В работе</div>
             </div>
             <div class="stat">
-                <div class="stat-val blue">${free.length}</div>
-                <div class="stat-lbl">Свободных</div>
+                <div class="stat-val" style="color:var(--danger)">${newOrds.length}</div>
+                <div class="stat-lbl">Новых</div>
             </div>
             <div class="stat">
                 <div class="stat-val green">${busy}/${couriers.length}</div>
@@ -445,7 +499,7 @@
 
         <div class="tabs">
             <div class="tab active" onclick="selectTab(0)">🚚 В работе (${orders.length})</div>
-            <div class="tab" onclick="selectTab(1)">📦 Биржа (${free.length})</div>
+            <div class="tab" onclick="selectTab(1)">📦 Заказы (${birzhaCount})</div>
             <div class="tab" onclick="selectTab(2)">👤 Курьеры (${couriers.length})</div>
             <div class="tab" onclick="selectTab(3)">📊 Отчёты</div>
         </div>
@@ -458,10 +512,7 @@
         </div>
 
         <div class="pane">
-            ${free.length
-                ? free.map(renderFreeCard).join('')
-                : '<div class="empty"><div class="empty-icon">🕳️</div><div class="empty-text">Биржа пуста</div></div>'
-            }
+            ${birzhaHtml}
         </div>
 
         <div class="pane">
