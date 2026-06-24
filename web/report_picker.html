@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Выбор периода отчёта</title>
+    <title>Выбор недели отчёта</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
@@ -84,21 +84,21 @@
         .arrow-btn:active { transform: scale(0.93); }
         .arrow-btn:disabled { opacity: 0.2; cursor: default; }
 
-        .month-display {
+        .week-display {
             text-align: center;
             flex: 1;
-            padding: 14px 0;
+            padding: 14px 8px;
             background: var(--sec-bg);
             border-radius: 14px;
         }
-        .month-name {
-            font-size: 22px;
+        .week-range {
+            font-size: 17px;
             font-weight: 700;
             color: var(--text);
             line-height: 1.2;
         }
-        .year-name {
-            font-size: 13px;
+        .week-year {
+            font-size: 12px;
             color: var(--hint);
             margin-top: 3px;
             font-weight: 500;
@@ -138,14 +138,14 @@
 <div class="card">
     <div class="header">
         <div class="header-label">Mavsimi Rason</div>
-        <div class="header-title">📄 Выбор периода отчёта</div>
+        <div class="header-title">📄 Выбор недели отчёта</div>
     </div>
 
     <div class="picker">
         <button class="arrow-btn" id="prev">◀</button>
-        <div class="month-display">
-            <div class="month-name" id="monthName"></div>
-            <div class="year-name" id="yearName"></div>
+        <div class="week-display">
+            <div class="week-range" id="weekRange"></div>
+            <div class="week-year"  id="weekYear"></div>
         </div>
         <button class="arrow-btn" id="next">▶</button>
     </div>
@@ -161,53 +161,108 @@
     tg.ready();
     tg.expand();
 
-    const RU_MONTHS = [
-        "Январь","Февраль","Март","Апрель","Май","Июнь",
-        "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"
+    const RU_MONTHS_SHORT = [
+        "янв","фев","мар","апр","мая","июн",
+        "июл","авг","сен","окт","ноя","дек"
     ];
     const RU_MONTHS_GEN = [
         "января","февраля","марта","апреля","мая","июня",
         "июля","августа","сентября","октября","ноября","декабря"
     ];
+    const MAX_WEEKS_BACK = 8;
 
-    const now = new Date();
-    let selMonth = now.getMonth();
-    let selYear  = now.getFullYear();
+    function getMondayOf(date) {
+        const d = new Date(date);
+        const day = d.getDay() === 0 ? 6 : d.getDay() - 1; // 0=Mon..6=Sun
+        d.setDate(d.getDate() - day);
+        d.setHours(0, 0, 0, 0);
+        return d;
+    }
 
-    const maxTotal = selYear * 12 + selMonth;
-    const minTotal = maxTotal - 11; // до 12 месяцев назад
+    function addDays(date, n) {
+        const d = new Date(date);
+        d.setDate(d.getDate() + n);
+        return d;
+    }
 
-    function total(m, y) { return y * 12 + m; }
+    function toISO(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, "0");
+        const d = String(date.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+    }
+
+    function weekLabel(monday) {
+        const sunday = addDays(monday, 6);
+        const sm = monday.getMonth();
+        const em = sunday.getMonth();
+        const sy = monday.getFullYear();
+        const ey = sunday.getFullYear();
+
+        const monStr = `${monday.getDate()} ${RU_MONTHS_SHORT[sm]}`;
+        const sunStr = `${sunday.getDate()} ${RU_MONTHS_SHORT[em]}`;
+        return `${monStr} — ${sunStr}`;
+    }
+
+    function yearLabel(monday) {
+        const sunday = addDays(monday, 6);
+        if (monday.getFullYear() === sunday.getFullYear()) {
+            return `${monday.getFullYear()}`;
+        }
+        return `${monday.getFullYear()} / ${sunday.getFullYear()}`;
+    }
+
+    const now        = new Date();
+    const curMonday  = getMondayOf(now);
+    let   selMonday  = getMondayOf(now);
+
+    function weekOffset() {
+        return Math.round((curMonday - selMonday) / (7 * 86400000));
+    }
 
     function update() {
-        document.getElementById("monthName").textContent = RU_MONTHS[selMonth];
-        document.getElementById("yearName").textContent  = selYear;
+        const sunday = addDays(selMonday, 6);
+        document.getElementById("weekRange").textContent = weekLabel(selMonday);
+        document.getElementById("weekYear").textContent  = yearLabel(selMonday);
 
-        const t = total(selMonth, selYear);
-        document.getElementById("prev").disabled = t <= minTotal;
-        document.getElementById("next").disabled = t >= maxTotal;
+        const off = weekOffset();
+        document.getElementById("prev").disabled = off >= MAX_WEEKS_BACK;
+        document.getElementById("next").disabled = off <= 0;
 
-        const isCurrentMonth = t === maxTotal;
-        document.getElementById("info").textContent = isCurrentMonth
-            ? "Текущий месяц — данные могут быть неполными"
-            : `Отчёт за ${RU_MONTHS_GEN[selMonth]} ${selYear}`;
+        const isCurrent = off === 0;
+        let infoText;
+        if (isCurrent) {
+            infoText = "Текущая неделя — данные могут быть неполными";
+        } else {
+            const monDay  = selMonday.getDate();
+            const sunDay  = sunday.getDate();
+            const monMon  = RU_MONTHS_GEN[selMonday.getMonth()];
+            const sunMon  = RU_MONTHS_GEN[sunday.getMonth()];
+            const monYear = selMonday.getFullYear();
+            const sunYear = sunday.getFullYear();
+
+            if (selMonday.getMonth() === sunday.getMonth() && monYear === sunYear) {
+                infoText = `Отчёт за ${monDay}–${sunDay} ${monMon} ${monYear}`;
+            } else {
+                infoText = `Отчёт за ${monDay} ${monMon} – ${sunDay} ${sunMon}`;
+                if (monYear !== sunYear) infoText += ` ${sunYear}`;
+            }
+        }
+        document.getElementById("info").textContent = infoText;
     }
 
     document.getElementById("prev").addEventListener("click", () => {
-        if (selMonth === 0) { selMonth = 11; selYear--; }
-        else { selMonth--; }
+        selMonday = addDays(selMonday, -7);
         update();
     });
 
     document.getElementById("next").addEventListener("click", () => {
-        if (selMonth === 11) { selMonth = 0; selYear++; }
-        else { selMonth++; }
+        selMonday = addDays(selMonday, 7);
         update();
     });
 
     document.getElementById("generate").addEventListener("click", () => {
-        const mm   = String(selMonth + 1).padStart(2, "0");
-        const data = JSON.stringify({ action: "generate_report", month: `${mm}.${selYear}` });
+        const data = JSON.stringify({ action: "generate_report", week_start: toISO(selMonday) });
         tg.sendData(data);
     });
 
