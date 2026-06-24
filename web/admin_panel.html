@@ -7,18 +7,21 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
-            --primary:   #2481cc;
-            --primary-g: linear-gradient(135deg, #2a8de0, #1a6db5);
-            --success:   #2bca80;
-            --warning:   #f59e0b;
-            --danger:    #e53935;
-            --purple:    #9c27b0;
-            --teal:      #00897b;
+            --primary:       #2481cc;
+            --primary-grad:  linear-gradient(135deg, #2a8de0, #1a6db5);
+            --primary-light: rgba(36,129,204,.1);
+            --success:       #2bca80;
+            --success-grad:  linear-gradient(135deg, #2bca80, #22a368);
+            --warning:       #f59e0b;
+            --danger:        #e53935;
+            --purple:        #9c27b0;
+            --teal:          #00897b;
             --bg:     var(--tg-theme-bg-color, #ffffff);
             --sec-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
             --text:   var(--tg-theme-text-color, #1c1c1e);
             --hint:   var(--tg-theme-hint-color, #8e8e93);
-            --r: 12px;
+            --radius:    14px;
+            --radius-sm: 10px;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
         body {
@@ -28,13 +31,13 @@
         }
 
         /* Header */
-        .header { background: var(--primary-g); padding: 14px 16px 16px; }
+        .header { background: var(--primary-grad); padding: 14px 16px 16px; }
         .header-sub  { font-size: 10px; font-weight: 600; color: rgba(255,255,255,.6); letter-spacing: .8px; text-transform: uppercase; margin-bottom: 2px; }
         .header-title{ font-size: 17px; font-weight: 700; color: #fff; }
 
         /* Stats */
         .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; padding: 12px 12px 4px; }
-        .stat { background: var(--bg); border-radius: var(--r); padding: 11px 8px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+        .stat { background: var(--bg); border-radius: var(--radius-sm); padding: 11px 8px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.08); }
         .stat-val { font-size: 22px; font-weight: 800; line-height: 1; }
         .stat-val.blue   { color: var(--primary); }
         .stat-val.green  { color: var(--success); }
@@ -57,7 +60,7 @@
 
         /* Order card */
         .order-card {
-            background: var(--bg); border-radius: var(--r);
+            background: var(--bg); border-radius: var(--radius);
             margin-bottom: 8px; padding: 12px 14px;
             box-shadow: 0 1px 6px rgba(0,0,0,.05);
             border-left: 3px solid var(--primary);
@@ -73,28 +76,30 @@
             font-size: 9.5px; font-weight: 700; padding: 3px 8px;
             border-radius: 20px; text-transform: uppercase; letter-spacing: .3px;
         }
-        .sp-TAKEN     { background: #f3e5f5; color: #7b1fa2; }
-        .sp-LOADING   { background: #fff8e1; color: #e65100; }
-        .sp-IN_TRANSIT{ background: #e8f5e9; color: #2e7d32; }
-        .sp-ARRIVED   { background: #e0f7fa; color: #006064; }
+        .sp-TAKEN      { background: #f3e5f5; color: #7b1fa2; }
+        .sp-LOADING    { background: #fff8e1; color: #e65100; }
+        .sp-IN_TRANSIT { background: #e8f5e9; color: #2e7d32; }
+        .sp-ARRIVED    { background: #e0f7fa; color: #006064; }
+        .sp-DELIVERED  { background: #e8f5e9; color: #1b5e20; }
 
         .card-route { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
         .card-route .arr { color: var(--hint); margin: 0 4px; font-size: 11px; }
         .card-meta { font-size: 11px; color: var(--hint); margin-bottom: 8px; }
 
         .btn-manage {
-            width: 100%; padding: 9px; border: none; border-radius: 8px;
-            background: var(--sec-bg); color: var(--text);
-            font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s;
+            width: 100%; padding: 9px; cursor: pointer; transition: background .15s;
+            border: 1.5px solid var(--primary); border-radius: var(--radius-sm);
+            background: var(--primary-light); color: var(--primary);
+            font-size: 12px; font-weight: 700;
         }
-        .btn-manage:active { background: rgba(0,0,0,.08); }
+        .btn-manage:active { background: rgba(36,129,204,.22); }
 
         /* Manage modal sections */
         .manage-section { padding: 14px 16px; border-bottom: 1px solid var(--sec-bg); }
         .manage-section:last-child { border-bottom: none; }
         .manage-section-title {
             font-size: 10px; font-weight: 700; color: var(--hint);
-            text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px;
+            text-transform: uppercase; letter-spacing: .6px; margin-bottom: 10px;
         }
         .manage-danger .manage-section-title { color: var(--danger); }
         .status-pills { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -103,35 +108,35 @@
             border: 1.5px solid rgba(0,0,0,.1); background: var(--sec-bg); color: var(--text);
             cursor: pointer; transition: all .15s;
         }
-        .st-pill.current { background: rgba(36,129,204,.1); border-color: var(--primary); color: var(--primary); cursor: default; }
+        .st-pill.current { background: var(--primary-light); border-color: var(--primary); color: var(--primary); cursor: default; }
         .st-pill.done { background: rgba(43,202,128,.1); border-color: var(--success); color: var(--success); cursor: default; }
         .st-pill:not(.current):not(.done):active { opacity: .7; }
         .btn-cancel-r {
             display: block; width: 100%; padding: 11px 14px; text-align: left;
-            background: rgba(229,57,53,.07); border: none; border-radius: 8px;
+            background: rgba(229,57,53,.07); border: none; border-radius: var(--radius-sm);
             font-size: 13px; font-weight: 500; color: var(--danger);
             cursor: pointer; margin-bottom: 6px; transition: background .15s;
         }
         .btn-cancel-r:active { background: rgba(229,57,53,.18); }
         .btn-cancel-custom {
             background: none; color: var(--hint);
-            border: 1.5px dashed rgba(0,0,0,.15); border-radius: 8px;
+            border: 1.5px dashed rgba(0,0,0,.15); border-radius: var(--radius-sm);
         }
         .custom-cancel-wrap { display: none; margin-top: 8px; }
         .custom-cancel-input {
             width: 100%; padding: 10px 12px; border: 1.5px solid var(--danger);
-            border-radius: 8px; font-size: 14px; background: var(--sec-bg); color: var(--text);
+            border-radius: var(--radius-sm); font-size: 14px; background: var(--sec-bg); color: var(--text);
             margin-bottom: 6px;
         }
         .btn-cancel-confirm {
-            width: 100%; padding: 11px; border: none; border-radius: 8px;
+            width: 100%; padding: 11px; border: none; border-radius: var(--radius-sm);
             background: var(--danger); color: #fff;
             font-size: 13px; font-weight: 700; cursor: pointer;
         }
 
-        /* New order (awaiting manager approval) */
+        /* New order */
         .new-card {
-            background: var(--bg); border-radius: var(--r);
+            background: var(--bg); border-radius: var(--radius);
             margin-bottom: 8px; padding: 11px 14px;
             box-shadow: 0 1px 6px rgba(0,0,0,.05);
             border-left: 3px solid var(--danger);
@@ -143,7 +148,7 @@
         .new-route .arr { color: var(--hint); font-size: 10px; margin: 0 3px; }
         .new-meta { font-size: 10.5px; color: var(--hint); margin-bottom: 8px; }
         .btn-accept {
-            width: 100%; padding: 9px; border: none; border-radius: 8px;
+            width: 100%; padding: 9px; border: none; border-radius: var(--radius-sm);
             background: rgba(43,202,128,.15); color: var(--success);
             font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s;
         }
@@ -151,7 +156,7 @@
 
         /* Free order */
         .free-card {
-            background: var(--bg); border-radius: var(--r);
+            background: var(--bg); border-radius: var(--radius);
             margin-bottom: 8px; padding: 11px 14px;
             box-shadow: 0 1px 6px rgba(0,0,0,.05);
             border-left: 3px solid #ccc;
@@ -164,7 +169,7 @@
 
         /* Courier card */
         .courier-card {
-            background: var(--bg); border-radius: var(--r);
+            background: var(--bg); border-radius: var(--radius);
             margin-bottom: 8px; padding: 11px 14px;
             box-shadow: 0 1px 6px rgba(0,0,0,.05);
             display: flex; justify-content: space-between; align-items: center;
@@ -177,7 +182,7 @@
         /* Week nav */
         .week-nav {
             display: flex; align-items: center; justify-content: space-between;
-            background: var(--bg); border-radius: var(--r);
+            background: var(--bg); border-radius: var(--radius);
             padding: 10px 14px; margin-bottom: 10px;
             box-shadow: 0 1px 6px rgba(0,0,0,.05);
         }
@@ -191,8 +196,8 @@
 
         /* Report all button */
         .btn-report-all {
-            width: 100%; padding: 13px; border: none; border-radius: var(--r);
-            background: var(--success); color: #fff;
+            width: 100%; padding: 13px; border: none; border-radius: var(--radius);
+            background: var(--success-grad); color: #fff;
             font-size: 14px; font-weight: 700; cursor: pointer; margin-bottom: 10px;
         }
         .btn-report-all:active { opacity: .85; }
@@ -200,20 +205,20 @@
         /* Section label */
         .section-lbl {
             font-size: 11px; font-weight: 700; color: var(--hint);
-            text-transform: uppercase; letter-spacing: .5px;
+            text-transform: uppercase; letter-spacing: .6px;
             margin: 2px 2px 8px;
         }
 
         /* Report row */
         .report-row {
-            background: var(--bg); border-radius: var(--r);
+            background: var(--bg); border-radius: var(--radius);
             margin-bottom: 8px; padding: 11px 14px;
             box-shadow: 0 1px 6px rgba(0,0,0,.05);
             display: flex; justify-content: space-between; align-items: center; gap: 8px;
         }
         .btn-report {
-            background: rgba(36,129,204,.1); color: var(--primary);
-            border: none; border-radius: 8px;
+            background: var(--primary-light); color: var(--primary);
+            border: 1px solid rgba(36,129,204,.2); border-radius: var(--radius-sm);
             padding: 7px 12px; font-size: 12px; font-weight: 700;
             cursor: pointer; white-space: nowrap; flex-shrink: 0;
         }
@@ -235,7 +240,7 @@
         }
         .modal-overlay.open { display: flex; }
         .modal {
-            background: var(--bg); border-radius: 16px 16px 0 0;
+            background: var(--bg); border-radius: 20px 20px 0 0;
             width: 100%; max-height: 75vh; overflow-y: auto;
             padding: 0 0 24px;
         }
@@ -303,7 +308,7 @@
 
     const STATUS_LABEL = {
         TAKEN: 'Взят', LOADING: 'Погрузка',
-        IN_TRANSIT: 'В пути', ARRIVED: 'На месте',
+        IN_TRANSIT: 'В пути', ARRIVED: 'На месте', DELIVERED: 'Доставлен',
     };
 
     const RU_MONTHS_GEN = [
