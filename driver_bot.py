@@ -44,7 +44,11 @@ _order_take_lock = threading.Lock()
 
 
 class DriverRegistration(StatesGroup):
-    waiting_for_fio = State()
+    waiting_for_fio   = State()
+    waiting_for_phone = State()
+
+class DriverRejectReason(StatesGroup):
+    waiting_for_reason = State()
 
 class DriverSupport(StatesGroup):
     waiting_for_message = State()
@@ -152,14 +156,14 @@ def _sync_get_driver_by_topic(topic_id: str) -> str | None:
         return None
 
 
-def _sync_register_driver(chat_id: str, fio: str) -> bool:
+def _sync_register_driver(chat_id: str, fio: str, phone: str = "") -> bool:
     if not drivers_sheet:
         return False
     try:
         now = _now_dushanbe()
         drivers_sheet.append_row([
             "PENDING", now, fio, str(chat_id),
-            str(DEFAULT_DRIVER_RATE), now, "", ""
+            str(DEFAULT_DRIVER_RATE), now, "", phone
         ])
         return True
     except Exception as e:
@@ -338,11 +342,11 @@ def _sync_reassign_order(row_num: int, new_courier_name: str, new_courier_id: st
             return False, "", ""
 
 
-def _sync_get_orders_for_dashboard() -> tuple[list, list]:
-    """Читает Лист1, возвращает (active_orders, free_orders)."""
-    active, free = [], []
+def _sync_get_orders_for_dashboard() -> tuple[list, list, list]:
+    """Читает Лист1, возвращает (active_orders, free_orders, new_orders)."""
+    active, free, new = [], [], []
     if not sheet:
-        return active, free
+        return active, free, new
     try:
         for idx, row in enumerate(sheet.get_all_values()):
             if idx == 0:
@@ -373,9 +377,19 @@ def _sync_get_orders_for_dashboard() -> tuple[list, list]:
                     "price":     row[3],
                     "s_name":    row[12],
                 })
+            elif status == "NEW":
+                new.append({
+                    "row":       idx + 1,
+                    "id":        row[1],
+                    "city_from": row[4],
+                    "city_to":   row[6],
+                    "price":     row[3],
+                    "s_name":    row[12],
+                    "date":      row[2],
+                })
     except Exception as e:
         logging.error(f"Ошибка чтения заказов для дашборда: {e}")
-    return active, free
+    return active, free, new
 
 
 def _sync_get_drivers_for_dashboard() -> list:
@@ -397,13 +411,13 @@ def _sync_get_drivers_for_dashboard() -> list:
 
 async def _async_get_admin_dashboard_data() -> dict:
     """Читает оба листа параллельно — вдвое быстрее последовательного чтения."""
-    (active, free), drivers = await asyncio.gather(
+    (active, free, new), drivers = await asyncio.gather(
         asyncio.to_thread(_sync_get_orders_for_dashboard),
         asyncio.to_thread(_sync_get_drivers_for_dashboard),
     )
     busy_ids = {o["courier_id"] for o in active}
     couriers = [{**d, "busy": d["tid"] in busy_ids} for d in drivers]
-    return {"orders": active, "free": free, "couriers": couriers}
+    return {"orders": active, "free": free, "new": new, "couriers": couriers}
 
     return result
 
@@ -513,11 +527,38 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
 
 
 # ─── Клавиатура главного меню водителя ──────────────────────────────────────
-def get_driver_main_menu():
+async def build_driver_main_menu(driver_id: int):
     b = ReplyKeyboardBuilder()
     b.button(text="🔍 Свободные заказы")
-    b.button(text="📊 Мой кабинет")
-    b.button(text="📄 Отчёт за неделю")
+    if DRIVER_WEBAPP_URL:
+        try:
+            driver_data = await asyncio.to_thread(_sync_get_driver, str(driver_id))
+            if driver_data and driver_data[0].upper() == "ACTIVE":
+                fio  = driver_data[2] if len(driver_data) > 2 else "Курьер"
+                rate = float(driver_data[4]) if len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
+                now = datetime.now(DUSHANBE_TZ)
+                date_from, date_to = _month_range(now)
+                week_start_dt, week_end_dt = _current_week_range(now)
+                deliveries = await asyncio.to_thread(
+                    _sync_get_driver_deliveries, str(driver_id), date_from, date_to
+                )
+                payload = {
+                    "name": fio, "rate": rate,
+                    "month": now.strftime("%m.%Y"),
+                    "month_label": _week_label(week_start_dt, week_end_dt),
+                    "deliveries": deliveries,
+                }
+                b64 = base64.urlsafe_b64encode(
+                    json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+                ).decode().rstrip("=")
+                b.button(text="📊 Мой кабинет",
+                         web_app=types.WebAppInfo(url=f"{DRIVER_WEBAPP_URL}?d={b64}"))
+            else:
+                b.button(text="📊 Мой кабинет")
+        except Exception:
+            b.button(text="📊 Мой кабинет")
+    else:
+        b.button(text="📊 Мой кабинет")
     b.button(text="📞 Поддержка")
     b.button(text="💡 Обратная связь")
     b.adjust(1)
@@ -536,7 +577,8 @@ async def send_client_push(chat_id: str, text: str):
 @dp.message(F.text == "🔙 Главное меню")
 async def driver_go_main_menu(message: types.Message, state: FSMContext):
     await state.clear()
-    await message.answer("👋 Выберите действие:", reply_markup=get_driver_main_menu())
+    await message.answer("👋 Выберите действие:",
+                         reply_markup=await build_driver_main_menu(message.from_user.id))
 
 
 # ─── Регистрация ─────────────────────────────────────────────────────────────
@@ -568,7 +610,7 @@ async def cmd_start_driver(message: types.Message, state: FSMContext):
         fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
         await message.answer(
             f"👋 **С возвращением, {fio}!**\n\nВыберите действие:",
-            reply_markup=get_driver_main_menu(),
+            reply_markup=await build_driver_main_menu(message.from_user.id),
             parse_mode="Markdown"
         )
     else:
@@ -589,17 +631,44 @@ async def accept_offer(message: types.Message, state: FSMContext):
 @dp.message(DriverRegistration.waiting_for_fio)
 async def save_driver_fio(message: types.Message, state: FSMContext):
     fio = message.text.strip() if message.text else ""
-    await state.clear()
     if not fio or len(fio) < 3:
         await message.answer("❌ Пожалуйста, введите полное ФИО (минимум 3 символа).")
-        await state.set_state(DriverRegistration.waiting_for_fio)
         return
-    success = await asyncio.to_thread(_sync_register_driver, str(message.from_user.id), fio)
+    await state.update_data(fio=fio)
+    await state.set_state(DriverRegistration.waiting_for_phone)
+    b = ReplyKeyboardBuilder()
+    b.button(text="📱 Поделиться номером", request_contact=True)
+    await message.answer(
+        f"✅ ФИО принято: *{fio}*\n\n"
+        "Теперь введите ваш номер телефона или нажмите кнопку ниже:",
+        reply_markup=b.as_markup(resize_keyboard=True, one_time_keyboard=True),
+        parse_mode="Markdown"
+    )
+
+
+@dp.message(DriverRegistration.waiting_for_phone)
+async def save_driver_phone(message: types.Message, state: FSMContext):
+    if message.contact:
+        phone = message.contact.phone_number
+        if not phone.startswith("+"):
+            phone = "+" + phone
+    elif message.text:
+        phone = message.text.strip()
+    else:
+        await message.answer("❌ Пожалуйста, отправьте номер телефона.")
+        return
+
+    data = await state.get_data()
+    fio = data.get("fio", "")
+    await state.clear()
+
+    success = await asyncio.to_thread(_sync_register_driver, str(message.from_user.id), fio, phone)
     if success:
         await message.answer(
             f"✅ **Заявка отправлена, {fio}!**\n\n"
             "Менеджер проверит данные и активирует ваш аккаунт.\n"
             "Нажмите /start чтобы проверить статус.",
+            reply_markup=types.ReplyKeyboardRemove(),
             parse_mode="Markdown"
         )
         if mgr_bot and MANAGER_CHAT_ID:
@@ -613,6 +682,7 @@ async def save_driver_fio(message: types.Message, state: FSMContext):
                     text=(
                         f"👤 <b>Новый курьер</b>\n"
                         f"ФИО: <b>{fio}</b>\n"
+                        f"📱 Телефон: <code>{phone}</code>\n"
                         f"ID: <code>{message.from_user.id}</code>\n\n"
                         f"Одобрить заявку?"
                     ),
@@ -623,69 +693,6 @@ async def save_driver_fio(message: types.Message, state: FSMContext):
                 logging.error(f"Не удалось уведомить менеджера о новом курьере: {e}")
     else:
         await message.answer("❌ Ошибка при регистрации. Попробуйте позже (/start).")
-
-
-# ─── Кабинет и отчёт ─────────────────────────────────────────────────────────
-@dp.message(F.text == "📊 Мой кабинет")
-async def open_cabinet(message: types.Message):
-    driver_data = await _get_active_driver(message.from_user.id)
-    if not driver_data:
-        await message.answer("⛔ Доступ запрещён. Нажмите /start.")
-        return
-    if not DRIVER_WEBAPP_URL:
-        await message.answer("⚙️ Кабинет временно недоступен. Обратитесь к администратору.")
-        return
-
-    fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
-    try:
-        rate = float(driver_data[4]) if len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
-    except (ValueError, TypeError):
-        rate = DEFAULT_DRIVER_RATE
-
-    now = datetime.now(DUSHANBE_TZ)
-    date_from, date_to = _month_range(now)
-    week_start_dt, week_end_dt = _current_week_range(now)
-    week_lbl = _week_label(week_start_dt, week_end_dt)
-
-    deliveries = await asyncio.to_thread(
-        _sync_get_driver_deliveries, str(message.from_user.id), date_from, date_to
-    )
-
-    payload = {
-        "name":        fio,
-        "rate":        rate,
-        "month":       now.strftime("%m.%Y"),
-        "month_label": week_lbl,
-        "deliveries":  deliveries,
-    }
-    raw_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    b64 = base64.urlsafe_b64encode(raw_json.encode()).decode().rstrip("=")
-
-    b = InlineKeyboardBuilder()
-    b.button(text="📊 Открыть кабинет", web_app=types.WebAppInfo(url=f"{DRIVER_WEBAPP_URL}?d={b64}"))
-    await message.answer(
-        f"📊 **Кабинет курьера**\n👤 {fio}\n📅 {week_lbl}",
-        reply_markup=b.as_markup(),
-        parse_mode="Markdown"
-    )
-
-
-@dp.message(F.text == "📄 Отчёт за неделю")
-async def send_weekly_report(message: types.Message):
-    if not await _get_active_driver(message.from_user.id):
-        await message.answer("⛔ Доступ запрещён. Нажмите /start.")
-        return
-    if not REPORT_PICKER_URL:
-        await message.answer("⚙️ Функция временно недоступна. Обратитесь к администратору.")
-        return
-    b = ReplyKeyboardBuilder()
-    b.button(text="📅 Выбрать неделю", web_app=types.WebAppInfo(url=REPORT_PICKER_URL))
-    b.button(text="🔙 Главное меню")
-    b.adjust(1)
-    await message.answer(
-        "Выберите неделю для отчёта:",
-        reply_markup=b.as_markup(resize_keyboard=True, one_time_keyboard=True)
-    )
 
 
 @dp.message(F.web_app_data)
@@ -822,7 +829,7 @@ async def accept_order(callback: types.CallbackQuery):
 
 
 @dp.callback_query(F.data.startswith("reject:"))
-async def reject_order(callback: types.CallbackQuery):
+async def reject_order(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     if not await _get_active_driver(callback.from_user.id):
         await callback.message.answer("⛔ Доступ запрещён.")
@@ -835,37 +842,100 @@ async def reject_order(callback: types.CallbackQuery):
         row_vals       = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
         order_id       = row_vals[1]
         client_chat_id = row_vals[18]
-        c_name = callback.from_user.full_name
-        c_id   = str(callback.from_user.id)
 
-        success = await asyncio.to_thread(_sync_release_order, row_num, c_id)
-        if not success:
-            await callback.message.edit_text(
-                "❌ Не удалось отказаться — статус заказа уже изменился.", reply_markup=None
-            )
-            return
-
-        await callback.message.edit_text(
-            f"↩️ Вы отказались от заказа **{order_id}**.\nЗаказ возвращён на биржу.",
-            reply_markup=None, parse_mode="Markdown"
+        await state.set_state(DriverRejectReason.waiting_for_reason)
+        await state.update_data(
+            row_num=row_num,
+            order_id=order_id,
+            client_chat_id=client_chat_id,
+            courier_name=callback.from_user.full_name,
+            courier_id=str(callback.from_user.id),
         )
-        if client_chat_id:
-            await send_client_push(
-                client_chat_id,
-                f"ℹ️ По вашему заказу *{order_id}* происходят изменения — ищем нового курьера."
-            )
-        if mgr_bot and MANAGER_CHAT_ID:
-            try:
-                await mgr_bot.send_message(
-                    chat_id=int(MANAGER_CHAT_ID),
-                    text=f"⚠️ Курьер <b>{c_name}</b> отказался от заказа <b>{order_id}</b>. Заказ возвращён на биржу.",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logging.error(f"Не удалось уведомить менеджера об отказе: {e}")
+
+        b = InlineKeyboardBuilder()
+        b.button(text="Пропустить", callback_data="reject_skip")
+        await callback.message.edit_text(
+            f"↩️ Отказ от заказа <b>{order_id}</b>\n\n"
+            "Укажите причину отказа (текст или фото с подписью).\n"
+            "Или нажмите «Пропустить».",
+            reply_markup=b.as_markup(),
+            parse_mode="HTML"
+        )
     except Exception:
         logging.error(f"Сбой reject: {traceback.format_exc()}")
         await callback.message.answer("❌ Ошибка на сервере.")
+
+
+async def _do_reject(chat_id: int, state: FSMContext, reason: str | None, photo_file_id: str | None):
+    """Финализирует отказ: освобождает заказ, уведомляет клиента и менеджера."""
+    data = await state.get_data()
+    await state.clear()
+
+    row_num        = data["row_num"]
+    order_id       = data["order_id"]
+    client_chat_id = data["client_chat_id"]
+    c_name         = data["courier_name"]
+    c_id           = data["courier_id"]
+
+    success = await asyncio.to_thread(_sync_release_order, row_num, c_id)
+    if not success:
+        from config import driver_bot as _bot
+        await _bot.send_message(chat_id, "❌ Не удалось отказаться — статус заказа уже изменился.")
+        return
+
+    from config import driver_bot as _bot
+    await _bot.send_message(
+        chat_id,
+        f"↩️ Вы отказались от заказа <b>{order_id}</b>.\nЗаказ возвращён на биржу.",
+        parse_mode="HTML"
+    )
+
+    if client_chat_id:
+        await send_client_push(
+            client_chat_id,
+            f"ℹ️ По вашему заказу *{order_id}* происходят изменения — ищем нового курьера."
+        )
+
+    if mgr_bot and MANAGER_CHAT_ID:
+        try:
+            mgr_text = (
+                f"⚠️ Курьер <b>{c_name}</b> отказался от заказа <b>{order_id}</b>.\n"
+                f"📝 Причина: {reason or '—'}"
+            )
+            if photo_file_id:
+                await mgr_bot.send_photo(
+                    chat_id=int(MANAGER_CHAT_ID),
+                    photo=photo_file_id,
+                    caption=mgr_text,
+                    parse_mode="HTML"
+                )
+            else:
+                await mgr_bot.send_message(
+                    chat_id=int(MANAGER_CHAT_ID),
+                    text=mgr_text,
+                    parse_mode="HTML"
+                )
+        except Exception as e:
+            logging.error(f"Не удалось уведомить менеджера об отказе: {e}")
+
+
+@dp.callback_query(F.data == "reject_skip", DriverRejectReason.waiting_for_reason)
+async def reject_skip(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.edit_text("↩️ Обрабатываю отказ...", reply_markup=None)
+    await _do_reject(callback.message.chat.id, state, reason=None, photo_file_id=None)
+
+
+@dp.message(DriverRejectReason.waiting_for_reason, F.photo)
+async def reject_reason_photo(message: types.Message, state: FSMContext):
+    reason = message.caption.strip() if message.caption else None
+    photo_file_id = message.photo[-1].file_id
+    await _do_reject(message.chat.id, state, reason=reason, photo_file_id=photo_file_id)
+
+
+@dp.message(DriverRejectReason.waiting_for_reason, F.text)
+async def reject_reason_text(message: types.Message, state: FSMContext):
+    await _do_reject(message.chat.id, state, reason=message.text.strip(), photo_file_id=None)
 
 
 @dp.callback_query(F.data.startswith("load:"))
@@ -1031,7 +1101,7 @@ async def driver_support_send(message: types.Message, state: FSMContext):
     except Exception as e:
         await state.clear()
         logging.error(f"Ошибка поддержки курьера (SUPPORT_CHAT_ID={SUPPORT_CHAT_ID}): {type(e).__name__}: {e}")
-        await message.answer("❌ Ошибка. Попробуйте позже.", reply_markup=get_driver_main_menu())
+        await message.answer("❌ Ошибка. Попробуйте позже.", reply_markup=await build_driver_main_menu(message.from_user.id))
 
 
 @dp.message(DriverSupport.chatting)
@@ -1040,7 +1110,7 @@ async def driver_support_continue(message: types.Message, state: FSMContext):
     topic_id = data.get("topic_id")
     if not topic_id:
         await state.clear()
-        await message.answer("❌ Сессия истекла. Нажмите кнопку поддержки снова.", reply_markup=get_driver_main_menu())
+        await message.answer("❌ Сессия истекла. Нажмите кнопку поддержки снова.", reply_markup=await build_driver_main_menu(message.from_user.id))
         return
     try:
         await bot.send_message(
@@ -1103,7 +1173,7 @@ async def driver_feedback_send(message: types.Message, state: FSMContext):
 
     topic_id = await get_or_create_feedback_topic(bot)
     if not topic_id:
-        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=get_driver_main_menu())
+        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=await build_driver_main_menu(message.from_user.id))
         return
 
     text = (
@@ -1122,8 +1192,8 @@ async def driver_feedback_send(message: types.Message, state: FSMContext):
         )
         await message.answer(
             "✅ Спасибо! Ваш отзыв получен — мы обязательно его рассмотрим.",
-            reply_markup=get_driver_main_menu(),
+            reply_markup=await build_driver_main_menu(message.from_user.id),
         )
     except Exception as e:
         logging.error(f"Ошибка отправки обратной связи курьера: {type(e).__name__}: {e}")
-        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=get_driver_main_menu())
+        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=await build_driver_main_menu(message.from_user.id))

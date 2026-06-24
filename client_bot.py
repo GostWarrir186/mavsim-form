@@ -14,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-from config import client_bot as bot, client_dp as dp, sheet, clients_sheet, CLIENT_TOKEN, get_or_create_feedback_topic
+from config import client_bot as bot, client_dp as dp, manager_bot as mgr_bot, sheet, clients_sheet, orders_info_sheet, CLIENT_TOKEN, get_or_create_feedback_topic
 
 class Registration(StatesGroup):
     waiting_for_fio = State()
@@ -29,6 +29,7 @@ class Feedback(StatesGroup):
 WEB_APP_URL = os.getenv("WEB_APP_URL", "https://gostwarrir186.github.io/mavsim-form/web/?v=19")
 LINK_TO_OFFER = "https://www.google.com"
 SUPPORT_CHAT_ID = os.getenv("SUPPORT_CHAT_ID", "")
+MANAGER_CHAT_ID = os.getenv("MANAGER_CHAT_ID", "")
 
 RECEIPTS = {
     "ru": (
@@ -422,6 +423,59 @@ async def handle_webapp_data(message: types.Message):
         ]
 
         await asyncio.to_thread(_sync_append_row, row)
+
+        # Запись в чистый лист «Заказы»
+        if orders_info_sheet:
+            def _sync_append_order_info():
+                orders_info_sheet.append_row([
+                    order_id,                        # A — ID заказа
+                    dushanbe_time,                   # B — Дата
+                    "NEW",                           # C — Статус
+                    s(data['price']),                # D — Цена (TJS)
+                    dtype_readable,                  # E — Тип доставки
+                    s(data['weight']),               # F — Вес (кг)
+                    s(data['sizes']),                # G — Габариты
+                    s(data['s_name']),               # H — ФИО отправителя
+                    s(data['s_phone']),              # I — Тел отправителя
+                    s(data['city_pickup']),          # J — Город откуда
+                    s(data['address_pickup']),       # K — Адрес откуда
+                    s(data['r_name']),               # L — ФИО получателя
+                    s(data['r_phone']),              # M — Тел получателя
+                    s(data['city_delivery']),        # N — Город куда
+                    s(data['address_delivery']),     # O — Адрес куда
+                    s(data['driver_comment']),       # P — Ориентир
+                ])
+            try:
+                await asyncio.to_thread(_sync_append_order_info)
+            except Exception as e:
+                logging.error(f"Ошибка записи в лист Заказы: {e}")
+
+        # Уведомление менеджеру о новом заказе
+        if MANAGER_CHAT_ID:
+            try:
+                from aiogram.utils.keyboard import InlineKeyboardBuilder as IKB
+                dtype_mgr = "До ПВЗ 🏢" if data['delivery_type'] == "pvz" else "До двери 🚪"
+                mgr_text = (
+                    f"🆕 <b>Новый заказ</b> <code>{order_id}</code>\n\n"
+                    f"📍 <b>{data['city_pickup']}</b> → <b>{data['city_delivery']}</b> · {dtype_mgr}\n"
+                    f"👤 Отправитель: {data['s_name']} · <code>{data['s_phone']}</code>\n"
+                    f"👤 Получатель: {data['r_name']} · <code>{data['r_phone']}</code>\n"
+                    f"📦 {data['weight']} кг · {data['sizes']} см\n"
+                    f"💰 {data['price']} TJS\n"
+                    f"📅 {dushanbe_time}"
+                )
+                b = IKB()
+                b.button(text="✅ Принять", callback_data=f"oa:{order_id}")
+                b.button(text="❌ Отменить", callback_data=f"oc:{order_id}")
+                b.adjust(2)
+                await mgr_bot.send_message(
+                    chat_id=int(MANAGER_CHAT_ID),
+                    text=mgr_text,
+                    reply_markup=b.as_markup(),
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logging.error(f"Не удалось уведомить менеджера о заказе {order_id}: {e}")
 
         msg = RECEIPTS[lang].format(
             date=dushanbe_time, order_id=order_id,

@@ -3,103 +3,134 @@
 
 Before editing any file, read it first. Before modifying a function, grep for all callers. Research before you edit.
 
+## Правила начала сессии
+
+Если в корне проекта есть session_summary.md — прочитай его первым делом и восстанови контекст перед любой другой работой.
+
+## Правила завершения сессии
+
+Когда пользователь пишет "сохрани сессию" или "выжимка" — сохрани файл session_summary.md в корень проекта по шаблону:
+
+1. Проект — название, технологии, стек
+2. Структура проекта — файлы, папки, архитектура
+3. Что сделано — реализованные фичи, изменения (с именами файлов/функций)
+4. Текущее состояние — что работает, что сломано
+5. Что осталось — задачи, планы, идеи которые обсуждали
+6. Важные детали — переменные окружения, зависимости, нюансы
+
+После сохранения напомнить закрыть терминал и открыть новый.
+
 # Карта файлов (используй для точечного чтения)
 
 ## client_bot.py — клиентский бот
 | Строка | Что |
 |--------|-----|
 | 19 | FSM: Registration, Support, Feedback |
-| 79 | verify_telegram_init_data |
-| 102 | generate_order_id |
-| 108 | sanitize_for_sheet |
-| 123 | validate_order_data |
-| 142 | _sync_check_user_by_phone |
-| 153 | _sync_check_user_by_chat_id |
-| 164 | _sync_update_profile |
-| 181 | _sync_append_row |
-| 185 | _sync_register_client |
-| 196 | _sync_get_support_topic |
-| 210 | _sync_save_support_topic |
-| 221 | _sync_get_client_by_topic |
-| 239 | cmd_start |
-| 257 | go_main_menu (глобальная кнопка «🔙 Главное меню») |
-| 266 | process_contact (авторизация по телефону) |
-| 306 | start_fio_step (регистрация) |
-| 330 | get_main_menu |
-| 346 | handle_webapp_data (заказы + профиль) |
-| 448 | support_start |
-| 461 | support_send (создаёт/ищет топик) |
-| 506 | support_continue (чат в режиме поддержки) |
-| 527 | support_group_message (ответы менеджера → клиенту) |
-| 557 | feedback_start |
-| 572 | feedback_send |
+| 29 | WEB_APP_URL, SUPPORT_CHAT_ID, MANAGER_CHAT_ID |
+| 80 | verify_telegram_init_data |
+| 103 | generate_order_id |
+| 109 | sanitize_for_sheet |
+| 124 | validate_order_data |
+| 143 | _sync_check_user_by_phone |
+| 154 | _sync_check_user_by_chat_id |
+| 165 | _sync_update_profile |
+| 182 | _sync_append_row |
+| 186 | _sync_register_client |
+| 197 | _sync_get_support_topic |
+| 211 | _sync_save_support_topic |
+| 222 | _sync_get_client_by_topic |
+| 240 | cmd_start |
+| 258 | go_main_menu (глобальная кнопка «🔙 Главное меню») |
+| 267 | process_contact (авторизация по телефону) |
+| 307 | start_fio_step (регистрация) |
+| 313 | save_fio |
+| 331 | get_main_menu |
+| 347 | handle_webapp_data (заказы + профиль + push менеджеру о новом заказе) |
+| 476 | support_start |
+| 489 | support_send (создаёт/ищет топик) |
+| 534 | support_continue (чат в режиме поддержки) |
+| 555 | support_group_message (ответы менеджера → клиенту) |
+| 585 | feedback_start |
+| 600 | feedback_send |
 
 ## driver_bot.py — курьерский бот
 | Строка | Что |
 |--------|-----|
-| 46 | FSM: DriverRegistration, DriverSupport, DriverFeedback |
-| 58 | _get_active_driver |
-| 63 | _pad_row |
-| 71 | _month_label |
-| 79 | _week_label |
-| 88 | _current_week_range |
-| 95 | _month_range |
-| 105 | _sync_get_driver |
-| 116 | _sync_get_driver_support_topic |
-| 130 | _sync_save_driver_support_topic |
-| 141 | _sync_get_driver_by_topic |
-| 155 | _sync_register_driver |
-| 170 | _sync_get_all_active_drivers |
-| 188 | _sync_get_driver_deliveries |
-| 223 | _sync_get_free_orders |
-| 253 | _sync_take_order |
-| 272 | _sync_release_order |
-| 294 | _sync_update_status |
-| 305 | _sync_find_order_by_id |
-| 318 | _sync_reassign_order |
-| 341 | _sync_get_orders_for_dashboard (используется manager_bot) |
-| 381 | _sync_get_drivers_for_dashboard (используется manager_bot) |
-| 398 | _async_get_admin_dashboard_data (используется manager_bot) |
-| 412 | generate_excel_report |
-| 516 | get_driver_main_menu |
-| 527 | send_client_push |
-| 537 | driver_go_main_menu (глобальная кнопка «🔙 Главное меню») |
-| 544 | cmd_start_driver |
-| 590 | save_driver_fio (→ уведомляет manager_bot о новом курьере) |
-| 630 | open_cabinet (кабинет курьера) |
-| 674 | send_weekly_report |
-| 692 | handle_webapp (generate_report — Excel-отчёт) |
-| 755 | show_jobs (биржа заказов) |
-| 785 | accept_order (take:) |
-| 825 | reject_order (reject: — отказ, уведомляет manager_bot) |
-| 872 | load_order |
-| 901 | transit_order |
-| 929 | arrived_order |
-| 957 | finish_order |
-| 985 | driver_support_start |
-| 1001 | driver_support_send (создаёт/ищет топик) |
-| 1038 | driver_support_continue |
-| 1058 | driver_support_group_message (ответы менеджера → курьеру) |
-| 1084 | driver_feedback_start |
-| 1099 | driver_feedback_send |
+| 46 | FSM: DriverRegistration, DriverRejectReason, DriverSupport, DriverFeedback |
+| 61 | _get_active_driver |
+| 66 | _pad_row |
+| 70 | _now_dushanbe |
+| 74 | _month_label |
+| 82 | _week_label |
+| 91 | _current_week_range |
+| 98 | _month_range |
+| 108 | _sync_get_driver |
+| 119 | _sync_get_driver_support_topic |
+| 133 | _sync_save_driver_support_topic |
+| 144 | _sync_get_driver_by_topic |
+| 158 | _sync_register_driver |
+| 173 | _sync_get_all_active_drivers |
+| 191 | _sync_get_driver_deliveries |
+| 226 | _sync_get_free_orders |
+| 256 | _sync_take_order |
+| 275 | _sync_release_order |
+| 297 | _sync_update_status |
+| 308 | _sync_find_order_by_id |
+| 321 | _sync_reassign_order |
+| 344 | _sync_get_orders_for_dashboard → (active, free, new) |
+| 394 | _sync_get_drivers_for_dashboard |
+| 411 | _async_get_admin_dashboard_data → {orders, free, new, couriers} |
+| 425 | generate_excel_report |
+| 529 | build_driver_main_menu (async, генерирует URL кабинета) |
+| 567 | send_client_push |
+| 577 | driver_go_main_menu (глобальная кнопка «🔙 Главное меню») |
+| 585 | cmd_start_driver |
+| 631 | save_driver_fio (→ уведомляет manager_bot о новом курьере) |
+| 670 | handle_webapp (generate_report — Excel-отчёт) |
+| 733 | show_jobs (биржа заказов) |
+| 763 | accept_order (take:) |
+| 803 | reject_order (reject: — отказ, FSM причина + фото) |
+| 840 | _do_reject (финализация отказа) |
+| 894 | reject_skip |
+| 901 | reject_reason_photo |
+| 908 | reject_reason_text |
+| 913 | load_order |
+| 942 | transit_order |
+| 970 | arrived_order |
+| 998 | finish_order |
+| 1026 | driver_support_start |
+| 1042 | driver_support_send (создаёт/ищет топик) |
+| 1079 | driver_support_continue |
+| 1099 | driver_support_group_message (ответы менеджера → курьеру) |
+| 1125 | driver_feedback_start |
+| 1140 | driver_feedback_send |
 
 ## manager_bot.py — менеджерский бот
 | Строка | Что |
 |--------|-----|
-| 33 | _is_manager (проверка MANAGER_CHAT_ID) |
-| 39 | _sync_approve_driver (PENDING → ACTIVE) |
-| 54 | _sync_reject_driver (PENDING → REJECTED) |
-| 71 | _sync_set_order_ready (NEW → READY_FOR_DRIVERS) |
-| 92 | _build_panel_message |
-| 114 | cmd_start_manager (/start — справка команд) |
-| 129 | cmd_admin_panel (/panel → WebApp панели) |
-| 140 | admin_refresh (🔄 кнопка обновления панели) |
-| 160 | cmd_reassign (/reassign order_id) |
-| 200 | do_reassign (rt: callback — выбор нового курьера) |
-| 271 | handle_webapp (reassign_request из WebApp) |
-| 304 | approve_driver (approve_driver: callback ✅) |
-| 332 | reject_driver_cb (reject_driver: callback ❌) |
-| 362 | cmd_ready (/ready order_id → NEW→READY_FOR_DRIVERS) |
+| 54 | FSM: ManagerCancelOrder (своя причина отмены) |
+| 58 | _is_manager (проверка MANAGER_CHAT_ID) |
+| 64 | _sync_approve_driver (PENDING → ACTIVE) |
+| 79 | _sync_reject_driver (PENDING → REJECTED) |
+| 96 | _sync_set_order_ready (NEW → READY_FOR_DRIVERS) |
+| 115 | _sync_cancel_order (NEW → CANCELLED) |
+| 137 | _sync_get_all_couriers_deliveries |
+| 168 | _sync_get_all_drivers_rates |
+| 193 | generate_summary_excel (сводный Excel на всех курьеров) |
+| 286 | _build_panel_message |
+| 309 | cmd_start_manager (/start → сразу открывает панель) |
+| 316 | _send_panel (отправляет reply keyboard с WebApp) |
+| 337 | panel_refresh_text (кнопка «🔄 Обновить») |
+| 344 | admin_refresh (inline callback обновления) |
+| 354 | do_reassign (rt: callback — выбор нового курьера) |
+| 425 | order_accept (oa: — принять NEW-заказ → READY) |
+| 450 | order_cancel_menu (oc: — показать причины отмены) |
+| 464 | order_cancel_reason (ocr: — отмена с готовой причиной) |
+| 489 | order_cancel_custom_start (ocx: — запрос своей причины) |
+| 501 | order_cancel_custom_reason (FSM — сохраняет свою причину) |
+| 524 | handle_webapp (set_ready / reassign_confirm / reassign_request / отчёты) |
+| 726 | approve_driver (approve_driver: callback ✅) |
+| 754 | reject_driver_cb (reject_driver: callback ❌) |
 
 ## config.py
 | Строка | Что |

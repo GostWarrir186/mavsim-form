@@ -12,7 +12,10 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from aiogram import types, F
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import (
@@ -36,9 +39,20 @@ from driver_bot import (
     send_client_push,
 )
 
-MANAGER_CHAT_ID    = os.getenv("MANAGER_CHAT_ID", "")
-ADMIN_PANEL_URL    = os.getenv("ADMIN_PANEL_URL", "")
+MANAGER_CHAT_ID     = os.getenv("MANAGER_CHAT_ID", "")
+ADMIN_PANEL_URL     = os.getenv("ADMIN_PANEL_URL", "")
 DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "15.0"))
+
+CANCEL_REASONS = [
+    "Не смогли согласовать детали",
+    "Адрес недоступен",
+    "Нет курьеров в этой зоне",
+    "Дублирующий заказ",
+]
+
+
+class ManagerCancelOrder(StatesGroup):
+    waiting_for_reason = State()
 
 
 def _is_manager(chat_id) -> bool:
@@ -95,6 +109,42 @@ def _sync_set_order_ready(order_id: str) -> tuple[bool, str, str]:
         return True, row[18], ""
     except Exception as e:
         logging.error(f"Ошибка перевода заказа {order_id} в READY: {e}")
+        return False, "", str(e)
+
+
+def _sync_change_order_status(order_id: str, new_status: str) -> tuple[bool, str, str, str]:
+    """Меняет статус заказа. Returns (success, client_chat_id, courier_id, error)."""
+    if not sheet:
+        return False, "", "", "база недоступна"
+    try:
+        cell = sheet.find(str(order_id), in_column=2)
+        if not cell:
+            return False, "", "", "не найден"
+        row = _pad_row(sheet.row_values(cell.row))
+        sheet.update_cell(cell.row, 1, new_status)
+        return True, row[18], row[19], ""
+    except Exception as e:
+        logging.error(f"Ошибка смены статуса заказа {order_id}: {e}")
+        return False, "", "", str(e)
+
+
+def _sync_cancel_order(order_id: str) -> tuple[bool, str, str]:
+    """NEW → CANCELLED. Returns (success, client_chat_id, error_detail)."""
+    if not sheet:
+        return False, "", "база недоступна"
+    try:
+        cell = sheet.find(str(order_id), in_column=2)
+        if not cell:
+            return False, "", "не найден"
+        from driver_bot import _pad_row
+        row = _pad_row(sheet.row_values(cell.row))
+        status = row[0].upper().strip()
+        if status != "NEW":
+            return False, "", f"статус: {status}"
+        sheet.update_cell(cell.row, 1, "CANCELLED")
+        return True, row[18], ""
+    except Exception as e:
+        logging.error(f"Ошибка отмены заказа {order_id}: {e}")
         return False, "", str(e)
 
 
@@ -249,7 +299,7 @@ def generate_summary_excel(couriers_stats: list[dict], period_label: str) -> Byt
 
 # ─── Панель управления ───────────────────────────────────────────────────────
 
-def _build_panel_message(data: dict) -> tuple[str, types.InlineKeyboardMarkup]:
+def _build_panel_message(data: dict) -> tuple[str, types.InlineKeyboardMarkup, str | None]:
     active_cnt = len(data["orders"])
     free_cnt   = len(data["free"])
     busy_cnt   = sum(1 for c in data["couriers"] if c["busy"])
@@ -260,14 +310,15 @@ def _build_panel_message(data: dict) -> tuple[str, types.InlineKeyboardMarkup]:
         f"🕳️ Свободных заказов: <b>{free_cnt}</b>\n"
         f"🚗 Курьеров в работе: <b>{busy_cnt}/{total_cnt}</b>"
     )
-    raw = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-    b64 = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
-    b = InlineKeyboardBuilder()
+    webapp_url = None
     if ADMIN_PANEL_URL:
-        b.button(text="🎛 Открыть панель", web_app=types.WebAppInfo(url=f"{ADMIN_PANEL_URL}?d={b64}"))
+        raw = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        b64 = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+        webapp_url = f"{ADMIN_PANEL_URL}?d={b64}"
+    b = InlineKeyboardBuilder()
     b.button(text="🔄 Обновить", callback_data="admin_refresh")
     b.adjust(1)
-    return text, b.as_markup()
+    return text, b.as_markup(), webapp_url
 
 
 @dp.message(CommandStart())
@@ -275,25 +326,34 @@ async def cmd_start_manager(message: types.Message):
     if not _is_manager(message.chat.id):
         await message.answer("⛔ Доступ запрещён.")
         return
-    await message.answer(
-        "🎛 <b>Панель менеджера Mavsimi Rason</b>\n\n"
-        "Доступные команды:\n"
-        "/panel — открыть панель управления\n"
-        "/reassign &lt;id&gt; — переназначить курьера\n"
-        "/ready &lt;id&gt; — перевести заказ в доставку",
-        parse_mode="HTML"
-    )
+    await _send_panel(message.chat.id, bot)
 
 
-@dp.message(Command("panel"))
-async def cmd_admin_panel(message: types.Message):
+async def _send_panel(chat_id: int, bot_instance):
+    data = await _async_get_admin_dashboard_data()
+    text, _, webapp_url = _build_panel_message(data)
+    if webapp_url:
+        reply_kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🎛 Открыть панель", web_app=types.WebAppInfo(url=webapp_url))],
+                [KeyboardButton(text="🔄 Обновить")],
+            ],
+            resize_keyboard=True
+        )
+    else:
+        reply_kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="🔄 Обновить")]],
+            resize_keyboard=True
+        )
+    await bot_instance.send_message(chat_id, text, reply_markup=reply_kb, parse_mode="HTML")
+
+
+
+@dp.message(F.text == "🔄 Обновить")
+async def panel_refresh_text(message: types.Message):
     if not _is_manager(message.chat.id):
         return
-    wait = await message.answer("⏳ Загружаю данные...")
-    data = await _async_get_admin_dashboard_data()
-    text, kb = _build_panel_message(data)
-    await wait.delete()
-    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await _send_panel(message.chat.id, bot)
 
 
 @dp.callback_query(F.data == "admin_refresh")
@@ -301,59 +361,9 @@ async def admin_refresh(callback: types.CallbackQuery):
     if not _is_manager(callback.message.chat.id):
         await callback.answer()
         return
-    data = await _async_get_admin_dashboard_data()
-    text, kb = _build_panel_message(data)
-    try:
-        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-        await callback.answer("Обновлено ✅")
-    except Exception as e:
-        if "message is not modified" in str(e):
-            await callback.answer("Данные актуальны")
-        else:
-            await callback.answer("Ошибка обновления")
-            logging.error(f"admin_refresh edit error: {e}")
+    await callback.answer("Загружаю...")
+    await _send_panel(callback.message.chat.id, bot)
 
-
-# ─── Переназначение заказов ──────────────────────────────────────────────────
-
-@dp.message(Command("reassign"))
-async def cmd_reassign(message: types.Message):
-    if not _is_manager(message.chat.id):
-        return
-    parts = message.text.strip().split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("Использование: /reassign &lt;order_id&gt;", parse_mode="HTML")
-        return
-    order_id = parts[1].strip()
-    result = await asyncio.to_thread(_sync_find_order_by_id, order_id)
-    if not result:
-        await message.answer(f"❌ Заказ <b>{order_id}</b> не найден.", parse_mode="HTML")
-        return
-
-    row_num, row_vals = result
-    status = row_vals[0].upper().strip()
-    if status not in ("TAKEN", "LOADING", "IN_TRANSIT", "ARRIVED"):
-        await message.answer(f"❌ Заказ {order_id} нельзя переназначить (статус: {status}).")
-        return
-
-    active_drivers = await asyncio.to_thread(_sync_get_all_active_drivers)
-    if not active_drivers:
-        await message.answer("❌ Нет активных курьеров.")
-        return
-
-    status_ru = {"TAKEN": "Взят", "LOADING": "Погрузка", "IN_TRANSIT": "В пути", "ARRIVED": "На месте"}
-    b = InlineKeyboardBuilder()
-    for d in active_drivers:
-        b.button(text=f"👤 {d['fio']}", callback_data=f"rt:{row_num}:{d['row_num']}")
-    b.adjust(1)
-    await message.answer(
-        f"📦 <b>Заказ {order_id}</b>\n"
-        f"Статус: {status_ru.get(status, status)}\n"
-        f"Текущий курьер: {row_vals[17] or '—'}\n\n"
-        f"Выберите нового курьера:",
-        reply_markup=b.as_markup(),
-        parse_mode="HTML"
-    )
 
 
 @dp.callback_query(F.data.startswith("rt:"))
@@ -425,6 +435,105 @@ async def do_reassign(callback: types.CallbackQuery):
         await callback.message.answer("❌ Ошибка при переназначении.")
 
 
+# ─── Принятие / отмена нового заказа (push от клиентского бота) ─────────────
+
+@dp.callback_query(F.data.startswith("oa:"))
+async def order_accept(callback: types.CallbackQuery):
+    await callback.answer()
+    if not _is_manager(callback.message.chat.id):
+        return
+    order_id = callback.data.split(":", 1)[1]
+    success, client_chat_id, err = await asyncio.to_thread(_sync_set_order_ready, order_id)
+    if not success:
+        await callback.message.edit_text(
+            callback.message.text + f"\n\n❌ Не удалось принять — {err}.",
+            reply_markup=None
+        )
+        return
+    await callback.message.edit_text(
+        callback.message.html_text + "\n\n✅ <b>Принят и передан на биржу!</b>",
+        reply_markup=None,
+        parse_mode="HTML"
+    )
+    if client_chat_id:
+        await send_client_push(
+            client_chat_id,
+            f"✅ Ваш заказ *{order_id}* принят!\nОжидайте назначения курьера."
+        )
+
+
+@dp.callback_query(F.data.startswith("oc:"))
+async def order_cancel_menu(callback: types.CallbackQuery):
+    await callback.answer()
+    if not _is_manager(callback.message.chat.id):
+        return
+    order_id = callback.data.split(":", 1)[1]
+    b = InlineKeyboardBuilder()
+    for i, reason in enumerate(CANCEL_REASONS):
+        b.button(text=reason, callback_data=f"ocr:{order_id}:{i}")
+    b.button(text="✏️ Своя причина", callback_data=f"ocx:{order_id}")
+    b.adjust(1)
+    await callback.message.edit_reply_markup(reply_markup=b.as_markup())
+
+
+@dp.callback_query(F.data.startswith("ocr:"))
+async def order_cancel_reason(callback: types.CallbackQuery):
+    await callback.answer()
+    if not _is_manager(callback.message.chat.id):
+        return
+    _, order_id, idx_str = callback.data.split(":", 2)
+    reason = CANCEL_REASONS[int(idx_str)]
+    success, client_chat_id, err = await asyncio.to_thread(_sync_cancel_order, order_id)
+    if not success:
+        await callback.message.edit_text(
+            callback.message.html_text + f"\n\n❌ Не удалось отменить — {err}.",
+            reply_markup=None, parse_mode="HTML"
+        )
+        return
+    await callback.message.edit_text(
+        callback.message.html_text + f"\n\n❌ <b>Отменён.</b> Причина: {reason}",
+        reply_markup=None, parse_mode="HTML"
+    )
+    if client_chat_id:
+        await send_client_push(
+            client_chat_id,
+            f"❌ К сожалению, ваш заказ *{order_id}* был отменён.\n📝 Причина: {reason}\n\nПожалуйста, свяжитесь с поддержкой если возникли вопросы."
+        )
+
+
+@dp.callback_query(F.data.startswith("ocx:"))
+async def order_cancel_custom_start(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    if not _is_manager(callback.message.chat.id):
+        return
+    order_id = callback.data.split(":", 1)[1]
+    await state.set_state(ManagerCancelOrder.waiting_for_reason)
+    await state.update_data(order_id=order_id, msg_id=callback.message.message_id)
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(f"✏️ Введите причину отмены заказа <code>{order_id}</code>:", parse_mode="HTML")
+
+
+@dp.message(ManagerCancelOrder.waiting_for_reason)
+async def order_cancel_custom_reason(message: types.Message, state: FSMContext):
+    if not _is_manager(message.chat.id):
+        return
+    data = await state.get_data()
+    order_id = data.get("order_id", "")
+    reason = message.text.strip()
+    await state.clear()
+
+    success, client_chat_id, err = await asyncio.to_thread(_sync_cancel_order, order_id)
+    if not success:
+        await message.answer(f"❌ Не удалось отменить заказ {order_id} — {err}.")
+        return
+    await message.answer(f"❌ Заказ <code>{order_id}</code> отменён.\nПричина: {reason}", parse_mode="HTML")
+    if client_chat_id:
+        await send_client_push(
+            client_chat_id,
+            f"❌ К сожалению, ваш заказ *{order_id}* был отменён.\n📝 Причина: {reason}\n\nПожалуйста, свяжитесь с поддержкой если возникли вопросы."
+        )
+
+
 # ─── WebApp от панели менеджера ──────────────────────────────────────────────
 
 @dp.message(F.web_app_data)
@@ -436,7 +545,149 @@ async def handle_webapp(message: types.Message):
 
     action = data.get("action")
 
-    # ── Переназначение из WebApp ─────────────────────────────────────────────
+    # ── Сменить статус активного заказа ─────────────────────────────────────
+    if action == "change_status":
+        order_id       = data.get("order_id")
+        new_status     = data.get("new_status")
+        new_status_lbl = data.get("new_status_label", new_status)
+        if not order_id or not new_status:
+            return
+        success, client_chat_id, courier_id, err = await asyncio.to_thread(
+            _sync_change_order_status, order_id, new_status
+        )
+        if not success:
+            await message.answer(f"❌ Не удалось сменить статус — {err}.")
+            return
+        await message.answer(
+            f"✅ Заказ <b>{order_id}</b> → <b>{new_status_lbl}</b>",
+            parse_mode="HTML"
+        )
+        if courier_id:
+            try:
+                await driver_bot_instance.send_message(
+                    chat_id=int(courier_id),
+                    text=f"📋 <b>Статус заказа {order_id} изменён менеджером:</b> {new_status_lbl}",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logging.error(f"Не удалось уведомить курьера {courier_id}: {e}")
+        if client_chat_id:
+            await send_client_push(
+                client_chat_id,
+                f"📦 Статус вашего заказа *{order_id}* обновлён: *{new_status_lbl}*"
+            )
+        await _send_panel(message.chat.id, bot)
+        return
+
+    # ── Отменить активный заказ (с курьером) ────────────────────────────────
+    if action == "cancel_active":
+        order_id   = data.get("order_id")
+        reason     = data.get("reason", "Отменён менеджером")
+        if not order_id:
+            return
+        success, client_chat_id, courier_id, err = await asyncio.to_thread(
+            _sync_change_order_status, order_id, "CANCELLED"
+        )
+        if not success:
+            await message.answer(f"❌ Не удалось отменить — {err}.")
+            return
+        await message.answer(
+            f"❌ Заказ <b>{order_id}</b> отменён.\nПричина: {reason}",
+            parse_mode="HTML"
+        )
+        if courier_id:
+            try:
+                await driver_bot_instance.send_message(
+                    chat_id=int(courier_id),
+                    text=f"⚠️ <b>Заказ {order_id} отменён менеджером.</b>\nПричина: {reason}",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logging.error(f"Не удалось уведомить курьера {courier_id}: {e}")
+        if client_chat_id:
+            await send_client_push(
+                client_chat_id,
+                f"❌ Ваш заказ *{order_id}* был отменён.\n📝 Причина: {reason}"
+            )
+        await _send_panel(message.chat.id, bot)
+        return
+
+    # ── Принять NEW-заказ → READY_FOR_DRIVERS ───────────────────────────────
+    if action == "set_ready":
+        order_id = data.get("order_id")
+        if not order_id:
+            return
+        success, client_chat_id, err = await asyncio.to_thread(_sync_set_order_ready, order_id)
+        if not success:
+            await message.answer(f"❌ Не удалось принять заказ — {err}.")
+            return
+        await message.answer(
+            f"✅ Заказ <b>{order_id}</b> принят и передан на биржу курьеров!",
+            parse_mode="HTML"
+        )
+        if client_chat_id:
+            await send_client_push(
+                client_chat_id,
+                f"📦 Ваш заказ *{order_id}* принят и передан в доставку!\nОжидайте назначения курьера."
+            )
+        await _send_panel(message.chat.id, bot)
+        return
+
+    # ── Переназначение — выбор курьера внутри WebApp ────────────────────────
+    if action == "reassign_confirm":
+        order_row    = data.get("order_row")
+        order_id     = data.get("order_id")
+        courier_tid  = str(data.get("courier_tid", ""))
+        courier_name = data.get("courier_name", "")
+        if not order_row or not order_id or not courier_tid:
+            return
+        success, old_courier_id, confirmed_order_id = await asyncio.to_thread(
+            _sync_reassign_order, int(order_row), courier_name, courier_tid
+        )
+        if not success:
+            await message.answer("❌ Не удалось переназначить. Проверьте статус заказа.")
+            return
+        order_row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, int(order_row)))
+        client_chat_id = order_row_vals[18]
+        city_from      = order_row_vals[4]
+        city_to        = order_row_vals[6]
+        await message.answer(
+            f"✅ Заказ <b>{confirmed_order_id}</b> переназначен → <b>{courier_name}</b>",
+            parse_mode="HTML"
+        )
+        if old_courier_id and old_courier_id != courier_tid:
+            try:
+                await driver_bot_instance.send_message(
+                    chat_id=int(old_courier_id),
+                    text=f"⚠️ <b>Ваш заказ {confirmed_order_id} переназначен другому курьеру.</b>",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logging.error(f"Не удалось уведомить старого курьера: {e}")
+        b = InlineKeyboardBuilder()
+        b.button(text="📦 Приступить к погрузке", callback_data=f"load:{order_row}")
+        try:
+            await driver_bot_instance.send_message(
+                chat_id=int(courier_tid),
+                text=(
+                    f"📦 <b>Вам назначен заказ {confirmed_order_id}!</b>\n"
+                    f"📍 {city_from} → {city_to}\n\n"
+                    f"Нажмите кнопку, когда начнёте погрузку:"
+                ),
+                reply_markup=b.as_markup(),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logging.error(f"Не удалось уведомить нового курьера {courier_tid}: {e}")
+        if client_chat_id:
+            await send_client_push(
+                client_chat_id,
+                f"🔄 Ваш заказ *{confirmed_order_id}* передан новому курьеру: *{courier_name}*."
+            )
+        await _send_panel(message.chat.id, bot)
+        return
+
+    # ── Переназначение (старый путь через чат) ───────────────────────────────
     if action == "reassign_request":
         order_row = data.get("order_row")
         order_id  = data.get("order_id")
@@ -612,24 +863,3 @@ async def reject_driver_cb(callback: types.CallbackQuery):
         logging.error(f"Не удалось уведомить курьера {telegram_id} об отклонении: {e}")
 
 
-# ─── NEW → READY_FOR_DRIVERS ─────────────────────────────────────────────────
-
-@dp.message(Command("ready"))
-async def cmd_ready(message: types.Message):
-    if not _is_manager(message.chat.id):
-        return
-    parts = message.text.strip().split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("Использование: /ready &lt;order_id&gt;", parse_mode="HTML")
-        return
-    order_id = parts[1].strip()
-    success, client_chat_id, err = await asyncio.to_thread(_sync_set_order_ready, order_id)
-    if not success:
-        await message.answer(f"❌ Не удалось — {err}.")
-        return
-    await message.answer(f"✅ Заказ <b>{order_id}</b> переведён в READY_FOR_DRIVERS.", parse_mode="HTML")
-    if client_chat_id:
-        await send_client_push(
-            client_chat_id,
-            f"📦 Ваш заказ *{order_id}* принят и передан в доставку!\nОжидайте назначения курьера."
-        )

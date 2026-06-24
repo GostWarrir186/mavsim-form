@@ -39,36 +39,49 @@ sheet_name = os.getenv("GOOGLE_SHEET_NAME", "Заявки Mavsimi Rason")
 sheet = None
 drivers_sheet = None
 clients_sheet = None
+orders_info_sheet = None
 try:
     if os.path.exists(creds_path):
         creds = Credentials.from_service_account_file(creds_path, scopes=scope)
         gc = gspread.authorize(creds)
-        spreadsheet = gc.open(sheet_name)
-        sheet = spreadsheet.worksheet("Лист1")
-
-        try:
-            drivers_sheet = spreadsheet.worksheet("Водители")
-        except gspread.WorksheetNotFound:
-            drivers_sheet = spreadsheet.add_worksheet(title="Водители", rows=1000, cols=8)
-            drivers_sheet.append_row([
-                "Статус", "Дата рег.", "ФИО", "Telegram ID",
-                "Ставка (TJS)", "Дата оферты", "", ""
-            ])
-            logging.info("✅ Создан лист 'Водители'")
-
-        try:
-            clients_sheet = spreadsheet.worksheet("Клиенты")
-        except gspread.WorksheetNotFound:
-            clients_sheet = spreadsheet.add_worksheet(title="Клиенты", rows=5000, cols=6)
-            clients_sheet.append_row([
-                "Статус", "Дата рег.", "ФИО", "Телефон", "Адрес забора", "Chat ID"
-            ])
-            logging.info("✅ Создан лист 'Клиенты'")
-
-        logging.info("✅ База данных Google Sheets успешно подключена!")
     else:
         logging.critical(f"❌ Файл авторизации {creds_path} не найден! Запуск невозможен.")
         sys.exit(1)
+
+    spreadsheet = gc.open(sheet_name)
+    sheet = spreadsheet.worksheet("Лист1")
+
+    try:
+        drivers_sheet = spreadsheet.worksheet("Водители")
+    except gspread.WorksheetNotFound:
+        drivers_sheet = spreadsheet.add_worksheet(title="Водители", rows=1000, cols=9)
+        drivers_sheet.append_row([
+            "Статус", "Дата рег.", "ФИО", "Telegram ID",
+            "Ставка (TJS)", "Дата оферты", "Topic ID", "Телефон"
+        ])
+        logging.info("✅ Создан лист 'Водители'")
+
+    try:
+        clients_sheet = spreadsheet.worksheet("Клиенты")
+    except gspread.WorksheetNotFound:
+        clients_sheet = spreadsheet.add_worksheet(title="Клиенты", rows=5000, cols=7)
+        clients_sheet.append_row([
+            "Статус", "Дата рег.", "ФИО", "Телефон", "Адрес забора", "Chat ID", "Topic ID"
+        ])
+        logging.info("✅ Создан лист 'Клиенты'")
+
+    try:
+        orders_info_sheet = spreadsheet.worksheet("Заказы")
+    except gspread.WorksheetNotFound:
+        orders_info_sheet = spreadsheet.add_worksheet(title="Заказы", rows=5000, cols=16)
+        orders_info_sheet.append_row([
+            "ID заказа", "Дата", "Статус", "Цена (TJS)", "Тип доставки", "Вес (кг)", "Габариты",
+            "ФИО отправителя", "Тел отправителя", "Город откуда", "Адрес откуда",
+            "ФИО получателя", "Тел получателя", "Город куда", "Адрес куда", "Ориентир"
+        ])
+        logging.info("✅ Создан лист 'Заказы'")
+
+    logging.info("✅ База данных Google Sheets успешно подключена!")
 except Exception as e:
     logging.critical(f"❌ Критическая ошибка подключения к Google Таблицам: {e}")
     sys.exit(1)

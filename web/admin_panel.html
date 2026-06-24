@@ -82,12 +82,72 @@
         .card-route .arr { color: var(--hint); margin: 0 4px; font-size: 11px; }
         .card-meta { font-size: 11px; color: var(--hint); margin-bottom: 8px; }
 
-        .btn-reassign {
+        .btn-manage {
             width: 100%; padding: 9px; border: none; border-radius: 8px;
-            background: rgba(36,129,204,.1); color: var(--primary);
+            background: var(--sec-bg); color: var(--text);
             font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s;
         }
-        .btn-reassign:active { background: rgba(36,129,204,.2); }
+        .btn-manage:active { background: rgba(0,0,0,.08); }
+
+        /* Manage modal sections */
+        .manage-section { padding: 14px 16px; border-bottom: 1px solid var(--sec-bg); }
+        .manage-section:last-child { border-bottom: none; }
+        .manage-section-title {
+            font-size: 10px; font-weight: 700; color: var(--hint);
+            text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px;
+        }
+        .manage-danger .manage-section-title { color: var(--danger); }
+        .status-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+        .st-pill {
+            padding: 7px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+            border: 1.5px solid rgba(0,0,0,.1); background: var(--sec-bg); color: var(--text);
+            cursor: pointer; transition: all .15s;
+        }
+        .st-pill.current { background: rgba(36,129,204,.1); border-color: var(--primary); color: var(--primary); cursor: default; }
+        .st-pill.done { background: rgba(43,202,128,.1); border-color: var(--success); color: var(--success); cursor: default; }
+        .st-pill:not(.current):not(.done):active { opacity: .7; }
+        .btn-cancel-r {
+            display: block; width: 100%; padding: 11px 14px; text-align: left;
+            background: rgba(229,57,53,.07); border: none; border-radius: 8px;
+            font-size: 13px; font-weight: 500; color: var(--danger);
+            cursor: pointer; margin-bottom: 6px; transition: background .15s;
+        }
+        .btn-cancel-r:active { background: rgba(229,57,53,.18); }
+        .btn-cancel-custom {
+            background: none; color: var(--hint);
+            border: 1.5px dashed rgba(0,0,0,.15); border-radius: 8px;
+        }
+        .custom-cancel-wrap { display: none; margin-top: 8px; }
+        .custom-cancel-input {
+            width: 100%; padding: 10px 12px; border: 1.5px solid var(--danger);
+            border-radius: 8px; font-size: 14px; background: var(--sec-bg); color: var(--text);
+            margin-bottom: 6px;
+        }
+        .btn-cancel-confirm {
+            width: 100%; padding: 11px; border: none; border-radius: 8px;
+            background: var(--danger); color: #fff;
+            font-size: 13px; font-weight: 700; cursor: pointer;
+        }
+
+        /* New order (awaiting manager approval) */
+        .new-card {
+            background: var(--bg); border-radius: var(--r);
+            margin-bottom: 8px; padding: 11px 14px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.05);
+            border-left: 3px solid var(--danger);
+        }
+        .new-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+        .new-order-id { font-size: 12px; font-weight: 700; }
+        .new-pill { background: rgba(229,57,53,.1); color: var(--danger); font-size: 9.5px; font-weight: 700; padding: 3px 8px; border-radius: 20px; }
+        .new-route { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+        .new-route .arr { color: var(--hint); font-size: 10px; margin: 0 3px; }
+        .new-meta { font-size: 10.5px; color: var(--hint); margin-bottom: 8px; }
+        .btn-accept {
+            width: 100%; padding: 9px; border: none; border-radius: 8px;
+            background: rgba(43,202,128,.15); color: var(--success);
+            font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s;
+        }
+        .btn-accept:active { background: rgba(43,202,128,.3); }
 
         /* Free order */
         .free-card {
@@ -166,10 +226,58 @@
 
         /* Error */
         .err-screen { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:80vh; text-align:center; padding:20px; }
+
+        /* Modal */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,.5); z-index: 100;
+            align-items: flex-end; justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal {
+            background: var(--bg); border-radius: 16px 16px 0 0;
+            width: 100%; max-height: 75vh; overflow-y: auto;
+            padding: 0 0 24px;
+        }
+        .modal-header {
+            position: sticky; top: 0; background: var(--bg);
+            padding: 16px 16px 10px;
+            border-bottom: 1px solid var(--sec-bg);
+        }
+        .modal-title { font-size: 15px; font-weight: 700; }
+        .modal-sub   { font-size: 12px; color: var(--hint); margin-top: 2px; }
+        .modal-close {
+            position: absolute; top: 12px; right: 14px;
+            background: var(--sec-bg); border: none; border-radius: 50%;
+            width: 28px; height: 28px; font-size: 15px; cursor: pointer; color: var(--hint);
+        }
+        .modal-courier {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 13px 16px; border-bottom: 1px solid var(--sec-bg);
+            cursor: pointer;
+        }
+        .modal-courier:active { background: var(--sec-bg); }
+        .modal-courier-name { font-size: 13px; font-weight: 600; }
+        .modal-courier-status { font-size: 11px; color: var(--hint); margin-top: 2px; }
+        .modal-courier-arrow { color: var(--hint); font-size: 16px; }
     </style>
 </head>
 <body>
 <div id="app"></div>
+
+<!-- Модалка управления заказом -->
+<div class="modal-overlay" id="manageModal" onclick="closeManageModal(event)">
+    <div class="modal">
+        <div class="modal-header">
+            <div>
+                <div class="modal-title" id="manageTitle"></div>
+                <div class="modal-sub" id="manageSubtitle"></div>
+            </div>
+            <button class="modal-close" onclick="closeManageModal()">✕</button>
+        </div>
+        <div id="manageContent"></div>
+    </div>
+</div>
 
 <script>
     const tg = (window.Telegram && window.Telegram.WebApp)
@@ -238,9 +346,133 @@
         if (btnNext) btnNext.disabled = weekOffset >= 0;
     }
 
-    // ─── Действия ─────────────────────────────────────────────────────────────
-    function reassign(orderRow, orderId) {
-        tg.sendData(JSON.stringify({ action: 'reassign_request', order_row: orderRow, order_id: orderId }));
+    // ─── Модалка управления заказом ──────────────────────────────────────────
+    let _manageOrder = null;
+
+    const STATUSES = [
+        { key: 'TAKEN',      label: 'Взят' },
+        { key: 'LOADING',    label: 'Погрузка' },
+        { key: 'IN_TRANSIT', label: 'В пути' },
+        { key: 'ARRIVED',    label: 'На месте' },
+        { key: 'DELIVERED',  label: 'Доставлен' },
+    ];
+    const STATUS_ORDER = STATUSES.map(s => s.key);
+
+    const CANCEL_REASONS = [
+        'Курьер не приехал за посылкой',
+        'Получатель недоступен',
+        'Форс-мажор',
+    ];
+
+    function openManage(idx) {
+        _manageOrder = DATA.orders[idx];
+        if (!_manageOrder) return;
+        document.getElementById('manageTitle').textContent = '№ ' + _manageOrder.id;
+        document.getElementById('manageSubtitle').textContent =
+            _manageOrder.city_from + ' → ' + _manageOrder.city_to +
+            ' · ' + (STATUS_LABEL[_manageOrder.status] || _manageOrder.status);
+        document.getElementById('manageContent').innerHTML = renderManageContent();
+        document.getElementById('manageModal').classList.add('open');
+    }
+
+    function closeManageModal(e) {
+        if (!e || e.target === document.getElementById('manageModal')) {
+            document.getElementById('manageModal').classList.remove('open');
+            _manageOrder = null;
+        }
+    }
+
+    function renderManageContent() {
+        const o = _manageOrder;
+        const curIdx = STATUS_ORDER.indexOf(o.status);
+
+        const pillsHtml = STATUSES.map((s, i) => {
+            const isCurrent = s.key === o.status;
+            const isDone = i < curIdx;
+            const cls = isCurrent ? 'current' : isDone ? 'done' : '';
+            const disabled = (isCurrent || isDone) ? 'disabled' : '';
+            return `<button class="st-pill ${cls}" ${disabled} onclick="doChangeStatus('${s.key}')">${s.label}</button>`;
+        }).join('');
+
+        const couriersHtml = (DATA.couriers || []).length
+            ? (DATA.couriers).map(c => `
+                <div class="modal-courier" onclick="doReassign('${c.tid}','${c.fio.replace(/'/g, "\\'")}')">
+                    <div>
+                        <div class="modal-courier-name">${c.fio}</div>
+                        <div class="modal-courier-status">${c.busy ? '🔴 Занят' : '🟢 Свободен'}</div>
+                    </div>
+                    <span class="modal-courier-arrow">›</span>
+                </div>`).join('')
+            : '<div style="padding:12px;font-size:13px;color:var(--hint)">Нет активных курьеров</div>';
+
+        const cancelHtml = CANCEL_REASONS.map(r =>
+            `<button class="btn-cancel-r" onclick="doCancelActive('${r}')">${r}</button>`
+        ).join('');
+
+        return `
+        <div class="manage-section">
+            <div class="manage-section-title">Сменить статус</div>
+            <div class="status-pills">${pillsHtml}</div>
+        </div>
+        <div class="manage-section">
+            <div class="manage-section-title">Переназначить курьера</div>
+            ${couriersHtml}
+        </div>
+        <div class="manage-section manage-danger">
+            <div class="manage-section-title">Отменить заказ</div>
+            ${cancelHtml}
+            <div class="custom-cancel-wrap" id="customCancelWrap">
+                <input class="custom-cancel-input" id="customCancelInput" type="text" placeholder="Введите причину...">
+                <button class="btn-cancel-confirm" onclick="confirmCustomCancel()">Подтвердить отмену</button>
+            </div>
+            <button class="btn-cancel-r btn-cancel-custom" onclick="showCustomCancel()">✏️ Своя причина</button>
+        </div>`;
+    }
+
+    function doChangeStatus(newStatus) {
+        if (!_manageOrder) return;
+        const label = STATUSES.find(s => s.key === newStatus)?.label || newStatus;
+        tg.sendData(JSON.stringify({
+            action: 'change_status',
+            order_id: _manageOrder.id,
+            order_row: _manageOrder.row,
+            courier_id: _manageOrder.courier_id,
+            new_status: newStatus,
+            new_status_label: label,
+        }));
+    }
+
+    function doReassign(courierTid, courierName) {
+        if (!_manageOrder) return;
+        tg.sendData(JSON.stringify({
+            action: 'reassign_confirm',
+            order_row: _manageOrder.row,
+            order_id: _manageOrder.id,
+            courier_tid: courierTid,
+            courier_name: courierName,
+        }));
+    }
+
+    function doCancelActive(reason) {
+        if (!_manageOrder) return;
+        tg.sendData(JSON.stringify({
+            action: 'cancel_active',
+            order_id: _manageOrder.id,
+            order_row: _manageOrder.row,
+            courier_id: _manageOrder.courier_id,
+            reason: reason,
+        }));
+    }
+
+    function showCustomCancel() {
+        document.getElementById('customCancelWrap').style.display = 'block';
+        document.getElementById('customCancelInput').focus();
+    }
+
+    function confirmCustomCancel() {
+        const reason = (document.getElementById('customCancelInput').value || '').trim();
+        if (!reason) return;
+        doCancelActive(reason);
     }
 
     function reportCourier(tid, name) {
@@ -262,7 +494,7 @@
     }
 
     // ─── Рендер карточек ──────────────────────────────────────────────────────
-    function renderOrderCard(o) {
+    function renderOrderCard(o, idx) {
         return `
         <div class="order-card s-${o.status}">
             <div class="card-top">
@@ -275,8 +507,25 @@
             <div class="card-meta">
                 🚗 ${o.courier || '—'} &nbsp;·&nbsp; 💰 ${o.price} TJS &nbsp;·&nbsp; 📞 ${o.r_phone}
             </div>
-            <button class="btn-reassign" onclick="reassign(${o.row},'${o.id}')">↔️ Переназначить</button>
+            <button class="btn-manage" onclick="openManage(${idx})">⚙️ Управление</button>
         </div>`;
+    }
+
+    function renderNewCard(o) {
+        return `
+        <div class="new-card">
+            <div class="new-card-top">
+                <span class="new-order-id">№ ${o.id}</span>
+                <span class="new-pill">⏳ Новый</span>
+            </div>
+            <div class="new-route">${o.city_from}<span class="arr">→</span>${o.city_to}</div>
+            <div class="new-meta">👤 ${o.s_name || '—'} &nbsp;·&nbsp; 💰 ${o.price} TJS</div>
+            <button class="btn-accept" onclick="acceptOrder(${o.row},'${o.id}')">✅ Принять в доставку</button>
+        </div>`;
+    }
+
+    function acceptOrder(orderRow, orderId) {
+        tg.sendData(JSON.stringify({ action: 'set_ready', order_id: orderId, order_row: orderRow }));
     }
 
     function renderFreeCard(o) {
@@ -331,11 +580,28 @@
     function render() {
         const orders   = DATA.orders   || [];
         const free     = DATA.free     || [];
+        const newOrds  = DATA.new      || [];
         const couriers = DATA.couriers || [];
         const busy     = couriers.filter(c => c.busy).length;
 
         const { start, end } = getWeekDates(weekOffset);
         const wLabel = weekLabel(start, end);
+
+        const birzhaCount = newOrds.length + free.length;
+
+        let birzhaHtml = '';
+        if (!newOrds.length && !free.length) {
+            birzhaHtml = '<div class="empty"><div class="empty-icon">🕳️</div><div class="empty-text">Нет заказов</div></div>';
+        } else {
+            if (newOrds.length) {
+                birzhaHtml += `<div class="section-lbl">⏳ Ожидают подтверждения (${newOrds.length})</div>`;
+                birzhaHtml += newOrds.map(renderNewCard).join('');
+            }
+            if (free.length) {
+                birzhaHtml += `<div class="section-lbl" style="margin-top:${newOrds.length ? 12 : 2}px">📋 На бирже (${free.length})</div>`;
+                birzhaHtml += free.map(renderFreeCard).join('');
+            }
+        }
 
         app.innerHTML = `
         <div class="header">
@@ -349,8 +615,8 @@
                 <div class="stat-lbl">В работе</div>
             </div>
             <div class="stat">
-                <div class="stat-val blue">${free.length}</div>
-                <div class="stat-lbl">Свободных</div>
+                <div class="stat-val" style="color:var(--danger)">${newOrds.length}</div>
+                <div class="stat-lbl">Новых</div>
             </div>
             <div class="stat">
                 <div class="stat-val green">${busy}/${couriers.length}</div>
@@ -360,23 +626,20 @@
 
         <div class="tabs">
             <div class="tab active" onclick="selectTab(0)">🚚 В работе (${orders.length})</div>
-            <div class="tab" onclick="selectTab(1)">📦 Биржа (${free.length})</div>
+            <div class="tab" onclick="selectTab(1)">📦 Заказы (${birzhaCount})</div>
             <div class="tab" onclick="selectTab(2)">👤 Курьеры (${couriers.length})</div>
             <div class="tab" onclick="selectTab(3)">📊 Отчёты</div>
         </div>
 
         <div class="pane active">
             ${orders.length
-                ? orders.map(renderOrderCard).join('')
+                ? orders.map((o, i) => renderOrderCard(o, i)).join('')
                 : '<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">Нет активных заказов</div></div>'
             }
         </div>
 
         <div class="pane">
-            ${free.length
-                ? free.map(renderFreeCard).join('')
-                : '<div class="empty"><div class="empty-icon">🕳️</div><div class="empty-text">Биржа пуста</div></div>'
-            }
+            ${birzhaHtml}
         </div>
 
         <div class="pane">
