@@ -82,12 +82,52 @@
         .card-route .arr { color: var(--hint); margin: 0 4px; font-size: 11px; }
         .card-meta { font-size: 11px; color: var(--hint); margin-bottom: 8px; }
 
-        .btn-reassign {
+        .btn-manage {
             width: 100%; padding: 9px; border: none; border-radius: 8px;
-            background: rgba(36,129,204,.1); color: var(--primary);
+            background: var(--sec-bg); color: var(--text);
             font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s;
         }
-        .btn-reassign:active { background: rgba(36,129,204,.2); }
+        .btn-manage:active { background: rgba(0,0,0,.08); }
+
+        /* Manage modal sections */
+        .manage-section { padding: 14px 16px; border-bottom: 1px solid var(--sec-bg); }
+        .manage-section:last-child { border-bottom: none; }
+        .manage-section-title {
+            font-size: 10px; font-weight: 700; color: var(--hint);
+            text-transform: uppercase; letter-spacing: .5px; margin-bottom: 10px;
+        }
+        .manage-danger .manage-section-title { color: var(--danger); }
+        .status-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+        .st-pill {
+            padding: 7px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+            border: 1.5px solid rgba(0,0,0,.1); background: var(--sec-bg); color: var(--text);
+            cursor: pointer; transition: all .15s;
+        }
+        .st-pill.current { background: rgba(36,129,204,.1); border-color: var(--primary); color: var(--primary); cursor: default; }
+        .st-pill.done { background: rgba(43,202,128,.1); border-color: var(--success); color: var(--success); cursor: default; }
+        .st-pill:not(.current):not(.done):active { opacity: .7; }
+        .btn-cancel-r {
+            display: block; width: 100%; padding: 11px 14px; text-align: left;
+            background: rgba(229,57,53,.07); border: none; border-radius: 8px;
+            font-size: 13px; font-weight: 500; color: var(--danger);
+            cursor: pointer; margin-bottom: 6px; transition: background .15s;
+        }
+        .btn-cancel-r:active { background: rgba(229,57,53,.18); }
+        .btn-cancel-custom {
+            background: none; color: var(--hint);
+            border: 1.5px dashed rgba(0,0,0,.15); border-radius: 8px;
+        }
+        .custom-cancel-wrap { display: none; margin-top: 8px; }
+        .custom-cancel-input {
+            width: 100%; padding: 10px 12px; border: 1.5px solid var(--danger);
+            border-radius: 8px; font-size: 14px; background: var(--sec-bg); color: var(--text);
+            margin-bottom: 6px;
+        }
+        .btn-cancel-confirm {
+            width: 100%; padding: 11px; border: none; border-radius: 8px;
+            background: var(--danger); color: #fff;
+            font-size: 13px; font-weight: 700; cursor: pointer;
+        }
 
         /* New order (awaiting manager approval) */
         .new-card {
@@ -225,15 +265,17 @@
 <body>
 <div id="app"></div>
 
-<!-- Модалка выбора курьера -->
-<div class="modal-overlay" id="reassignModal" onclick="closeModal(event)">
+<!-- Модалка управления заказом -->
+<div class="modal-overlay" id="manageModal" onclick="closeManageModal(event)">
     <div class="modal">
         <div class="modal-header">
-            <div class="modal-title">Переназначить курьера</div>
-            <div class="modal-sub" id="modalOrderId"></div>
-            <button class="modal-close" onclick="closeReassignModal()">✕</button>
+            <div>
+                <div class="modal-title" id="manageTitle"></div>
+                <div class="modal-sub" id="manageSubtitle"></div>
+            </div>
+            <button class="modal-close" onclick="closeManageModal()">✕</button>
         </div>
-        <div id="modalCourierList"></div>
+        <div id="manageContent"></div>
     </div>
 </div>
 
@@ -304,48 +346,133 @@
         if (btnNext) btnNext.disabled = weekOffset >= 0;
     }
 
-    // ─── Модалка переназначения ───────────────────────────────────────────────
-    let _pendingOrder = null;
+    // ─── Модалка управления заказом ──────────────────────────────────────────
+    let _manageOrder = null;
 
-    function reassign(orderRow, orderId) {
-        _pendingOrder = { row: orderRow, id: orderId };
-        document.getElementById('modalOrderId').textContent = '№ ' + orderId;
+    const STATUSES = [
+        { key: 'TAKEN',      label: 'Взят' },
+        { key: 'LOADING',    label: 'Погрузка' },
+        { key: 'IN_TRANSIT', label: 'В пути' },
+        { key: 'ARRIVED',    label: 'На месте' },
+        { key: 'DELIVERED',  label: 'Доставлен' },
+    ];
+    const STATUS_ORDER = STATUSES.map(s => s.key);
 
-        const couriers = DATA.couriers || [];
-        const list = document.getElementById('modalCourierList');
-        if (!couriers.length) {
-            list.innerHTML = '<div class="empty"><div class="empty-icon">🚗</div><div class="empty-text">Нет активных курьеров</div></div>';
-        } else {
-            list.innerHTML = couriers.map(c => `
-                <div class="modal-courier" onclick="confirmReassign('${c.tid}','${c.fio.replace(/'/g,"\\'")}')">
+    const CANCEL_REASONS = [
+        'Курьер не приехал за посылкой',
+        'Получатель недоступен',
+        'Форс-мажор',
+    ];
+
+    function openManage(idx) {
+        _manageOrder = DATA.orders[idx];
+        if (!_manageOrder) return;
+        document.getElementById('manageTitle').textContent = '№ ' + _manageOrder.id;
+        document.getElementById('manageSubtitle').textContent =
+            _manageOrder.city_from + ' → ' + _manageOrder.city_to +
+            ' · ' + (STATUS_LABEL[_manageOrder.status] || _manageOrder.status);
+        document.getElementById('manageContent').innerHTML = renderManageContent();
+        document.getElementById('manageModal').classList.add('open');
+    }
+
+    function closeManageModal(e) {
+        if (!e || e.target === document.getElementById('manageModal')) {
+            document.getElementById('manageModal').classList.remove('open');
+            _manageOrder = null;
+        }
+    }
+
+    function renderManageContent() {
+        const o = _manageOrder;
+        const curIdx = STATUS_ORDER.indexOf(o.status);
+
+        const pillsHtml = STATUSES.map((s, i) => {
+            const isCurrent = s.key === o.status;
+            const isDone = i < curIdx;
+            const cls = isCurrent ? 'current' : isDone ? 'done' : '';
+            const disabled = (isCurrent || isDone) ? 'disabled' : '';
+            return `<button class="st-pill ${cls}" ${disabled} onclick="doChangeStatus('${s.key}')">${s.label}</button>`;
+        }).join('');
+
+        const couriersHtml = (DATA.couriers || []).length
+            ? (DATA.couriers).map(c => `
+                <div class="modal-courier" onclick="doReassign('${c.tid}','${c.fio.replace(/'/g, "\\'")}')">
                     <div>
                         <div class="modal-courier-name">${c.fio}</div>
-                        <div class="modal-courier-status">${c.busy ? '🔴 Сейчас занят' : '🟢 Свободен'}</div>
+                        <div class="modal-courier-status">${c.busy ? '🔴 Занят' : '🟢 Свободен'}</div>
                     </div>
                     <span class="modal-courier-arrow">›</span>
-                </div>`).join('');
-        }
-        document.getElementById('reassignModal').classList.add('open');
+                </div>`).join('')
+            : '<div style="padding:12px;font-size:13px;color:var(--hint)">Нет активных курьеров</div>';
+
+        const cancelHtml = CANCEL_REASONS.map(r =>
+            `<button class="btn-cancel-r" onclick="doCancelActive('${r}')">${r}</button>`
+        ).join('');
+
+        return `
+        <div class="manage-section">
+            <div class="manage-section-title">Сменить статус</div>
+            <div class="status-pills">${pillsHtml}</div>
+        </div>
+        <div class="manage-section">
+            <div class="manage-section-title">Переназначить курьера</div>
+            ${couriersHtml}
+        </div>
+        <div class="manage-section manage-danger">
+            <div class="manage-section-title">Отменить заказ</div>
+            ${cancelHtml}
+            <div class="custom-cancel-wrap" id="customCancelWrap">
+                <input class="custom-cancel-input" id="customCancelInput" type="text" placeholder="Введите причину...">
+                <button class="btn-cancel-confirm" onclick="confirmCustomCancel()">Подтвердить отмену</button>
+            </div>
+            <button class="btn-cancel-r btn-cancel-custom" onclick="showCustomCancel()">✏️ Своя причина</button>
+        </div>`;
     }
 
-    function closeReassignModal() {
-        document.getElementById('reassignModal').classList.remove('open');
-        _pendingOrder = null;
+    function doChangeStatus(newStatus) {
+        if (!_manageOrder) return;
+        const label = STATUSES.find(s => s.key === newStatus)?.label || newStatus;
+        tg.sendData(JSON.stringify({
+            action: 'change_status',
+            order_id: _manageOrder.id,
+            order_row: _manageOrder.row,
+            courier_id: _manageOrder.courier_id,
+            new_status: newStatus,
+            new_status_label: label,
+        }));
     }
 
-    function closeModal(e) {
-        if (e.target === document.getElementById('reassignModal')) closeReassignModal();
-    }
-
-    function confirmReassign(courierTid, courierName) {
-        if (!_pendingOrder) return;
+    function doReassign(courierTid, courierName) {
+        if (!_manageOrder) return;
         tg.sendData(JSON.stringify({
             action: 'reassign_confirm',
-            order_row: _pendingOrder.row,
-            order_id: _pendingOrder.id,
+            order_row: _manageOrder.row,
+            order_id: _manageOrder.id,
             courier_tid: courierTid,
             courier_name: courierName,
         }));
+    }
+
+    function doCancelActive(reason) {
+        if (!_manageOrder) return;
+        tg.sendData(JSON.stringify({
+            action: 'cancel_active',
+            order_id: _manageOrder.id,
+            order_row: _manageOrder.row,
+            courier_id: _manageOrder.courier_id,
+            reason: reason,
+        }));
+    }
+
+    function showCustomCancel() {
+        document.getElementById('customCancelWrap').style.display = 'block';
+        document.getElementById('customCancelInput').focus();
+    }
+
+    function confirmCustomCancel() {
+        const reason = (document.getElementById('customCancelInput').value || '').trim();
+        if (!reason) return;
+        doCancelActive(reason);
     }
 
     function reportCourier(tid, name) {
@@ -367,7 +494,7 @@
     }
 
     // ─── Рендер карточек ──────────────────────────────────────────────────────
-    function renderOrderCard(o) {
+    function renderOrderCard(o, idx) {
         return `
         <div class="order-card s-${o.status}">
             <div class="card-top">
@@ -380,7 +507,7 @@
             <div class="card-meta">
                 🚗 ${o.courier || '—'} &nbsp;·&nbsp; 💰 ${o.price} TJS &nbsp;·&nbsp; 📞 ${o.r_phone}
             </div>
-            <button class="btn-reassign" onclick="reassign(${o.row},'${o.id}')">↔️ Переназначить</button>
+            <button class="btn-manage" onclick="openManage(${idx})">⚙️ Управление</button>
         </div>`;
     }
 
@@ -506,7 +633,7 @@
 
         <div class="pane active">
             ${orders.length
-                ? orders.map(renderOrderCard).join('')
+                ? orders.map((o, i) => renderOrderCard(o, i)).join('')
                 : '<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">Нет активных заказов</div></div>'
             }
         </div>
