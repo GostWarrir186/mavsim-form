@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Панель управления</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --primary:   #2481cc;
+            --primary-g: linear-gradient(135deg, #2a8de0, #1a6db5);
+            --success:   #2bca80;
+            --warning:   #f59e0b;
+            --danger:    #e53935;
+            --purple:    #9c27b0;
+            --teal:      #00897b;
+            --bg:     var(--tg-theme-bg-color, #ffffff);
+            --sec-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
+            --text:   var(--tg-theme-text-color, #1c1c1e);
+            --hint:   var(--tg-theme-hint-color, #8e8e93);
+            --r: 12px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--sec-bg); color: var(--text);
+            padding-bottom: 32px; overflow-x: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: var(--primary-g);
+            padding: 14px 16px 16px;
+        }
+        .header-sub  { font-size: 10px; font-weight: 600; color: rgba(255,255,255,.6); letter-spacing: .8px; text-transform: uppercase; margin-bottom: 2px; }
+        .header-title{ font-size: 17px; font-weight: 700; color: #fff; }
+
+        /* Stats */
+        .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; padding: 12px 12px 4px; }
+        .stat { background: var(--bg); border-radius: var(--r); padding: 11px 8px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,.07); }
+        .stat-val { font-size: 22px; font-weight: 800; line-height: 1; }
+        .stat-val.blue   { color: var(--primary); }
+        .stat-val.green  { color: var(--success); }
+        .stat-val.orange { color: var(--warning); }
+        .stat-lbl { font-size: 9px; font-weight: 600; color: var(--hint); text-transform: uppercase; letter-spacing: .3px; margin-top: 3px; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 0; padding: 12px 12px 0; }
+        .tab {
+            flex: 1; padding: 9px 4px; text-align: center;
+            font-size: 12px; font-weight: 600; color: var(--hint);
+            border-bottom: 2px solid transparent; cursor: pointer;
+            transition: all .15s;
+        }
+        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+        /* Content */
+        .pane { display: none; padding: 10px 12px; }
+        .pane.active { display: block; }
+
+        /* Order card */
+        .order-card {
+            background: var(--bg); border-radius: var(--r);
+            margin-bottom: 8px; padding: 12px 14px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.05);
+            border-left: 3px solid var(--primary);
+        }
+        .order-card.s-TAKEN    { border-left-color: var(--purple); }
+        .order-card.s-LOADING  { border-left-color: var(--warning); }
+        .order-card.s-IN_TRANSIT { border-left-color: var(--success); }
+        .order-card.s-ARRIVED  { border-left-color: var(--teal); }
+
+        .card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+        .order-id { font-size: 12px; font-weight: 700; color: var(--text); }
+        .status-pill {
+            font-size: 9.5px; font-weight: 700; padding: 3px 8px;
+            border-radius: 20px; text-transform: uppercase; letter-spacing: .3px;
+        }
+        .sp-TAKEN     { background: #f3e5f5; color: #7b1fa2; }
+        .sp-LOADING   { background: #fff8e1; color: #e65100; }
+        .sp-IN_TRANSIT{ background: #e8f5e9; color: #2e7d32; }
+        .sp-ARRIVED   { background: #e0f7fa; color: #006064; }
+
+        .card-route { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+        .card-route .arr { color: var(--hint); margin: 0 4px; font-size: 11px; }
+        .card-meta { font-size: 11px; color: var(--hint); margin-bottom: 8px; }
+
+        .btn-reassign {
+            width: 100%; padding: 9px; border: none; border-radius: 8px;
+            background: rgba(36,129,204,.1); color: var(--primary);
+            font-size: 12px; font-weight: 700; cursor: pointer;
+            transition: background .15s;
+        }
+        .btn-reassign:active { background: rgba(36,129,204,.2); }
+
+        /* Free order */
+        .free-card {
+            background: var(--bg); border-radius: var(--r);
+            margin-bottom: 8px; padding: 11px 14px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.05);
+            border-left: 3px solid #ccc;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .free-route { font-size: 12px; font-weight: 600; }
+        .free-route .arr { color: var(--hint); font-size: 10px; margin: 0 3px; }
+        .free-meta { font-size: 10.5px; color: var(--hint); margin-top: 2px; }
+        .free-price { font-size: 14px; font-weight: 800; color: var(--primary); white-space: nowrap; margin-left: 8px; }
+
+        /* Courier card */
+        .courier-card {
+            background: var(--bg); border-radius: var(--r);
+            margin-bottom: 8px; padding: 11px 14px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.05);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .courier-name { font-size: 13px; font-weight: 600; }
+        .courier-order { font-size: 11px; color: var(--hint); margin-top: 2px; }
+        .badge-busy { background: #fff8e1; color: #e65100; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+        .badge-free { background: #e8f5e9; color: #2e7d32; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+
+        /* Empty */
+        .empty { text-align: center; padding: 40px 20px; color: var(--hint); }
+        .empty-icon { font-size: 40px; margin-bottom: 8px; }
+        .empty-text { font-size: 13px; }
+
+        /* Error */
+        .err-screen { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:80vh; text-align:center; padding:20px; }
+    </style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+    const tg = (window.Telegram && window.Telegram.WebApp)
+        ? window.Telegram.WebApp
+        : { ready:()=>{}, expand:()=>{}, sendData:()=>{} };
+    tg.ready(); tg.expand();
+
+    let DATA = null;
+    try {
+        const raw = new URLSearchParams(window.location.search).get('d');
+        if (raw) {
+            const b64  = raw.replace(/-/g,'+').replace(/_/g,'/');
+            const pad  = '='.repeat((4 - b64.length % 4) % 4);
+            const bytes = Uint8Array.from(atob(b64+pad), c => c.charCodeAt(0));
+            DATA = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+        }
+    } catch(e) { console.error(e); }
+
+    const app = document.getElementById('app');
+
+    if (!DATA) {
+        app.innerHTML = `<div class="err-screen"><div style="font-size:48px">🔗</div><div style="font-size:17px;font-weight:700;margin-top:12px">Нет данных</div><div style="font-size:13px;color:var(--hint);margin-top:6px">Откройте панель через бота</div></div>`;
+    } else {
+        render();
+    }
+
+    let activeTab = 0;
+
+    const STATUS_LABEL = {
+        TAKEN: 'Взят', LOADING: 'Погрузка',
+        IN_TRANSIT: 'В пути', ARRIVED: 'На месте',
+    };
+
+    function reassign(orderRow, orderId) {
+        tg.sendData(JSON.stringify({ action: 'reassign_request', order_row: orderRow, order_id: orderId }));
+    }
+
+    function renderOrderCard(o) {
+        return `
+        <div class="order-card s-${o.status}">
+            <div class="card-top">
+                <span class="order-id">№ ${o.id}</span>
+                <span class="status-pill sp-${o.status}">${STATUS_LABEL[o.status] || o.status}</span>
+            </div>
+            <div class="card-route">
+                ${o.city_from}<span class="arr">→</span>${o.city_to}
+            </div>
+            <div class="card-meta">
+                🚗 ${o.courier || '—'} &nbsp;·&nbsp; 💰 ${o.price} TJS &nbsp;·&nbsp; 📞 ${o.r_phone}
+            </div>
+            <button class="btn-reassign" onclick="reassign(${o.row}, '${o.id}')">↔️ Переназначить</button>
+        </div>`;
+    }
+
+    function renderFreeCard(o) {
+        return `
+        <div class="free-card">
+            <div>
+                <div class="free-route">${o.city_from}<span class="arr">→</span>${o.city_to}</div>
+                <div class="free-meta">👤 ${o.s_name || '—'} &nbsp;·&nbsp; № ${o.id}</div>
+            </div>
+            <div class="free-price">${o.price} TJS</div>
+        </div>`;
+    }
+
+    function renderCourierCard(c) {
+        const orderInfo = c.busy
+            ? (() => {
+                const ord = DATA.orders.find(o => o.courier_id === c.tid);
+                return ord ? `${ord.city_from} → ${ord.city_to} (${STATUS_LABEL[ord.status] || ord.status})` : 'В работе';
+              })()
+            : '';
+        return `
+        <div class="courier-card">
+            <div>
+                <div class="courier-name">${c.fio}</div>
+                ${c.busy ? `<div class="courier-order">${orderInfo}</div>` : ''}
+            </div>
+            <span class="${c.busy ? 'badge-busy' : 'badge-free'}">${c.busy ? 'Занят' : 'Свободен'}</span>
+        </div>`;
+    }
+
+    function selectTab(i) {
+        activeTab = i;
+        document.querySelectorAll('.tab').forEach((t,idx) => t.classList.toggle('active', idx===i));
+        document.querySelectorAll('.pane').forEach((p,idx) => p.classList.toggle('active', idx===i));
+    }
+
+    function render() {
+        const orders   = DATA.orders  || [];
+        const free     = DATA.free    || [];
+        const couriers = DATA.couriers || [];
+        const busy = couriers.filter(c => c.busy).length;
+
+        app.innerHTML = `
+        <div class="header">
+            <div class="header-sub">Mavsimi Rason</div>
+            <div class="header-title">🎛 Панель управления</div>
+        </div>
+
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-val orange">${orders.length}</div>
+                <div class="stat-lbl">В работе</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val blue">${free.length}</div>
+                <div class="stat-lbl">Свободных</div>
+            </div>
+            <div class="stat">
+                <div class="stat-val green">${busy}/${couriers.length}</div>
+                <div class="stat-lbl">Курьеров</div>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" onclick="selectTab(0)">🚚 Активные (${orders.length})</div>
+            <div class="tab" onclick="selectTab(1)">📦 Биржа (${free.length})</div>
+            <div class="tab" onclick="selectTab(2)">👤 Курьеры (${couriers.length})</div>
+        </div>
+
+        <div class="pane active">
+            ${orders.length
+                ? orders.map(renderOrderCard).join('')
+                : '<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">Нет активных заказов</div></div>'
+            }
+        </div>
+
+        <div class="pane">
+            ${free.length
+                ? free.map(renderFreeCard).join('')
+                : '<div class="empty"><div class="empty-icon">🕳️</div><div class="empty-text">Биржа пуста</div></div>'
+            }
+        </div>
+
+        <div class="pane">
+            ${couriers.length
+                ? couriers.map(renderCourierCard).join('')
+                : '<div class="empty"><div class="empty-icon">🚗</div><div class="empty-text">Нет активных курьеров</div></div>'
+            }
+        </div>`;
+    }
+</script>
+</body>
+</html>

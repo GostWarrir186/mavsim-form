@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import threading
-import time
 import traceback
 from datetime import datetime, timezone, timedelta
 from io import BytesIO
@@ -28,6 +27,7 @@ DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "15.0"))
 LINK_TO_DRIVER_OFFER = os.getenv("DRIVER_OFFER_URL", "https://www.google.com")
 SUPPORT_CHAT_ID    = os.getenv("SUPPORT_CHAT_ID", "")
 MANAGER_CHAT_ID    = os.getenv("MANAGER_CHAT_ID", "")
+ADMIN_PANEL_URL    = os.getenv("ADMIN_PANEL_URL", "")
 
 DUSHANBE_TZ = timezone(timedelta(hours=5))
 
@@ -40,10 +40,8 @@ RU_MONTHS_GEN = {
     7:"июля",8:"августа",9:"сентября",10:"октября",11:"ноября",12:"декабря",
 }
 
-# Блокировка для атомарных операций с заказами + TTL-кэш биржи
+# Блокировка для атомарных операций с заказами
 _order_take_lock = threading.Lock()
-_free_orders_cache: tuple[float, list] = (0.0, [])
-_FREE_ORDERS_TTL = 8.0
 
 
 class DriverRegistration(StatesGroup):
@@ -223,18 +221,9 @@ def _sync_get_driver_deliveries(chat_id: str, date_from: datetime, date_to: date
 
 
 # ─── Google Sheets: Заказы ───────────────────────────────────────────────────
-def _invalidate_free_orders_cache() -> None:
-    global _free_orders_cache
-    _free_orders_cache = (0.0, [])
-
-
 def _sync_get_free_orders() -> list:
-    global _free_orders_cache
-    ts, cached = _free_orders_cache
-    if cached and (time.monotonic() - ts) < _FREE_ORDERS_TTL:
-        return cached
     if not sheet:
-        return cached
+        return []
     try:
         all_rows = sheet.get_all_values()
         free_list = []
@@ -256,11 +245,10 @@ def _sync_get_free_orders() -> list:
                     "s_name":           row[12] if len(row) > 12 else "—",
                     "r_phone":          row[15] if len(row) > 15 else "—",
                 })
-        _free_orders_cache = (time.monotonic(), free_list)
         return free_list
     except Exception as e:
         logging.error(f"Ошибка чтения свободных заказов: {e}")
-        return cached
+        return []
 
 
 def _sync_take_order(row_num: int, courier_name: str, courier_id: str) -> bool:
@@ -276,7 +264,6 @@ def _sync_take_order(row_num: int, courier_name: str, courier_id: str) -> bool:
                 {"range": f"R{row_num}", "values": [[courier_name]]},
                 {"range": f"T{row_num}", "values": [[str(courier_id)]]},
             ])
-            _invalidate_free_orders_cache()
             return True
         except Exception as e:
             logging.error(f"Ошибка захвата заказа (строка {row_num}): {e}")
@@ -299,7 +286,6 @@ def _sync_release_order(row_num: int, courier_id: str) -> bool:
                 {"range": f"R{row_num}", "values": [[""]]},
                 {"range": f"T{row_num}", "values": [[""]]},
             ])
-            _invalidate_free_orders_cache()
             return True
         except Exception as e:
             logging.error(f"Ошибка освобождения заказа (строка {row_num}): {e}")
@@ -351,6 +337,65 @@ def _sync_reassign_order(row_num: int, new_courier_name: str, new_courier_id: st
         except Exception as e:
             logging.error(f"Ошибка переназначения заказа (строка {row_num}): {e}")
             return False, "", ""
+
+
+def _sync_get_admin_dashboard_data() -> dict:
+    """Данные для панели менеджера: активные заказы + свободные + курьеры."""
+    result: dict = {"orders": [], "free": [], "couriers": []}
+
+    if sheet:
+        try:
+            all_rows = sheet.get_all_values()
+            for idx, row in enumerate(all_rows):
+                if idx == 0:
+                    continue
+                row = _pad_row(row)
+                status = row[0].upper().strip()
+                if status in ("TAKEN", "LOADING", "IN_TRANSIT", "ARRIVED"):
+                    result["orders"].append({
+                        "row":        idx + 1,
+                        "id":         row[1],
+                        "status":     status,
+                        "courier":    row[17],
+                        "courier_id": row[19],
+                        "city_from":  row[4],
+                        "city_to":    row[6],
+                        "addr_from":  row[5],
+                        "addr_to":    row[7],
+                        "price":      row[3],
+                        "r_phone":    row[15],
+                        "s_name":     row[12],
+                    })
+                elif status == "READY_FOR_DRIVERS":
+                    result["free"].append({
+                        "row":       idx + 1,
+                        "id":        row[1],
+                        "city_from": row[4],
+                        "city_to":   row[6],
+                        "price":     row[3],
+                        "s_name":    row[12],
+                    })
+        except Exception as e:
+            logging.error(f"Ошибка чтения заказов для дашборда: {e}")
+
+    if drivers_sheet:
+        try:
+            busy_ids = {o["courier_id"] for o in result["orders"]}
+            for idx, row in enumerate(drivers_sheet.get_all_values()):
+                if idx == 0 or len(row) < 4:
+                    continue
+                if row[0].upper().strip() != "ACTIVE":
+                    continue
+                result["couriers"].append({
+                    "fio":  row[2],
+                    "tid":  row[3],
+                    "row":  idx + 1,
+                    "busy": row[3] in busy_ids,
+                })
+        except Exception as e:
+            logging.error(f"Ошибка чтения курьеров для дашборда: {e}")
+
+    return result
 
 
 # ─── Excel-отчёт ─────────────────────────────────────────────────────────────
@@ -615,14 +660,41 @@ async def send_weekly_report(message: types.Message):
 
 
 @dp.message(F.web_app_data)
-async def handle_report_webapp(message: types.Message):
-    if not await _get_active_driver(message.from_user.id):
-        return
+async def handle_webapp(message: types.Message):
     try:
         data = json.loads(message.web_app_data.data)
-        if data.get("action") != "generate_report":
-            return
+    except Exception:
+        return
 
+    action = data.get("action")
+
+    # ── Переназначение из панели менеджера ───────────────────────────────────
+    if action == "reassign_request":
+        if not MANAGER_CHAT_ID or str(message.chat.id) != str(MANAGER_CHAT_ID):
+            return
+        order_row = data.get("order_row")
+        order_id  = data.get("order_id")
+        if not order_row or not order_id:
+            return
+        active_drivers = await asyncio.to_thread(_sync_get_all_active_drivers)
+        if not active_drivers:
+            await message.answer("❌ Нет активных курьеров.")
+            return
+        b = InlineKeyboardBuilder()
+        for d in active_drivers:
+            b.button(text=f"👤 {d['fio']}", callback_data=f"rt:{order_row}:{d['row_num']}")
+        b.adjust(1)
+        await message.answer(
+            f"📦 Переназначение заказа <b>{order_id}</b>\n\nВыберите нового курьера:",
+            reply_markup=b.as_markup(),
+            parse_mode="HTML"
+        )
+        return
+
+    # ── Еженедельный отчёт ───────────────────────────────────────────────────
+    if action == "generate_report":
+        if not await _get_active_driver(message.from_user.id):
+            return
         week_start_str = data.get("week_start", "")
         try:
             week_start = datetime.strptime(week_start_str, "%Y-%m-%d")
@@ -667,9 +739,9 @@ async def handle_report_webapp(message: types.Message):
             ),
             parse_mode="Markdown"
         )
-    except Exception as e:
-        logging.error(f"Ошибка обработки report webapp для {message.from_user.id}: {e}", exc_info=True)
-        await message.answer("❌ Ошибка при создании отчёта. Попробуйте позже.")
+        return
+
+    logging.warning(f"Неизвестный action из WebApp: {action}")
 
 
 # ─── Биржа заказов ───────────────────────────────────────────────────────────
@@ -900,6 +972,49 @@ async def finish_order(callback: types.CallbackQuery):
     except Exception as e:
         logging.error(f"Ошибка done (строка {row_num}): {e}", exc_info=True)
         await callback.message.answer("❌ Ошибка при завершении. Попробуйте позже.")
+
+
+# ─── Панель менеджера ────────────────────────────────────────────────────────
+def _build_panel_message(data: dict) -> tuple[str, types.InlineKeyboardMarkup]:
+    active_cnt = len(data["orders"])
+    free_cnt   = len(data["free"])
+    busy_cnt   = sum(1 for c in data["couriers"] if c["busy"])
+    total_cnt  = len(data["couriers"])
+    text = (
+        f"🎛 <b>Панель управления</b>\n\n"
+        f"📦 Активных заказов: <b>{active_cnt}</b>\n"
+        f"🕳️ Свободных заказов: <b>{free_cnt}</b>\n"
+        f"🚗 Курьеров в работе: <b>{busy_cnt}/{total_cnt}</b>"
+    )
+    raw = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    b64 = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+    b = InlineKeyboardBuilder()
+    if ADMIN_PANEL_URL:
+        b.button(text="🎛 Открыть панель", web_app=types.WebAppInfo(url=f"{ADMIN_PANEL_URL}?d={b64}"))
+    b.button(text="🔄 Обновить", callback_data="admin_refresh")
+    b.adjust(1)
+    return text, b.as_markup()
+
+
+@dp.message(Command("panel"))
+async def cmd_admin_panel(message: types.Message):
+    if not MANAGER_CHAT_ID or str(message.chat.id) != str(MANAGER_CHAT_ID):
+        return
+    wait = await message.answer("⏳ Загружаю данные...")
+    data = await asyncio.to_thread(_sync_get_admin_dashboard_data)
+    text, kb = _build_panel_message(data)
+    await wait.delete()
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@dp.callback_query(F.data == "admin_refresh")
+async def admin_refresh(callback: types.CallbackQuery):
+    await callback.answer("Обновляю...")
+    if not MANAGER_CHAT_ID or str(callback.message.chat.id) != str(MANAGER_CHAT_ID):
+        return
+    data = await asyncio.to_thread(_sync_get_admin_dashboard_data)
+    text, kb = _build_panel_message(data)
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
 
 # ─── Переназначение заказов (менеджер) ───────────────────────────────────────
