@@ -1009,12 +1009,20 @@ async def cmd_admin_panel(message: types.Message):
 
 @dp.callback_query(F.data == "admin_refresh")
 async def admin_refresh(callback: types.CallbackQuery):
-    await callback.answer("Обновляю...")
     if not MANAGER_CHAT_ID or str(callback.message.chat.id) != str(MANAGER_CHAT_ID):
+        await callback.answer()
         return
     data = await asyncio.to_thread(_sync_get_admin_dashboard_data)
     text, kb = _build_panel_message(data)
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    try:
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+        await callback.answer("Обновлено ✅")
+    except Exception as e:
+        if "message is not modified" in str(e):
+            await callback.answer("Данные актуальны")
+        else:
+            await callback.answer("Ошибка обновления")
+            logging.error(f"admin_refresh edit error: {e}")
 
 
 # ─── Переназначение заказов (менеджер) ───────────────────────────────────────
