@@ -4,6 +4,12 @@ import json
 import logging
 import os
 import traceback
+from datetime import datetime, timedelta
+from io import BytesIO
+
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 from aiogram import types, F
 from aiogram.filters import Command, CommandStart
@@ -23,11 +29,16 @@ from driver_bot import (
     _sync_reassign_order,
     _sync_get_all_active_drivers,
     _async_get_admin_dashboard_data,
+    _sync_get_driver,
+    _sync_get_driver_deliveries,
+    _week_label,
+    generate_excel_report,
     send_client_push,
 )
 
-MANAGER_CHAT_ID = os.getenv("MANAGER_CHAT_ID", "")
-ADMIN_PANEL_URL  = os.getenv("ADMIN_PANEL_URL", "")
+MANAGER_CHAT_ID    = os.getenv("MANAGER_CHAT_ID", "")
+ADMIN_PANEL_URL    = os.getenv("ADMIN_PANEL_URL", "")
+DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "15.0"))
 
 
 def _is_manager(chat_id) -> bool:
@@ -85,6 +96,155 @@ def _sync_set_order_ready(order_id: str) -> tuple[bool, str, str]:
     except Exception as e:
         logging.error(f"Ошибка перевода заказа {order_id} в READY: {e}")
         return False, "", str(e)
+
+
+# ─── Google Sheets: сводные данные по всем курьерам ─────────────────────────
+
+def _sync_get_all_couriers_deliveries(date_from: datetime, date_to: datetime) -> dict:
+    """Returns {telegram_id: {total: N, delivered: M}} for the given date range."""
+    if not sheet:
+        return {}
+    try:
+        result = {}
+        for idx, row in enumerate(sheet.get_all_values()):
+            if idx == 0:
+                continue
+            row = _pad_row(row)
+            courier_id = str(row[19]).strip()
+            if not courier_id:
+                continue
+            date_cell = row[2].strip()
+            try:
+                dt = datetime.strptime(date_cell[:16], "%d.%m.%Y %H:%M")
+            except ValueError:
+                continue
+            if not (date_from <= dt <= date_to):
+                continue
+            if courier_id not in result:
+                result[courier_id] = {"total": 0, "delivered": 0}
+            result[courier_id]["total"] += 1
+            if row[0].upper().strip() == "DELIVERED":
+                result[courier_id]["delivered"] += 1
+        return result
+    except Exception as e:
+        logging.error(f"Ошибка чтения доставок всех курьеров: {e}")
+        return {}
+
+
+def _sync_get_all_drivers_rates() -> dict:
+    """Returns {telegram_id: rate} for all ACTIVE drivers."""
+    if not drivers_sheet:
+        return {}
+    try:
+        result = {}
+        for idx, row in enumerate(drivers_sheet.get_all_values()):
+            if idx == 0 or len(row) < 5:
+                continue
+            if row[0].upper().strip() != "ACTIVE":
+                continue
+            tid = str(row[3]).strip()
+            try:
+                rate = float(row[4]) if row[4] else DEFAULT_DRIVER_RATE
+            except (ValueError, TypeError):
+                rate = DEFAULT_DRIVER_RATE
+            result[tid] = rate
+        return result
+    except Exception as e:
+        logging.error(f"Ошибка чтения ставок курьеров: {e}")
+        return {}
+
+
+# ─── Excel: сводный отчёт на всех курьеров ───────────────────────────────────
+
+def generate_summary_excel(couriers_stats: list[dict], period_label: str) -> BytesIO:
+    """
+    couriers_stats: [{fio, rate, total, delivered}]
+    Generates a styled summary Excel — one row per courier + totals.
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Сводка"
+
+    BLUE   = "FF2481CC"
+    GREEN  = "FF22A368"
+    WHITE  = "FFFFFFFF"
+    GRAY   = "FFF4F4F5"
+    L_BLUE = "FFD6EAF8"
+
+    thin = Side(border_style="thin", color="FFD0D0D0")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    def sc(row, col, val, bold=False, bg=None, color="FF1C1C1E", align="center", size=11):
+        c = ws.cell(row=row, column=col, value=val)
+        c.font = Font(bold=bold, color=color, size=size, name="Calibri")
+        if bg:
+            c.fill = PatternFill("solid", fgColor=bg)
+        c.alignment = Alignment(horizontal=align, vertical="center")
+        c.border = border
+        return c
+
+    ws.merge_cells("A1:F1")
+    t = ws.cell(row=1, column=1, value="MAVSIMI RASON — Сводный отчёт")
+    t.font = Font(bold=True, color=WHITE, size=14, name="Calibri")
+    t.fill = PatternFill("solid", fgColor=BLUE)
+    t.alignment = Alignment(horizontal="center", vertical="center")
+
+    ws.merge_cells("A2:F2")
+    t2 = ws.cell(row=2, column=1, value=f"Период: {period_label}")
+    t2.font = Font(color="FF555555", size=11, name="Calibri")
+    t2.fill = PatternFill("solid", fgColor=GRAY)
+    t2.alignment = Alignment(horizontal="center", vertical="center")
+
+    headers = ["№", "ФИО курьера", "Ставка (TJS)", "Заказов взято", "Доставлено", "К выплате (TJS)"]
+    for col, h in enumerate(headers, 1):
+        sc(3, col, h, bold=True, bg=BLUE, color=WHITE)
+
+    col_widths = [4, 26, 13, 14, 12, 16]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.row_dimensions[1].height = 28
+    ws.row_dimensions[2].height = 20
+    ws.row_dimensions[3].height = 20
+
+    total_delivered = 0
+    total_earnings  = 0.0
+
+    for i, cs in enumerate(couriers_stats, 1):
+        r  = i + 3
+        bg = L_BLUE if i % 2 == 0 else WHITE
+        delivered = cs["delivered"]
+        rate      = cs["rate"]
+        earnings  = delivered * rate
+        total_delivered += delivered
+        total_earnings  += earnings
+        sc(r, 1, i,             bg=bg)
+        sc(r, 2, cs["fio"],     bg=bg, align="left")
+        sc(r, 3, rate,          bg=bg)
+        sc(r, 4, cs["total"],   bg=bg)
+        sc(r, 5, delivered,     bg=bg, bold=True)
+        ec = sc(r, 6, earnings, bg=bg, bold=True, color="FF2481CC")
+        ec.number_format = '0.00 "TJS"'
+        ws.row_dimensions[r].height = 18
+
+    last = len(couriers_stats) + 4
+    ws.merge_cells(f"A{last}:E{last}")
+    lbl = ws.cell(row=last, column=1, value="ИТОГО К ВЫПЛАТЕ:")
+    lbl.font = Font(bold=True, size=12, name="Calibri")
+    lbl.fill = PatternFill("solid", fgColor=GRAY)
+    lbl.alignment = Alignment(horizontal="right", vertical="center")
+    lbl.border = border
+    tot = ws.cell(row=last, column=6, value=total_earnings)
+    tot.font = Font(bold=True, color=GREEN, size=13, name="Calibri")
+    tot.fill = PatternFill("solid", fgColor=GRAY)
+    tot.alignment = Alignment(horizontal="center", vertical="center")
+    tot.number_format = '0.00 "TJS"'
+    tot.border = border
+    ws.row_dimensions[last].height = 22
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
 
 
 # ─── Панель управления ───────────────────────────────────────────────────────
@@ -274,28 +434,124 @@ async def handle_webapp(message: types.Message):
     except Exception:
         return
 
-    if data.get("action") != "reassign_request":
+    action = data.get("action")
+
+    # ── Переназначение из WebApp ─────────────────────────────────────────────
+    if action == "reassign_request":
+        order_row = data.get("order_row")
+        order_id  = data.get("order_id")
+        if not order_row or not order_id:
+            return
+        active_drivers = await asyncio.to_thread(_sync_get_all_active_drivers)
+        if not active_drivers:
+            await message.answer("❌ Нет активных курьеров.")
+            return
+        b = InlineKeyboardBuilder()
+        for d in active_drivers:
+            b.button(text=f"👤 {d['fio']}", callback_data=f"rt:{order_row}:{d['row_num']}")
+        b.adjust(1)
+        await message.answer(
+            f"📦 Переназначение заказа <b>{order_id}</b>\n\nВыберите нового курьера:",
+            reply_markup=b.as_markup(),
+            parse_mode="HTML"
+        )
         return
 
-    order_row = data.get("order_row")
-    order_id  = data.get("order_id")
-    if not order_row or not order_id:
+    # ── Отчёт на одного курьера ──────────────────────────────────────────────
+    if action == "manager_report":
+        courier_tid    = str(data.get("courier_tid", ""))
+        courier_name   = data.get("courier_name", "Курьер")
+        week_start_str = data.get("week_start", "")
+        if not courier_tid or not week_start_str:
+            return
+        try:
+            week_start = datetime.strptime(week_start_str, "%Y-%m-%d")
+        except ValueError:
+            await message.answer("❌ Некорректный формат даты.")
+            return
+        week_end     = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        period_label = _week_label(week_start, week_end)
+
+        driver_data = await asyncio.to_thread(_sync_get_driver, courier_tid)
+        try:
+            rate = float(driver_data[4]) if driver_data and len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
+        except (ValueError, TypeError):
+            rate = DEFAULT_DRIVER_RATE
+
+        wait = await message.answer(f"⏳ Формирую отчёт для {courier_name}...")
+        deliveries = await asyncio.to_thread(_sync_get_driver_deliveries, courier_tid, week_start, week_end)
+
+        if not deliveries:
+            await wait.delete()
+            await message.answer(f"📭 За {period_label} у курьера <b>{courier_name}</b> доставок не найдено.", parse_mode="HTML")
+            return
+
+        excel_buf = await asyncio.to_thread(generate_excel_report, courier_name, rate, deliveries, period_label)
+        delivered_count = sum(1 for d in deliveries if d["s"] == "DELIVERED")
+        await wait.delete()
+        await message.answer_document(
+            types.BufferedInputFile(excel_buf.read(), filename=f"report_{courier_tid}_{week_start_str}.xlsx"),
+            caption=(
+                f"📄 <b>Отчёт: {period_label}</b>\n"
+                f"👤 {courier_name}\n"
+                f"✅ Доставлено: {delivered_count}\n"
+                f"💰 К выплате: {delivered_count * rate:.2f} TJS"
+            ),
+            parse_mode="HTML"
+        )
         return
 
-    active_drivers = await asyncio.to_thread(_sync_get_all_active_drivers)
-    if not active_drivers:
-        await message.answer("❌ Нет активных курьеров.")
-        return
+    # ── Сводный отчёт на всех курьеров ───────────────────────────────────────
+    if action == "manager_report_all":
+        week_start_str = data.get("week_start", "")
+        if not week_start_str:
+            return
+        try:
+            week_start = datetime.strptime(week_start_str, "%Y-%m-%d")
+        except ValueError:
+            await message.answer("❌ Некорректный формат даты.")
+            return
+        week_end     = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        period_label = _week_label(week_start, week_end)
 
-    b = InlineKeyboardBuilder()
-    for d in active_drivers:
-        b.button(text=f"👤 {d['fio']}", callback_data=f"rt:{order_row}:{d['row_num']}")
-    b.adjust(1)
-    await message.answer(
-        f"📦 Переназначение заказа <b>{order_id}</b>\n\nВыберите нового курьера:",
-        reply_markup=b.as_markup(),
-        parse_mode="HTML"
-    )
+        active_couriers = await asyncio.to_thread(_sync_get_all_active_drivers)
+        if not active_couriers:
+            await message.answer("❌ Нет активных курьеров.")
+            return
+
+        wait = await message.answer(f"⏳ Формирую сводный отчёт за {period_label}...")
+
+        deliveries_map, rates_map = await asyncio.gather(
+            asyncio.to_thread(_sync_get_all_couriers_deliveries, week_start, week_end),
+            asyncio.to_thread(_sync_get_all_drivers_rates),
+        )
+
+        couriers_stats = []
+        for c in active_couriers:
+            rate  = rates_map.get(c["telegram_id"], DEFAULT_DRIVER_RATE)
+            stats = deliveries_map.get(c["telegram_id"], {"total": 0, "delivered": 0})
+            couriers_stats.append({
+                "fio":       c["fio"],
+                "rate":      rate,
+                "total":     stats["total"],
+                "delivered": stats["delivered"],
+            })
+
+        excel_buf   = await asyncio.to_thread(generate_summary_excel, couriers_stats, period_label)
+        total_earn  = sum(c["delivered"] * c["rate"] for c in couriers_stats)
+        total_deliv = sum(c["delivered"] for c in couriers_stats)
+        await wait.delete()
+        await message.answer_document(
+            types.BufferedInputFile(excel_buf.read(), filename=f"summary_{week_start_str}.xlsx"),
+            caption=(
+                f"📊 <b>Сводный отчёт: {period_label}</b>\n"
+                f"👥 Курьеров: {len(couriers_stats)}\n"
+                f"✅ Доставлено: {total_deliv}\n"
+                f"💰 Итого к выплате: {total_earn:.2f} TJS"
+            ),
+            parse_mode="HTML"
+        )
+        return
 
 
 # ─── Одобрение / отклонение курьеров ────────────────────────────────────────

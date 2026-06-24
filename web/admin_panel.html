@@ -28,10 +28,7 @@
         }
 
         /* Header */
-        .header {
-            background: var(--primary-g);
-            padding: 14px 16px 16px;
-        }
+        .header { background: var(--primary-g); padding: 14px 16px 16px; }
         .header-sub  { font-size: 10px; font-weight: 600; color: rgba(255,255,255,.6); letter-spacing: .8px; text-transform: uppercase; margin-bottom: 2px; }
         .header-title{ font-size: 17px; font-weight: 700; color: #fff; }
 
@@ -45,12 +42,12 @@
         .stat-lbl { font-size: 9px; font-weight: 600; color: var(--hint); text-transform: uppercase; letter-spacing: .3px; margin-top: 3px; }
 
         /* Tabs */
-        .tabs { display: flex; gap: 0; padding: 12px 12px 0; }
+        .tabs { display: flex; gap: 0; padding: 12px 12px 0; overflow-x: auto; }
         .tab {
-            flex: 1; padding: 9px 4px; text-align: center;
-            font-size: 12px; font-weight: 600; color: var(--hint);
+            flex: 1; min-width: 0; padding: 9px 4px; text-align: center;
+            font-size: 11px; font-weight: 600; color: var(--hint);
             border-bottom: 2px solid transparent; cursor: pointer;
-            transition: all .15s;
+            transition: all .15s; white-space: nowrap;
         }
         .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 
@@ -65,10 +62,10 @@
             box-shadow: 0 1px 6px rgba(0,0,0,.05);
             border-left: 3px solid var(--primary);
         }
-        .order-card.s-TAKEN    { border-left-color: var(--purple); }
-        .order-card.s-LOADING  { border-left-color: var(--warning); }
-        .order-card.s-IN_TRANSIT { border-left-color: var(--success); }
-        .order-card.s-ARRIVED  { border-left-color: var(--teal); }
+        .order-card.s-TAKEN     { border-left-color: var(--purple); }
+        .order-card.s-LOADING   { border-left-color: var(--warning); }
+        .order-card.s-IN_TRANSIT{ border-left-color: var(--success); }
+        .order-card.s-ARRIVED   { border-left-color: var(--teal); }
 
         .card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
         .order-id { font-size: 12px; font-weight: 700; color: var(--text); }
@@ -88,8 +85,7 @@
         .btn-reassign {
             width: 100%; padding: 9px; border: none; border-radius: 8px;
             background: rgba(36,129,204,.1); color: var(--primary);
-            font-size: 12px; font-weight: 700; cursor: pointer;
-            transition: background .15s;
+            font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s;
         }
         .btn-reassign:active { background: rgba(36,129,204,.2); }
 
@@ -113,10 +109,55 @@
             box-shadow: 0 1px 6px rgba(0,0,0,.05);
             display: flex; justify-content: space-between; align-items: center;
         }
-        .courier-name { font-size: 13px; font-weight: 600; }
+        .courier-name  { font-size: 13px; font-weight: 600; }
         .courier-order { font-size: 11px; color: var(--hint); margin-top: 2px; }
-        .badge-busy { background: #fff8e1; color: #e65100; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
-        .badge-free { background: #e8f5e9; color: #2e7d32; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+        .badge-busy { background: #fff8e1; color: #e65100; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+        .badge-free { background: #e8f5e9; color: #2e7d32; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+
+        /* Week nav */
+        .week-nav {
+            display: flex; align-items: center; justify-content: space-between;
+            background: var(--bg); border-radius: var(--r);
+            padding: 10px 14px; margin-bottom: 10px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.05);
+        }
+        .week-btn {
+            background: var(--sec-bg); border: none; border-radius: 8px;
+            width: 34px; height: 34px; font-size: 17px; cursor: pointer; color: var(--text);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .week-btn:disabled { opacity: .3; cursor: default; }
+        .week-lbl { font-size: 13px; font-weight: 600; }
+
+        /* Report all button */
+        .btn-report-all {
+            width: 100%; padding: 13px; border: none; border-radius: var(--r);
+            background: var(--success); color: #fff;
+            font-size: 14px; font-weight: 700; cursor: pointer; margin-bottom: 10px;
+        }
+        .btn-report-all:active { opacity: .85; }
+
+        /* Section label */
+        .section-lbl {
+            font-size: 11px; font-weight: 700; color: var(--hint);
+            text-transform: uppercase; letter-spacing: .5px;
+            margin: 2px 2px 8px;
+        }
+
+        /* Report row */
+        .report-row {
+            background: var(--bg); border-radius: var(--r);
+            margin-bottom: 8px; padding: 11px 14px;
+            box-shadow: 0 1px 6px rgba(0,0,0,.05);
+            display: flex; justify-content: space-between; align-items: center; gap: 8px;
+        }
+        .btn-report {
+            background: rgba(36,129,204,.1); color: var(--primary);
+            border: none; border-radius: 8px;
+            padding: 7px 12px; font-size: 12px; font-weight: 700;
+            cursor: pointer; white-space: nowrap; flex-shrink: 0;
+        }
+        .btn-report:active { background: rgba(36,129,204,.2); }
 
         /* Empty */
         .empty { text-align: center; padding: 40px 20px; color: var(--hint); }
@@ -140,8 +181,8 @@
     try {
         const raw = new URLSearchParams(window.location.search).get('d');
         if (raw) {
-            const b64  = raw.replace(/-/g,'+').replace(/_/g,'/');
-            const pad  = '='.repeat((4 - b64.length % 4) % 4);
+            const b64   = raw.replace(/-/g,'+').replace(/_/g,'/');
+            const pad   = '='.repeat((4 - b64.length % 4) % 4);
             const bytes = Uint8Array.from(atob(b64+pad), c => c.charCodeAt(0));
             DATA = JSON.parse(new TextDecoder('utf-8').decode(bytes));
         }
@@ -150,22 +191,77 @@
     const app = document.getElementById('app');
 
     let activeTab = 0;
+    let weekOffset = 0; // 0 = текущая, -1 = прошлая и т.д.
 
     const STATUS_LABEL = {
         TAKEN: 'Взят', LOADING: 'Погрузка',
         IN_TRANSIT: 'В пути', ARRIVED: 'На месте',
     };
 
-    if (!DATA) {
-        app.innerHTML = `<div class="err-screen"><div style="font-size:48px">🔗</div><div style="font-size:17px;font-weight:700;margin-top:12px">Нет данных</div><div style="font-size:13px;color:var(--hint);margin-top:6px">Откройте панель через бота</div></div>`;
-    } else {
-        render();
+    const RU_MONTHS_GEN = [
+        'января','февраля','марта','апреля','мая','июня',
+        'июля','августа','сентября','октября','ноября','декабря'
+    ];
+
+    // ─── Неделя ───────────────────────────────────────────────────────────────
+    function getWeekDates(offset) {
+        const now = new Date();
+        const dow = now.getDay();
+        const mon = new Date(now);
+        mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1) + offset * 7);
+        mon.setHours(0, 0, 0, 0);
+        const sun = new Date(mon);
+        sun.setDate(mon.getDate() + 6);
+        return { start: mon, end: sun };
     }
 
+    function fmtDate(d) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+
+    function weekLabel(s, e) {
+        if (s.getMonth() === e.getMonth())
+            return `${s.getDate()}–${e.getDate()} ${RU_MONTHS_GEN[s.getMonth()]} ${s.getFullYear()}`;
+        return `${s.getDate()} ${RU_MONTHS_GEN[s.getMonth()]} – ${e.getDate()} ${RU_MONTHS_GEN[e.getMonth()]} ${e.getFullYear()}`;
+    }
+
+    function changeWeek(delta) {
+        const next = weekOffset + delta;
+        if (next > 0) return;
+        weekOffset = next;
+        const { start, end } = getWeekDates(weekOffset);
+        document.getElementById('weekLbl').textContent = weekLabel(start, end);
+        const btnNext = document.getElementById('weekBtnNext');
+        if (btnNext) btnNext.disabled = weekOffset >= 0;
+    }
+
+    // ─── Действия ─────────────────────────────────────────────────────────────
     function reassign(orderRow, orderId) {
         tg.sendData(JSON.stringify({ action: 'reassign_request', order_row: orderRow, order_id: orderId }));
     }
 
+    function reportCourier(tid, name) {
+        const { start } = getWeekDates(weekOffset);
+        tg.sendData(JSON.stringify({
+            action: 'manager_report',
+            courier_tid: tid,
+            courier_name: name,
+            week_start: fmtDate(start)
+        }));
+    }
+
+    function reportAll() {
+        const { start } = getWeekDates(weekOffset);
+        tg.sendData(JSON.stringify({
+            action: 'manager_report_all',
+            week_start: fmtDate(start)
+        }));
+    }
+
+    // ─── Рендер карточек ──────────────────────────────────────────────────────
     function renderOrderCard(o) {
         return `
         <div class="order-card s-${o.status}">
@@ -179,7 +275,7 @@
             <div class="card-meta">
                 🚗 ${o.courier || '—'} &nbsp;·&nbsp; 💰 ${o.price} TJS &nbsp;·&nbsp; 📞 ${o.r_phone}
             </div>
-            <button class="btn-reassign" onclick="reassign(${o.row}, '${o.id}')">↔️ Переназначить</button>
+            <button class="btn-reassign" onclick="reassign(${o.row},'${o.id}')">↔️ Переназначить</button>
         </div>`;
     }
 
@@ -195,15 +291,16 @@
     }
 
     function renderCourierCard(c) {
-        const orderInfo = c.busy
-            ? (() => {
-                const ord = DATA.orders.find(o => o.courier_id === c.tid);
-                return ord ? `${ord.city_from} → ${ord.city_to} (${STATUS_LABEL[ord.status] || ord.status})` : 'В работе';
-              })()
-            : '';
+        let orderInfo = '';
+        if (c.busy) {
+            const ord = DATA.orders.find(o => o.courier_id === c.tid);
+            orderInfo = ord
+                ? `${ord.city_from} → ${ord.city_to} · ${STATUS_LABEL[ord.status] || ord.status}`
+                : 'В работе';
+        }
         return `
         <div class="courier-card">
-            <div>
+            <div style="min-width:0">
                 <div class="courier-name">${c.fio}</div>
                 ${c.busy ? `<div class="courier-order">${orderInfo}</div>` : ''}
             </div>
@@ -211,17 +308,34 @@
         </div>`;
     }
 
-    function selectTab(i) {
-        activeTab = i;
-        document.querySelectorAll('.tab').forEach((t,idx) => t.classList.toggle('active', idx===i));
-        document.querySelectorAll('.pane').forEach((p,idx) => p.classList.toggle('active', idx===i));
+    function renderReportRow(c) {
+        const safeName = c.fio.replace(/'/g, "\\'");
+        return `
+        <div class="report-row">
+            <div style="min-width:0">
+                <div class="courier-name">${c.fio}</div>
+                <div class="courier-order">${c.busy ? 'Сейчас в работе' : 'Свободен'}</div>
+            </div>
+            <button class="btn-report" onclick="reportCourier('${c.tid}','${safeName}')">📄 Отчёт</button>
+        </div>`;
     }
 
+    // ─── Вкладки ──────────────────────────────────────────────────────────────
+    function selectTab(i) {
+        activeTab = i;
+        document.querySelectorAll('.tab').forEach((t, idx) => t.classList.toggle('active', idx === i));
+        document.querySelectorAll('.pane').forEach((p, idx) => p.classList.toggle('active', idx === i));
+    }
+
+    // ─── Главный рендер ───────────────────────────────────────────────────────
     function render() {
-        const orders   = DATA.orders  || [];
-        const free     = DATA.free    || [];
+        const orders   = DATA.orders   || [];
+        const free     = DATA.free     || [];
         const couriers = DATA.couriers || [];
-        const busy = couriers.filter(c => c.busy).length;
+        const busy     = couriers.filter(c => c.busy).length;
+
+        const { start, end } = getWeekDates(weekOffset);
+        const wLabel = weekLabel(start, end);
 
         app.innerHTML = `
         <div class="header">
@@ -245,9 +359,10 @@
         </div>
 
         <div class="tabs">
-            <div class="tab active" onclick="selectTab(0)">🚚 Активные (${orders.length})</div>
+            <div class="tab active" onclick="selectTab(0)">🚚 В работе (${orders.length})</div>
             <div class="tab" onclick="selectTab(1)">📦 Биржа (${free.length})</div>
             <div class="tab" onclick="selectTab(2)">👤 Курьеры (${couriers.length})</div>
+            <div class="tab" onclick="selectTab(3)">📊 Отчёты</div>
         </div>
 
         <div class="pane active">
@@ -269,7 +384,32 @@
                 ? couriers.map(renderCourierCard).join('')
                 : '<div class="empty"><div class="empty-icon">🚗</div><div class="empty-text">Нет активных курьеров</div></div>'
             }
+        </div>
+
+        <div class="pane">
+            <div class="week-nav">
+                <button class="week-btn" onclick="changeWeek(-1)">&#8592;</button>
+                <span class="week-lbl" id="weekLbl">${wLabel}</span>
+                <button class="week-btn" id="weekBtnNext" onclick="changeWeek(1)" ${weekOffset >= 0 ? 'disabled' : ''}>&#8594;</button>
+            </div>
+
+            <button class="btn-report-all" onclick="reportAll()">
+                📊 Сводный отчёт на всех курьеров
+            </button>
+
+            <div class="section-lbl">Отчёт по курьеру</div>
+
+            ${couriers.length
+                ? couriers.map(renderReportRow).join('')
+                : '<div class="empty"><div class="empty-icon">🚗</div><div class="empty-text">Нет активных курьеров</div></div>'
+            }
         </div>`;
+    }
+
+    if (!DATA) {
+        app.innerHTML = `<div class="err-screen"><div style="font-size:48px">🔗</div><div style="font-size:17px;font-weight:700;margin-top:12px">Нет данных</div><div style="font-size:13px;color:var(--hint);margin-top:6px">Откройте панель через бота</div></div>`;
+    } else {
+        render();
     }
 </script>
 </body>
