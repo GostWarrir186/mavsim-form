@@ -722,6 +722,9 @@ async def approve_driver(callback: types.CallbackQuery):
         await driver_bot_instance.send_message(
             chat_id=int(telegram_id),
             text=(
+                f"🎉 <b>Табрик, {fio}!</b>\n\n"
+                "Аккаунти курьери шумо фаъол шуд.\n"
+                "/start-ро пахш кунед то кор оғоз кунед.\n\n"
                 f"🎉 <b>Поздравляем, {fio}!</b>\n\n"
                 "Ваш аккаунт курьера активирован.\n"
                 "Нажмите /start чтобы начать работу."
@@ -750,6 +753,9 @@ async def reject_driver_cb(callback: types.CallbackQuery):
         await driver_bot_instance.send_message(
             chat_id=int(telegram_id),
             text=(
+                "❌ <b>Дархости шумо рад шуд.</b>\n\n"
+                "Мутаассифона, мо дар айни ҳол шуморо қабул карда наметавонем.\n"
+                "Барои саволҳо ба маъмурият муроҷиат кунед.\n\n"
                 "❌ <b>Ваша заявка отклонена.</b>\n\n"
                 "К сожалению, мы не можем принять вас на данный момент.\n"
                 "По вопросам обратитесь к администрации."

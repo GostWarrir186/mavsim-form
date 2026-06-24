@@ -50,8 +50,7 @@ RECEIPTS = {
         "• **Имя:** {r_name}\n"
         "• **Телефон:** {r_phone}\n"
         "───────────────\n"
-        "💰 **К ОПЛАТЕ:** {price} TJS\n\n"
-        "ℹ️ *Статус: [NEW]. После проверки менеджером заказ улетит курьерам.*"
+        "💰 **К ОПЛАТЕ:** {price} TJS"
     ),
     "tj": (
         "📅 **Санаи эҷод:** {date}\n\n"
@@ -71,8 +70,7 @@ RECEIPTS = {
         "• **Ном:** {r_name}\n"
         "• **Телефон:** {r_phone}\n"
         "───────────────\n"
-        "💰 **БАРОИ ПАДОХТ:** {price} TJS\n\n"
-        "ℹ️ *Статус: [NEW]. Пас аз санҷиши менеҷер дархост ба курьерҳо меравад.*"
+        "💰 **БАРОИ ПАДОХТ:** {price} TJS"
     )
 }
 
@@ -260,7 +258,7 @@ async def go_main_menu(message: types.Message, state: FSMContext):
     user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
     fio   = user_data[2] if user_data and len(user_data) > 2 else "Пользователь"
     phone = user_data[3] if user_data and len(user_data) > 3 else ""
-    await message.answer("👋 Главное меню:", reply_markup=get_main_menu(fio, phone))
+    await message.answer("Меню асосӣ / Главное меню:", reply_markup=get_main_menu(fio, phone))
 
 
 @dp.message(F.contact)
@@ -315,7 +313,7 @@ async def save_fio(message: types.Message, state: FSMContext):
     phone = data.get('phone')
     await state.clear()
     if not phone:
-        await message.answer("❌ Сессия истекла. Нажмите /start и авторизуйтесь снова.")
+        await message.answer("❌ Сессия хатм шуд. /start-ро пахш кунед.\n\n❌ Сессия истекла. Нажмите /start.")
         return
 
     await asyncio.to_thread(_sync_register_client, str(message.chat.id), fio, phone)
@@ -364,18 +362,17 @@ async def handle_webapp_data(message: types.Message):
                 updated_addr
             )
             if success:
-                # Получаем актуальный телефон из базы для меню
                 user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
                 phone_from_db = user_data[3] if user_data and len(user_data) > 3 else ""
                 await message.answer(
-                    f"✅ **Данные профиля успешно обновлены!**\n\n"
-                    f"• **Новое ФИО:** {updated_fio}\n"
-                    f"• **Адрес забора:** {updated_addr if updated_addr else 'Не указан'}",
+                    f"✅ **Маълумот навшуд! / Данные обновлены!**\n\n"
+                    f"• **Ном / ФИО:** {updated_fio}\n"
+                    f"• **Суроға / Адрес:** {updated_addr if updated_addr else 'Нишон дода нашуд / Не указан'}",
                     reply_markup=get_main_menu(updated_fio, phone_from_db),
                     parse_mode="Markdown"
                 )
             else:
-                await message.answer("❌ Ошибка при обновлении профиля. Пользователь не найден в базе данных.")
+                await message.answer("❌ Хатогӣ. Корбар дар база нест.\n\n❌ Ошибка обновления. Пользователь не найден.")
             return
 
         # --- Новый заказ ---
@@ -503,7 +500,10 @@ async def support_start(message: types.Message, state: FSMContext):
         await message.answer("⚙️ Поддержка временно недоступна.")
         return
     await message.answer(
-        "📞 <b>Напишите ваш вопрос или проблему:</b>\n\nМы ответим в ближайшее время.",
+        "📞 <b>Саволи худро нависед:</b>\n"
+        "Мо ҳарчи зудтар ҷавоб хоҳем дод.\n\n"
+        "📞 <b>Напишите ваш вопрос или проблему:</b>\n"
+        "Мы ответим в ближайшее время.",
         reply_markup=types.ReplyKeyboardRemove(),
         parse_mode="HTML"
     )
@@ -541,7 +541,8 @@ async def support_send(message: types.Message, state: FSMContext):
         await state.update_data(fio=fio, phone=phone, topic_id=topic_id)
         await state.set_state(Support.chatting)
         await message.answer(
-            "✅ Отправлено! Менеджер ответит здесь.\n\nМожете написать ещё или вернуться в меню.",
+            "✅ Фиристода шуд! Менеҷер ин ҷо ҷавоб хоҳад дод.\n\n"
+            "✅ Отправлено! Менеджер ответит здесь.",
             reply_markup=back_kb.as_markup(resize_keyboard=True),
         )
     except Exception as e:
@@ -612,9 +613,10 @@ async def feedback_start(message: types.Message, state: FSMContext):
         await message.answer("⚙️ Обратная связь временно недоступна.")
         return
     await message.answer(
+        "💡 <b>Бознигарӣ</b>\n\n"
+        "Хато ё пешниҳоди худро нависед.\n\n"
         "💡 <b>Обратная связь</b>\n\n"
-        "Опишите баг, косяк или предложение по улучшению бота.\n"
-        "Постарайтесь написать подробно — это поможет нам стать лучше 🙏",
+        "Опишите баг или предложение по улучшению бота.",
         reply_markup=types.ReplyKeyboardRemove(),
         parse_mode="HTML"
     )
@@ -648,7 +650,7 @@ async def feedback_send(message: types.Message, state: FSMContext):
             parse_mode="HTML"
         )
         await message.answer(
-            "✅ Спасибо! Ваш отзыв получен — мы обязательно его рассмотрим.",
+            "✅ Ташаккур! Бознигарии шумо қабул шуд.\n\n✅ Спасибо! Ваш отзыв получен.",
             reply_markup=get_main_menu(fio, phone),
         )
     except Exception as e:
