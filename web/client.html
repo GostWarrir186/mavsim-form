@@ -7,16 +7,18 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
-            --primary: #2481cc;
+            --primary:       #2481cc;
             --primary-light: rgba(36,129,204,0.1);
-            --primary-grad: linear-gradient(135deg, #2a8de0, #1a6db5);
-            --success: #2bca80;
-            --danger: #e53935;
-            --bg: var(--tg-theme-bg-color, #ffffff);
+            --primary-grad:  linear-gradient(135deg, #2a8de0, #1a6db5);
+            --success:       #2bca80;
+            --success-grad:  linear-gradient(135deg, #2bca80, #22a368);
+            --warning:       #f59e0b;
+            --danger:        #e53935;
+            --bg:     var(--tg-theme-bg-color, #ffffff);
             --sec-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
-            --text: var(--tg-theme-text-color, #1c1c1e);
-            --hint: var(--tg-theme-hint-color, #8e8e93);
-            --radius: 14px;
+            --text:   var(--tg-theme-text-color, #1c1c1e);
+            --hint:   var(--tg-theme-hint-color, #8e8e93);
+            --radius:    14px;
             --radius-sm: 10px;
         }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -35,6 +37,7 @@
             border-bottom: 1px solid rgba(0,0,0,0.06);
             box-shadow: 0 2px 12px rgba(0,0,0,0.05);
         }
+        .brand-bar { height: 3px; background: var(--primary-grad); }
         .header-top {
             display: flex; justify-content: flex-end; align-items: center;
             padding: 8px 14px 6px; gap: 5px;
@@ -153,7 +156,7 @@
         .btn:active:not(:disabled) { transform: scale(0.98); opacity: 0.9; }
         .btn-primary { background: var(--primary-grad); color: white; }
         .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-        .btn-success { background: linear-gradient(135deg, #2bca80, #22a368); color: white; }
+        .btn-success { background: var(--success-grad); color: white; }
         .btn + .btn { margin-top: 10px; }
 
         /* ─── Profile ─── */
@@ -210,6 +213,7 @@
 
 <!-- ─── Sticky Header ─── -->
 <div class="sticky-header">
+    <div class="brand-bar"></div>
     <div class="header-top">
         <button class="lang-btn active" id="lang-ru-btn" onclick="setLang('ru')">🇷🇺 RU</button>
         <button class="lang-btn" id="lang-tj-btn" onclick="setLang('tj')">🇹🇯 TJ</button>
