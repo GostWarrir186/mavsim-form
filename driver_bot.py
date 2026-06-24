@@ -419,8 +419,6 @@ async def _async_get_admin_dashboard_data() -> dict:
     couriers = [{**d, "busy": d["tid"] in busy_ids} for d in drivers]
     return {"orders": active, "free": free, "new": new, "couriers": couriers}
 
-    return result
-
 
 # ─── Excel-отчёт ─────────────────────────────────────────────────────────────
 def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict], period_label: str) -> BytesIO:

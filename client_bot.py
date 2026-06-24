@@ -27,7 +27,7 @@ class Feedback(StatesGroup):
     waiting_for_message = State()
 
 WEB_APP_URL = os.getenv("WEB_APP_URL", "https://gostwarrir186.github.io/mavsim-form/web/?v=19")
-LINK_TO_OFFER = "https://www.google.com"
+LINK_TO_OFFER = os.getenv("LINK_TO_OFFER", "")
 SUPPORT_CHAT_ID = os.getenv("SUPPORT_CHAT_ID", "")
 MANAGER_CHAT_ID = os.getenv("MANAGER_CHAT_ID", "")
 
@@ -273,7 +273,6 @@ async def process_contact(message: types.Message, state: FSMContext):
     user_data = await asyncio.to_thread(_sync_check_user_by_phone, phone)
 
     if user_data:
-        # ФИО из столбца M (индекс 12)
         fio = user_data[2] if len(user_data) > 2 else "Пользователь"
         menu_text = (
             f"👋 **Мо хурсандем, ки шуморо боз дидем, {fio}!**\n\n"
