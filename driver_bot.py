@@ -18,16 +18,15 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
-from config import driver_bot as bot, client_bot, driver_dp as dp, sheet, drivers_sheet, get_or_create_feedback_topic
+from config import driver_bot as bot, client_bot, manager_bot as mgr_bot, driver_dp as dp, sheet, drivers_sheet, get_or_create_feedback_topic
 
 # ─── Конфигурация ───────────────────────────────────────────────────────────
-DRIVER_WEBAPP_URL  = os.getenv("DRIVER_WEBAPP_URL", "")
-REPORT_PICKER_URL  = os.getenv("REPORT_PICKER_URL", "")
+DRIVER_WEBAPP_URL   = os.getenv("DRIVER_WEBAPP_URL", "")
+REPORT_PICKER_URL   = os.getenv("REPORT_PICKER_URL", "")
 DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "15.0"))
 LINK_TO_DRIVER_OFFER = os.getenv("DRIVER_OFFER_URL", "https://www.google.com")
-SUPPORT_CHAT_ID    = os.getenv("SUPPORT_CHAT_ID", "")
-MANAGER_CHAT_ID    = os.getenv("MANAGER_CHAT_ID", "")
-ADMIN_PANEL_URL    = os.getenv("ADMIN_PANEL_URL", "")
+SUPPORT_CHAT_ID     = os.getenv("SUPPORT_CHAT_ID", "")
+MANAGER_CHAT_ID     = os.getenv("MANAGER_CHAT_ID", "")
 
 DUSHANBE_TZ = timezone(timedelta(hours=5))
 
@@ -603,6 +602,25 @@ async def save_driver_fio(message: types.Message, state: FSMContext):
             "Нажмите /start чтобы проверить статус.",
             parse_mode="Markdown"
         )
+        if mgr_bot and MANAGER_CHAT_ID:
+            try:
+                b = InlineKeyboardBuilder()
+                b.button(text="✅ Одобрить", callback_data=f"approve_driver:{message.from_user.id}")
+                b.button(text="❌ Отклонить", callback_data=f"reject_driver:{message.from_user.id}")
+                b.adjust(2)
+                await mgr_bot.send_message(
+                    chat_id=int(MANAGER_CHAT_ID),
+                    text=(
+                        f"👤 <b>Новый курьер</b>\n"
+                        f"ФИО: <b>{fio}</b>\n"
+                        f"ID: <code>{message.from_user.id}</code>\n\n"
+                        f"Одобрить заявку?"
+                    ),
+                    reply_markup=b.as_markup(),
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logging.error(f"Не удалось уведомить менеджера о новом курьере: {e}")
     else:
         await message.answer("❌ Ошибка при регистрации. Попробуйте позже (/start).")
 
@@ -678,29 +696,6 @@ async def handle_webapp(message: types.Message):
         return
 
     action = data.get("action")
-
-    # ── Переназначение из панели менеджера ───────────────────────────────────
-    if action == "reassign_request":
-        if not MANAGER_CHAT_ID or str(message.chat.id) != str(MANAGER_CHAT_ID):
-            return
-        order_row = data.get("order_row")
-        order_id  = data.get("order_id")
-        if not order_row or not order_id:
-            return
-        active_drivers = await asyncio.to_thread(_sync_get_all_active_drivers)
-        if not active_drivers:
-            await message.answer("❌ Нет активных курьеров.")
-            return
-        b = InlineKeyboardBuilder()
-        for d in active_drivers:
-            b.button(text=f"👤 {d['fio']}", callback_data=f"rt:{order_row}:{d['row_num']}")
-        b.adjust(1)
-        await message.answer(
-            f"📦 Переназначение заказа <b>{order_id}</b>\n\nВыберите нового курьера:",
-            reply_markup=b.as_markup(),
-            parse_mode="HTML"
-        )
-        return
 
     # ── Еженедельный отчёт ───────────────────────────────────────────────────
     if action == "generate_report":
@@ -859,9 +854,9 @@ async def reject_order(callback: types.CallbackQuery):
                 client_chat_id,
                 f"ℹ️ По вашему заказу *{order_id}* происходят изменения — ищем нового курьера."
             )
-        if MANAGER_CHAT_ID:
+        if mgr_bot and MANAGER_CHAT_ID:
             try:
-                await bot.send_message(
+                await mgr_bot.send_message(
                     chat_id=int(MANAGER_CHAT_ID),
                     text=f"⚠️ Курьер <b>{c_name}</b> отказался от заказа <b>{order_id}</b>. Заказ возвращён на биржу.",
                     parse_mode="HTML"
@@ -983,168 +978,6 @@ async def finish_order(callback: types.CallbackQuery):
     except Exception as e:
         logging.error(f"Ошибка done (строка {row_num}): {e}", exc_info=True)
         await callback.message.answer("❌ Ошибка при завершении. Попробуйте позже.")
-
-
-# ─── Панель менеджера ────────────────────────────────────────────────────────
-def _build_panel_message(data: dict) -> tuple[str, types.InlineKeyboardMarkup]:
-    active_cnt = len(data["orders"])
-    free_cnt   = len(data["free"])
-    busy_cnt   = sum(1 for c in data["couriers"] if c["busy"])
-    total_cnt  = len(data["couriers"])
-    text = (
-        f"🎛 <b>Панель управления</b>\n\n"
-        f"📦 Активных заказов: <b>{active_cnt}</b>\n"
-        f"🕳️ Свободных заказов: <b>{free_cnt}</b>\n"
-        f"🚗 Курьеров в работе: <b>{busy_cnt}/{total_cnt}</b>"
-    )
-    raw = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-    b64 = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
-    b = InlineKeyboardBuilder()
-    if ADMIN_PANEL_URL:
-        b.button(text="🎛 Открыть панель", web_app=types.WebAppInfo(url=f"{ADMIN_PANEL_URL}?d={b64}"))
-    b.button(text="🔄 Обновить", callback_data="admin_refresh")
-    b.adjust(1)
-    return text, b.as_markup()
-
-
-@dp.message(Command("panel"))
-async def cmd_admin_panel(message: types.Message):
-    if not MANAGER_CHAT_ID or str(message.chat.id) != str(MANAGER_CHAT_ID):
-        return
-    wait = await message.answer("⏳ Загружаю данные...")
-    data = await _async_get_admin_dashboard_data()
-    text, kb = _build_panel_message(data)
-    await wait.delete()
-    await message.answer(text, reply_markup=kb, parse_mode="HTML")
-
-
-@dp.callback_query(F.data == "admin_refresh")
-async def admin_refresh(callback: types.CallbackQuery):
-    if not MANAGER_CHAT_ID or str(callback.message.chat.id) != str(MANAGER_CHAT_ID):
-        await callback.answer()
-        return
-    data = await _async_get_admin_dashboard_data()
-    text, kb = _build_panel_message(data)
-    try:
-        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-        await callback.answer("Обновлено ✅")
-    except Exception as e:
-        if "message is not modified" in str(e):
-            await callback.answer("Данные актуальны")
-        else:
-            await callback.answer("Ошибка обновления")
-            logging.error(f"admin_refresh edit error: {e}")
-
-
-# ─── Переназначение заказов (менеджер) ───────────────────────────────────────
-@dp.message(Command("reassign"))
-async def cmd_reassign(message: types.Message):
-    if not MANAGER_CHAT_ID or str(message.chat.id) != str(MANAGER_CHAT_ID):
-        return
-    parts = message.text.strip().split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer("Использование: /reassign <order_id>")
-        return
-    order_id = parts[1].strip()
-    result = await asyncio.to_thread(_sync_find_order_by_id, order_id)
-    if not result:
-        await message.answer(f"❌ Заказ <b>{order_id}</b> не найден.", parse_mode="HTML")
-        return
-
-    row_num, row_vals = result
-    status = row_vals[0].upper().strip()
-    if status not in ("TAKEN", "LOADING", "IN_TRANSIT", "ARRIVED"):
-        await message.answer(f"❌ Заказ {order_id} нельзя переназначить (статус: {status}).")
-        return
-
-    active_drivers = await asyncio.to_thread(_sync_get_all_active_drivers)
-    if not active_drivers:
-        await message.answer("❌ Нет активных курьеров.")
-        return
-
-    status_ru = {"TAKEN": "Взят", "LOADING": "Погрузка", "IN_TRANSIT": "В пути", "ARRIVED": "На месте"}
-    current_courier = row_vals[17]
-
-    b = InlineKeyboardBuilder()
-    for d in active_drivers:
-        b.button(text=f"👤 {d['fio']}", callback_data=f"rt:{row_num}:{d['row_num']}")
-    b.adjust(1)
-
-    await message.answer(
-        f"📦 <b>Заказ {order_id}</b>\n"
-        f"Статус: {status_ru.get(status, status)}\n"
-        f"Текущий курьер: {current_courier or '—'}\n\n"
-        f"Выберите нового курьера:",
-        reply_markup=b.as_markup(),
-        parse_mode="HTML"
-    )
-
-
-@dp.callback_query(F.data.startswith("rt:"))
-async def do_reassign(callback: types.CallbackQuery):
-    await callback.answer()
-    if not MANAGER_CHAT_ID or str(callback.message.chat.id) != str(MANAGER_CHAT_ID):
-        return
-    try:
-        _, order_row_str, driver_row_str = callback.data.split(":")
-        order_row  = int(order_row_str)
-        driver_row = int(driver_row_str)
-
-        driver_row_vals = _pad_row(await asyncio.to_thread(drivers_sheet.row_values, driver_row))
-        new_fio = driver_row_vals[2]
-        new_tid = driver_row_vals[3]
-
-        success, old_courier_id, order_id = await asyncio.to_thread(
-            _sync_reassign_order, order_row, new_fio, new_tid
-        )
-        if not success:
-            await callback.message.edit_text("❌ Не удалось переназначить. Проверьте статус заказа.", reply_markup=None)
-            return
-
-        order_row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, order_row))
-        client_chat_id = order_row_vals[18]
-        city_from      = order_row_vals[4]
-        city_to        = order_row_vals[6]
-
-        await callback.message.edit_text(
-            f"✅ Заказ <b>{order_id}</b> переназначен → <b>{new_fio}</b>",
-            reply_markup=None, parse_mode="HTML"
-        )
-
-        if old_courier_id and old_courier_id != new_tid:
-            try:
-                await bot.send_message(
-                    chat_id=int(old_courier_id),
-                    text=f"⚠️ <b>Ваш заказ {order_id} переназначен другому курьеру.</b>",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logging.error(f"Не удалось уведомить старого курьера: {e}")
-
-        b = InlineKeyboardBuilder()
-        b.button(text="📦 Приступить к погрузке", callback_data=f"load:{order_row}")
-        try:
-            await bot.send_message(
-                chat_id=int(new_tid),
-                text=(
-                    f"📦 <b>Вам назначен заказ {order_id}!</b>\n"
-                    f"📍 {city_from} → {city_to}\n\n"
-                    f"Нажмите кнопку, когда начнёте погрузку:"
-                ),
-                reply_markup=b.as_markup(),
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logging.error(f"Не удалось уведомить нового курьера {new_tid}: {e}")
-
-        if client_chat_id:
-            await send_client_push(
-                client_chat_id,
-                f"🔄 Ваш заказ *{order_id}* передан новому курьеру: *{new_fio}*."
-            )
-    except Exception:
-        logging.error(f"Сбой reassign: {traceback.format_exc()}")
-        await callback.message.answer("❌ Ошибка при переназначении.")
 
 
 # ─── Поддержка курьеров (Topics) ─────────────────────────────────────────────

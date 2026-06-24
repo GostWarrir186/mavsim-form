@@ -10,18 +10,24 @@ from typing import Optional
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 load_dotenv()
 
-CLIENT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-DRIVER_TOKEN = os.getenv("DRIVER_BOT_TOKEN")
+CLIENT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN")
+DRIVER_TOKEN  = os.getenv("DRIVER_BOT_TOKEN")
+MANAGER_TOKEN = os.getenv("MANAGER_BOT_TOKEN")
 
 if not CLIENT_TOKEN or not DRIVER_TOKEN:
     logging.critical("⚠️ Проверь .env файл! TELEGRAM_BOT_TOKEN или DRIVER_BOT_TOKEN отсутствуют!")
     sys.exit(1)
 
-client_bot = Bot(token=CLIENT_TOKEN)
-driver_bot = Bot(token=DRIVER_TOKEN)
+if not MANAGER_TOKEN:
+    logging.warning("⚠️ MANAGER_BOT_TOKEN не задан — менеджерский бот отключён.")
 
-client_dp = Dispatcher()
-driver_dp = Dispatcher()
+client_bot  = Bot(token=CLIENT_TOKEN)
+driver_bot  = Bot(token=DRIVER_TOKEN)
+manager_bot = Bot(token=MANAGER_TOKEN) if MANAGER_TOKEN else None
+
+client_dp  = Dispatcher()
+driver_dp  = Dispatcher()
+manager_dp = Dispatcher() if MANAGER_TOKEN else None
 
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",

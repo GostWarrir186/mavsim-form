@@ -5,7 +5,7 @@ Before editing any file, read it first. Before modifying a function, grep for al
 
 # Карта файлов (используй для точечного чтения)
 
-## bot.py — клиентский бот
+## client_bot.py — клиентский бот
 | Строка | Что |
 |--------|-----|
 | 19 | FSM: Registration, Support, Feedback |
@@ -16,6 +16,7 @@ Before editing any file, read it first. Before modifying a function, grep for al
 | 142 | _sync_check_user_by_phone |
 | 153 | _sync_check_user_by_chat_id |
 | 164 | _sync_update_profile |
+| 181 | _sync_append_row |
 | 185 | _sync_register_client |
 | 196 | _sync_get_support_topic |
 | 210 | _sync_save_support_topic |
@@ -36,45 +37,78 @@ Before editing any file, read it first. Before modifying a function, grep for al
 ## driver_bot.py — курьерский бот
 | Строка | Что |
 |--------|-----|
-| 38 | FSM: DriverRegistration, DriverSupport, DriverFeedback |
-| 50 | _get_active_driver |
-| 64 | _month_label |
-| 76 | _sync_get_driver |
-| 88 | _sync_get_driver_support_topic |
-| 102 | _sync_save_driver_support_topic |
-| 113 | _sync_get_driver_by_topic |
-| 127 | _sync_register_driver |
-| 142 | _sync_get_driver_deliveries |
-| 184 | _sync_get_free_orders |
-| 214 | _sync_take_order |
-| 232 | _sync_update_status |
-| 244 | generate_excel_report |
-| 348 | get_driver_main_menu |
-| 369 | driver_go_main_menu (глобальная кнопка «🔙 Главное меню») |
-| 376 | cmd_start_driver |
-| 444 | open_cabinet (кабинет курьера) |
-| 488 | send_monthly_report |
-| 501 | handle_report_webapp (Excel-отчёт) |
-| 560 | show_jobs (биржа заказов) |
-| 590 | accept_order (take) |
-| 631 | load_order |
-| 660 | transit_order |
-| 688 | arrived_order |
-| 716 | finish_order |
-| 745 | driver_support_start |
-| 761 | driver_support_send |
-| 799 | driver_support_continue |
-| 820 | driver_support_group_message (ответы менеджера → курьеру) |
-| 850 | driver_feedback_start |
-| 865 | driver_feedback_send |
+| 46 | FSM: DriverRegistration, DriverSupport, DriverFeedback |
+| 58 | _get_active_driver |
+| 63 | _pad_row |
+| 71 | _month_label |
+| 79 | _week_label |
+| 88 | _current_week_range |
+| 95 | _month_range |
+| 105 | _sync_get_driver |
+| 116 | _sync_get_driver_support_topic |
+| 130 | _sync_save_driver_support_topic |
+| 141 | _sync_get_driver_by_topic |
+| 155 | _sync_register_driver |
+| 170 | _sync_get_all_active_drivers |
+| 188 | _sync_get_driver_deliveries |
+| 223 | _sync_get_free_orders |
+| 253 | _sync_take_order |
+| 272 | _sync_release_order |
+| 294 | _sync_update_status |
+| 305 | _sync_find_order_by_id |
+| 318 | _sync_reassign_order |
+| 341 | _sync_get_orders_for_dashboard (используется manager_bot) |
+| 381 | _sync_get_drivers_for_dashboard (используется manager_bot) |
+| 398 | _async_get_admin_dashboard_data (используется manager_bot) |
+| 412 | generate_excel_report |
+| 516 | get_driver_main_menu |
+| 527 | send_client_push |
+| 537 | driver_go_main_menu (глобальная кнопка «🔙 Главное меню») |
+| 544 | cmd_start_driver |
+| 590 | save_driver_fio (→ уведомляет manager_bot о новом курьере) |
+| 630 | open_cabinet (кабинет курьера) |
+| 674 | send_weekly_report |
+| 692 | handle_webapp (generate_report — Excel-отчёт) |
+| 755 | show_jobs (биржа заказов) |
+| 785 | accept_order (take:) |
+| 825 | reject_order (reject: — отказ, уведомляет manager_bot) |
+| 872 | load_order |
+| 901 | transit_order |
+| 929 | arrived_order |
+| 957 | finish_order |
+| 985 | driver_support_start |
+| 1001 | driver_support_send (создаёт/ищет топик) |
+| 1038 | driver_support_continue |
+| 1058 | driver_support_group_message (ответы менеджера → курьеру) |
+| 1084 | driver_feedback_start |
+| 1099 | driver_feedback_send |
+
+## manager_bot.py — менеджерский бот
+| Строка | Что |
+|--------|-----|
+| 33 | _is_manager (проверка MANAGER_CHAT_ID) |
+| 39 | _sync_approve_driver (PENDING → ACTIVE) |
+| 54 | _sync_reject_driver (PENDING → REJECTED) |
+| 71 | _sync_set_order_ready (NEW → READY_FOR_DRIVERS) |
+| 92 | _build_panel_message |
+| 114 | cmd_start_manager (/start — справка команд) |
+| 129 | cmd_admin_panel (/panel → WebApp панели) |
+| 140 | admin_refresh (🔄 кнопка обновления панели) |
+| 160 | cmd_reassign (/reassign order_id) |
+| 200 | do_reassign (rt: callback — выбор нового курьера) |
+| 271 | handle_webapp (reassign_request из WebApp) |
+| 304 | approve_driver (approve_driver: callback ✅) |
+| 332 | reject_driver_cb (reject_driver: callback ❌) |
+| 362 | cmd_ready (/ready order_id → NEW→READY_FOR_DRIVERS) |
 
 ## config.py
 | Строка | Что |
 |--------|-----|
-| 19 | client_bot, driver_bot, dispatchers |
-| 32 | gspread init, sheet / drivers_sheet / clients_sheet |
-| 65 | SUPPORT_CHAT_ID, feedback_topic_id |
-| 71 | get_or_create_feedback_topic |
+| 24 | client_bot, driver_bot, manager_bot |
+| 28 | client_dp, driver_dp, manager_dp |
+| 37 | gspread init, sheet / drivers_sheet / clients_sheet |
+| 76 | SUPPORT_CHAT_ID, feedback_topic_id |
+| 82 | get_or_create_feedback_topic |
 
 # RTK (Rust Token Killer) - Token-Optimized Commands
 
