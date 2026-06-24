@@ -149,18 +149,18 @@
 
     const app = document.getElementById('app');
 
-    if (!DATA) {
-        app.innerHTML = `<div class="err-screen"><div style="font-size:48px">🔗</div><div style="font-size:17px;font-weight:700;margin-top:12px">Нет данных</div><div style="font-size:13px;color:var(--hint);margin-top:6px">Откройте панель через бота</div></div>`;
-    } else {
-        render();
-    }
-
     let activeTab = 0;
 
     const STATUS_LABEL = {
         TAKEN: 'Взят', LOADING: 'Погрузка',
         IN_TRANSIT: 'В пути', ARRIVED: 'На месте',
     };
+
+    if (!DATA) {
+        app.innerHTML = `<div class="err-screen"><div style="font-size:48px">🔗</div><div style="font-size:17px;font-weight:700;margin-top:12px">Нет данных</div><div style="font-size:13px;color:var(--hint);margin-top:6px">Откройте панель через бота</div></div>`;
+    } else {
+        render();
+    }
 
     function reassign(orderRow, orderId) {
         tg.sendData(JSON.stringify({ action: 'reassign_request', order_row: orderRow, order_id: orderId }));
