@@ -339,61 +339,72 @@ def _sync_reassign_order(row_num: int, new_courier_name: str, new_courier_id: st
             return False, "", ""
 
 
-def _sync_get_admin_dashboard_data() -> dict:
-    """Данные для панели менеджера: активные заказы + свободные + курьеры."""
-    result: dict = {"orders": [], "free": [], "couriers": []}
-
-    if sheet:
-        try:
-            all_rows = sheet.get_all_values()
-            for idx, row in enumerate(all_rows):
-                if idx == 0:
-                    continue
-                row = _pad_row(row)
-                status = row[0].upper().strip()
-                if status in ("TAKEN", "LOADING", "IN_TRANSIT", "ARRIVED"):
-                    result["orders"].append({
-                        "row":        idx + 1,
-                        "id":         row[1],
-                        "status":     status,
-                        "courier":    row[17],
-                        "courier_id": row[19],
-                        "city_from":  row[4],
-                        "city_to":    row[6],
-                        "addr_from":  row[5],
-                        "addr_to":    row[7],
-                        "price":      row[3],
-                        "r_phone":    row[15],
-                        "s_name":     row[12],
-                    })
-                elif status == "READY_FOR_DRIVERS":
-                    result["free"].append({
-                        "row":       idx + 1,
-                        "id":        row[1],
-                        "city_from": row[4],
-                        "city_to":   row[6],
-                        "price":     row[3],
-                        "s_name":    row[12],
-                    })
-        except Exception as e:
-            logging.error(f"Ошибка чтения заказов для дашборда: {e}")
-
-    if drivers_sheet:
-        try:
-            busy_ids = {o["courier_id"] for o in result["orders"]}
-            for idx, row in enumerate(drivers_sheet.get_all_values()):
-                if idx == 0 or len(row) < 4:
-                    continue
-                if row[0].upper().strip() != "ACTIVE":
-                    continue
-                result["couriers"].append({
-                    "fio":  row[2],
-                    "tid":  row[3],
-                    "row":  idx + 1,
-                    "busy": row[3] in busy_ids,
+def _sync_get_orders_for_dashboard() -> tuple[list, list]:
+    """Читает Лист1, возвращает (active_orders, free_orders)."""
+    active, free = [], []
+    if not sheet:
+        return active, free
+    try:
+        for idx, row in enumerate(sheet.get_all_values()):
+            if idx == 0:
+                continue
+            row = _pad_row(row)
+            status = row[0].upper().strip()
+            if status in ("TAKEN", "LOADING", "IN_TRANSIT", "ARRIVED"):
+                active.append({
+                    "row":        idx + 1,
+                    "id":         row[1],
+                    "status":     status,
+                    "courier":    row[17],
+                    "courier_id": row[19],
+                    "city_from":  row[4],
+                    "city_to":    row[6],
+                    "addr_from":  row[5],
+                    "addr_to":    row[7],
+                    "price":      row[3],
+                    "r_phone":    row[15],
+                    "s_name":     row[12],
                 })
-        except Exception as e:
-            logging.error(f"Ошибка чтения курьеров для дашборда: {e}")
+            elif status == "READY_FOR_DRIVERS":
+                free.append({
+                    "row":       idx + 1,
+                    "id":        row[1],
+                    "city_from": row[4],
+                    "city_to":   row[6],
+                    "price":     row[3],
+                    "s_name":    row[12],
+                })
+    except Exception as e:
+        logging.error(f"Ошибка чтения заказов для дашборда: {e}")
+    return active, free
+
+
+def _sync_get_drivers_for_dashboard() -> list:
+    """Читает лист Водители, возвращает список ACTIVE курьеров."""
+    result = []
+    if not drivers_sheet:
+        return result
+    try:
+        for idx, row in enumerate(drivers_sheet.get_all_values()):
+            if idx == 0 or len(row) < 4:
+                continue
+            if row[0].upper().strip() != "ACTIVE":
+                continue
+            result.append({"fio": row[2], "tid": row[3], "row": idx + 1})
+    except Exception as e:
+        logging.error(f"Ошибка чтения курьеров для дашборда: {e}")
+    return result
+
+
+async def _async_get_admin_dashboard_data() -> dict:
+    """Читает оба листа параллельно — вдвое быстрее последовательного чтения."""
+    (active, free), drivers = await asyncio.gather(
+        asyncio.to_thread(_sync_get_orders_for_dashboard),
+        asyncio.to_thread(_sync_get_drivers_for_dashboard),
+    )
+    busy_ids = {o["courier_id"] for o in active}
+    couriers = [{**d, "busy": d["tid"] in busy_ids} for d in drivers]
+    return {"orders": active, "free": free, "couriers": couriers}
 
     return result
 
@@ -1001,7 +1012,7 @@ async def cmd_admin_panel(message: types.Message):
     if not MANAGER_CHAT_ID or str(message.chat.id) != str(MANAGER_CHAT_ID):
         return
     wait = await message.answer("⏳ Загружаю данные...")
-    data = await asyncio.to_thread(_sync_get_admin_dashboard_data)
+    data = await _async_get_admin_dashboard_data()
     text, kb = _build_panel_message(data)
     await wait.delete()
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
@@ -1012,7 +1023,7 @@ async def admin_refresh(callback: types.CallbackQuery):
     if not MANAGER_CHAT_ID or str(callback.message.chat.id) != str(MANAGER_CHAT_ID):
         await callback.answer()
         return
-    data = await asyncio.to_thread(_sync_get_admin_dashboard_data)
+    data = await _async_get_admin_dashboard_data()
     text, kb = _build_panel_message(data)
     try:
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
