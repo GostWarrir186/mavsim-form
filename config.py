@@ -117,6 +117,7 @@ def verify_init_data(bot_token: str, init_data: str) -> Optional[dict]:
     Возвращает dict декодированных полей (включая распарсенный 'user') при успехе, иначе None.
     """
     if not init_data or not bot_token:
+        logging.warning(f"[DEBUG initData] EMPTY init_data_len={len(init_data or '')} has_token={bool(bot_token)}")
         return None
     try:
         raw_pairs = dict(
@@ -126,6 +127,7 @@ def verify_init_data(bot_token: str, init_data: str) -> Optional[dict]:
         received_hash = raw_pairs.pop('hash', '')
         raw_pairs.pop('signature', None)  # Ed25519-подпись, в data_check_string не входит
         if not received_hash:
+            logging.warning(f"[DEBUG initData] NO HASH raw_pairs_keys={list(raw_pairs.keys())} init_data={init_data!r}")
             return None
         decoded = {k: urllib.parse.unquote(v) for k, v in raw_pairs.items()}
         check_string = '\n'.join(f'{k}={v}' for k, v in sorted(decoded.items()))
