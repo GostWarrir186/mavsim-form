@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import html
 import json
 import logging
 import os
@@ -18,12 +19,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
-from config import driver_bot as bot, client_bot, manager_bot as mgr_bot, driver_dp as dp, sheet, drivers_sheet, get_or_create_feedback_topic
+from config import driver_bot as bot, client_bot, manager_bot as mgr_bot, driver_dp as dp, sheet, drivers_sheet, pick_lang
 
 # ─── Конфигурация ───────────────────────────────────────────────────────────
 DRIVER_WEBAPP_URL   = os.getenv("DRIVER_WEBAPP_URL", "")
 REPORT_PICKER_URL   = os.getenv("REPORT_PICKER_URL", "")
-DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "15.0"))
+DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "18.0"))
 LINK_TO_DRIVER_OFFER = os.getenv("DRIVER_OFFER_URL", "https://www.google.com")
 SUPPORT_CHAT_ID     = os.getenv("SUPPORT_CHAT_ID", "")
 MANAGER_CHAT_ID     = os.getenv("MANAGER_CHAT_ID", "")
@@ -54,9 +55,6 @@ class DriverRejectReason(StatesGroup):
 class DriverSupport(StatesGroup):
     waiting_for_message = State()
     chatting = State()
-
-class DriverFeedback(StatesGroup):
-    waiting_for_message = State()
 
 
 # ─── Вспомогательные функции ────────────────────────────────────────────────
@@ -170,6 +168,31 @@ def _sync_register_driver(chat_id: str, fio: str, phone: str = "") -> bool:
     except Exception as e:
         logging.error(f"Ошибка регистрации водителя {chat_id}: {e}")
         return False
+
+
+def _sync_update_driver_profile(chat_id: str, new_fio: str, lang: str | None = None) -> bool:
+    """Обновляет ФИО (C) и, если передан, язык (I) водителя по Telegram ID (D = 4)."""
+    if not drivers_sheet:
+        return False
+    try:
+        cell = drivers_sheet.find(str(chat_id), in_column=4)
+        if not cell:
+            return False
+        updates = [{'range': f'C{cell.row}', 'values': [[new_fio]]}]
+        if lang in ("ru", "tj"):
+            updates.append({'range': f'I{cell.row}', 'values': [[lang]]})
+        drivers_sheet.batch_update(updates)
+        return True
+    except Exception as e:
+        logging.error(f"Ошибка обновления профиля водителя {chat_id}: {e}")
+        return False
+
+
+def _lang_from_driver_row(row) -> str:
+    """Достаёт сохранённое предпочтение языка из строки листа Водители (I = 9)."""
+    if row and len(row) > 8 and row[8] in ("ru", "tj"):
+        return row[8]
+    return "both"
 
 
 def _sync_get_all_active_drivers() -> list[dict]:
@@ -546,6 +569,7 @@ async def build_driver_main_menu(driver_id: int):
                     "month": now.strftime("%m.%Y"),
                     "month_label": _week_label(week_start_dt, week_end_dt),
                     "deliveries": deliveries,
+                    "lang": _lang_from_driver_row(driver_data),
                 }
                 b64 = base64.urlsafe_b64encode(
                     json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
@@ -559,7 +583,6 @@ async def build_driver_main_menu(driver_id: int):
     else:
         b.button(text="📊 Кабинети ман / Мой кабинет")
     b.button(text="📞 Дастгирӣ / Поддержка")
-    b.button(text="💡 Бознигарӣ / Обратная связь")
     b.adjust(1)
     return b.as_markup(resize_keyboard=True)
 
@@ -576,8 +599,10 @@ async def send_client_push(chat_id: str, text: str):
 @dp.message(F.text == "🔙 Главное меню")
 async def driver_go_main_menu(message: types.Message, state: FSMContext):
     await state.clear()
-    await message.answer("Амалро интихоб кунед / Выберите действие:",
-                         reply_markup=await build_driver_main_menu(message.from_user.id))
+    driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+    lang = _lang_from_driver_row(driver_data)
+    menu_label = pick_lang("Амалро интихоб кунед:\n───────────────────────\nВыберите действие:", lang)
+    await message.answer(menu_label, reply_markup=await build_driver_main_menu(message.from_user.id))
 
 
 # ─── Регистрация ─────────────────────────────────────────────────────────────
@@ -593,7 +618,7 @@ async def cmd_start_driver(message: types.Message, state: FSMContext):
             "💼 **Ба Mavsimi Rason хуш омадед!**\n\n"
             "Барои кор ҳамчун курьер шартҳои ҳамкориро қабул кунед.\n\n"
             f"📋 [Оферта барои курьерҳо]({LINK_TO_DRIVER_OFFER})\n\n"
-            "──────────────────────\n\n"
+            "───────────────────────\n\n"
             "💼 **Добро пожаловать в Mavsimi Rason!**\n\n"
             "Для работы курьером необходимо принять условия сотрудничества.\n\n"
             f"📋 [Оферта для курьеров]({LINK_TO_DRIVER_OFFER})\n\n"
@@ -603,20 +628,30 @@ async def cmd_start_driver(message: types.Message, state: FSMContext):
             disable_web_page_preview=True
         )
     elif driver_data[0].upper() == "PENDING":
+        lang = _lang_from_driver_row(driver_data)
         await message.answer(
-            "⏳ **Дархост дар баррасӣ.**\n\n"
-            "Менеҷер маълумоти шуморо баррасӣ мекунад.\n"
-            "Баъдтар /start-ро пахш кунед.\n\n"
-            "⏳ **Заявка на рассмотрении.**\n\n"
-            "Менеджер проверит ваши данные и активирует аккаунт.\n"
-            "Попробуйте позже — нажмите /start чтобы проверить статус.",
+            pick_lang(
+                "⏳ **Дархост дар баррасӣ.**\n\n"
+                "Менеҷер маълумоти шуморо баррасӣ мекунад.\n"
+                "Баъдтар /start-ро пахш кунед.\n\n"
+                "───────────────────────\n\n"
+                "⏳ **Заявка на рассмотрении.**\n\n"
+                "Менеджер проверит ваши данные и активирует аккаунт.\n"
+                "Попробуйте позже — нажмите /start чтобы проверить статус.",
+                lang
+            ),
             parse_mode="Markdown"
         )
     elif driver_data[0].upper() == "ACTIVE":
         fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
+        lang = _lang_from_driver_row(driver_data)
         await message.answer(
-            f"👋 **Хуш омадед, {fio}!**\n\nАмалро интихоб кунед:\n\n"
-            f"👋 **С возвращением, {fio}!**\n\nВыберите действие:",
+            pick_lang(
+                f"👋 **Хуш омадед, {fio}!**\n\nАмалро интихоб кунед:\n"
+                f"───────────────────────\n"
+                f"👋 **С возвращением, {fio}!**\n\nВыберите действие:",
+                lang
+            ),
             reply_markup=await build_driver_main_menu(message.from_user.id),
             parse_mode="Markdown"
         )
@@ -694,8 +729,8 @@ async def save_driver_phone(message: types.Message, state: FSMContext):
                     chat_id=int(MANAGER_CHAT_ID),
                     text=(
                         f"👤 <b>Новый курьер</b>\n"
-                        f"ФИО: <b>{fio}</b>\n"
-                        f"📱 Телефон: <code>{phone}</code>\n"
+                        f"ФИО: <b>{html.escape(fio)}</b>\n"
+                        f"📱 Телефон: <code>{html.escape(phone)}</code>\n"
                         f"ID: <code>{message.from_user.id}</code>\n\n"
                         f"Одобрить заявку?"
                     ),
@@ -716,6 +751,33 @@ async def handle_webapp(message: types.Message):
         return
 
     action = data.get("action")
+
+    # ── Обновление профиля (ФИО / язык) ──────────────────────────────────────
+    if action == "update_profile":
+        updated_fio = data.get("fio", "").strip()
+        new_lang = data.get("lang") if data.get("lang") in ("ru", "tj") else None
+        if not updated_fio:
+            await message.answer("❌ ФИО не может быть пустым.")
+            return
+        success = await asyncio.to_thread(
+            _sync_update_driver_profile, str(message.from_user.id), updated_fio, new_lang
+        )
+        if success:
+            driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+            lang = _lang_from_driver_row(driver_data)
+            await message.answer(
+                pick_lang(
+                    f"✅ **Маълумот навшуд!**\n• **Ном:** {updated_fio}\n"
+                    f"───────────────────────\n"
+                    f"✅ **Данные обновлены!**\n• **ФИО:** {updated_fio}",
+                    lang
+                ),
+                reply_markup=await build_driver_main_menu(message.from_user.id),
+                parse_mode="Markdown"
+            )
+        else:
+            await message.answer("❌ Хатогӣ. Корбар дар база нест.\n\n❌ Ошибка обновления. Пользователь не найден.")
+        return
 
     # ── Еженедельный отчёт ───────────────────────────────────────────────────
     if action == "generate_report":
@@ -923,8 +985,8 @@ async def _do_reject(chat_id: int, state: FSMContext, reason: str | None, photo_
         if not (mgr_bot and MANAGER_CHAT_ID):
             return
         mgr_text = (
-            f"⚠️ Курьер <b>{c_name}</b> отказался от заказа <b>{order_id}</b>.\n"
-            f"📝 Причина: {reason or '—'}"
+            f"⚠️ Курьер <b>{html.escape(c_name)}</b> отказался от заказа <b>{order_id}</b>.\n"
+            f"📝 Причина: {html.escape(reason) if reason else '—'}"
         )
         if photo_file_id:
             # file_id привязан к боту, который его получил (driver_bot) —
@@ -1131,7 +1193,7 @@ async def driver_support_send(message: types.Message, state: FSMContext):
         await bot.send_message(
             chat_id=int(SUPPORT_CHAT_ID),
             message_thread_id=topic_id,
-            text=f"🚗 <b>Курьер:</b> {message.text}",
+            text=f"🚗 <b>Курьер:</b> {html.escape(message.text)}",
             parse_mode="HTML"
         )
         back_kb = ReplyKeyboardBuilder()
@@ -1161,7 +1223,7 @@ async def driver_support_continue(message: types.Message, state: FSMContext):
         await bot.send_message(
             chat_id=int(SUPPORT_CHAT_ID),
             message_thread_id=topic_id,
-            text=f"🚗 <b>Курьер:</b> {message.text}",
+            text=f"🚗 <b>Курьер:</b> {html.escape(message.text)}",
             parse_mode="HTML"
         )
     except Exception as e:
@@ -1187,62 +1249,11 @@ async def driver_support_group_message(message: types.Message):
     try:
         await bot.send_message(
             chat_id=int(driver_telegram_id),
-            text=f"💬 <b>Ответ от поддержки:</b>\n\n{message.text}",
+            text=f"💬 <b>Ответ от поддержки:</b>\n\n{html.escape(message.text)}",
             parse_mode="HTML"
         )
     except Exception as e:
         logging.error(f"Ошибка отправки ответа курьеру {driver_telegram_id}: {type(e).__name__}: {e}")
-
-
-# ─── Обратная связь ───────────────────────────────────────────────────────────
-@dp.message(F.text == "💡 Бознигарӣ / Обратная связь")
-async def driver_feedback_start(message: types.Message, state: FSMContext):
-    if not SUPPORT_CHAT_ID:
-        await message.answer("⚙️ Бознигарӣ муваққатан дастнорас аст.\n\n⚙️ Обратная связь временно недоступна.")
-        return
-    await message.answer(
-        "💡 <b>Бознигарӣ</b>\n\n"
-        "Хато ё пешниҳоди худро нависед.\n\n"
-        "💡 <b>Обратная связь</b>\n\n"
-        "Опишите баг или предложение по улучшению бота.",
-        reply_markup=types.ReplyKeyboardRemove(),
-        parse_mode="HTML"
-    )
-    await state.set_state(DriverFeedback.waiting_for_message)
-
-
-@dp.message(DriverFeedback.waiting_for_message)
-async def driver_feedback_send(message: types.Message, state: FSMContext):
-    await state.clear()
-    driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
-    fio = driver_data[2] if driver_data and len(driver_data) > 2 else "Курьер"
-
-    topic_id = await get_or_create_feedback_topic(bot)
-    if not topic_id:
-        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=await build_driver_main_menu(message.from_user.id))
-        return
-
-    text = (
-        f"💡 <b>Обратная связь [Курьер]</b>\n"
-        f"👤 {fio}\n"
-        f"🆔 <code>{message.from_user.id}</code>\n"
-        f"───────────────\n"
-        f"{message.text}"
-    )
-    try:
-        await bot.send_message(
-            chat_id=int(SUPPORT_CHAT_ID),
-            message_thread_id=topic_id,
-            text=text,
-            parse_mode="HTML"
-        )
-        await message.answer(
-            "✅ Ташаккур! Бознигарии шумо қабул шуд.\n\n✅ Спасибо! Ваш отзыв получен.",
-            reply_markup=await build_driver_main_menu(message.from_user.id),
-        )
-    except Exception as e:
-        logging.error(f"Ошибка отправки обратной связи курьера: {type(e).__name__}: {e}")
-        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=await build_driver_main_menu(message.from_user.id))
 
 
 # ─── Автоуведомление курьеров о новых заказах ────────────────────────────────

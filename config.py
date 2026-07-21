@@ -5,7 +5,6 @@ import gspread
 from google.oauth2.service_account import Credentials
 from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
-from typing import Optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 load_dotenv()
@@ -68,20 +67,28 @@ try:
 
     try:
         drivers_sheet = spreadsheet.worksheet("Водители")
+        existing_headers = drivers_sheet.row_values(1)
+        if "Язык" not in existing_headers:
+            drivers_sheet.update_cell(1, len(existing_headers) + 1, "Язык")
+            logging.info("✅ Добавлена колонка 'Язык' в лист 'Водители'")
     except gspread.WorksheetNotFound:
         drivers_sheet = spreadsheet.add_worksheet(title="Водители", rows=1000, cols=9)
         drivers_sheet.append_row([
             "Статус", "Дата рег.", "ФИО", "Telegram ID",
-            "Ставка (TJS)", "Дата оферты", "Topic ID", "Телефон"
+            "Ставка (TJS)", "Дата оферты", "Topic ID", "Телефон", "Язык"
         ])
         logging.info("✅ Создан лист 'Водители'")
 
     try:
         clients_sheet = spreadsheet.worksheet("Клиенты")
+        existing_headers = clients_sheet.row_values(1)
+        if "Язык" not in existing_headers:
+            clients_sheet.update_cell(1, len(existing_headers) + 1, "Язык")
+            logging.info("✅ Добавлена колонка 'Язык' в лист 'Клиенты'")
     except gspread.WorksheetNotFound:
-        clients_sheet = spreadsheet.add_worksheet(title="Клиенты", rows=5000, cols=7)
+        clients_sheet = spreadsheet.add_worksheet(title="Клиенты", rows=5000, cols=8)
         clients_sheet.append_row([
-            "Статус", "Дата рег.", "ФИО", "Телефон", "Адрес забора", "Chat ID", "Topic ID"
+            "Статус", "Дата рег.", "ФИО", "Телефон", "Адрес забора", "Chat ID", "Topic ID", "Язык"
         ])
         logging.info("✅ Создан лист 'Клиенты'")
 
@@ -101,34 +108,19 @@ except Exception as e:
     logging.critical(f"❌ Критическая ошибка подключения к Google Таблицам: {e}")
     sys.exit(1)
 
+LANG_SEPARATOR = "───────────────────────"
+
+
+def pick_lang(text: str, lang: str) -> str:
+    """
+    Большинство длинных сообщений в коде написаны в формате
+    "тадж. часть\\n{LANG_SEPARATOR}\\nрус. часть". Если у пользователя уже
+    сохранён язык — возвращает только его часть, иначе (lang не задан/'both'
+    или в тексте нет разделителя) — текст как есть, без изменений.
+    """
+    if lang not in ("ru", "tj") or LANG_SEPARATOR not in text:
+        return text
+    tj_part, ru_part = text.split(LANG_SEPARATOR, 1)
+    return ru_part.strip() if lang == "ru" else tj_part.strip()
+
 SUPPORT_CHAT_ID: str = os.getenv("SUPPORT_CHAT_ID", "")
-
-# Общий топик обратной связи — шарится обоими ботами в одном процессе
-feedback_topic_id: Optional[int] = None
-
-
-async def get_or_create_feedback_topic(bot_instance: Bot) -> Optional[int]:
-    """Возвращает topic_id топика обратной связи. Создаёт его при первом вызове."""
-    global feedback_topic_id
-    if feedback_topic_id:
-        return feedback_topic_id
-    env_id = os.getenv("FEEDBACK_TOPIC_ID", "")
-    if env_id:
-        feedback_topic_id = int(env_id)
-        return feedback_topic_id
-    if not SUPPORT_CHAT_ID:
-        return None
-    try:
-        topic = await bot_instance.create_forum_topic(
-            chat_id=int(SUPPORT_CHAT_ID),
-            name="📋 Обратная связь"
-        )
-        feedback_topic_id = topic.message_thread_id
-        logging.info(
-            f"✅ Создан топик обратной связи ID={feedback_topic_id}. "
-            f"Добавьте в .env: FEEDBACK_TOPIC_ID={feedback_topic_id}"
-        )
-        return feedback_topic_id
-    except Exception as e:
-        logging.error(f"Ошибка создания топика обратной связи: {e}")
-        return None

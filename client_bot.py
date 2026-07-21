@@ -1,7 +1,6 @@
 import asyncio
 import datetime
-import hmac
-import hashlib
+import html
 import json
 import logging
 import os
@@ -14,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-from config import client_bot as bot, client_dp as dp, manager_bot as mgr_bot, sheet, clients_sheet, orders_info_sheet, CLIENT_TOKEN, get_or_create_feedback_topic
+from config import client_bot as bot, client_dp as dp, manager_bot as mgr_bot, sheet, clients_sheet, orders_info_sheet, pick_lang
 
 class Registration(StatesGroup):
     waiting_for_fio = State()
@@ -22,9 +21,6 @@ class Registration(StatesGroup):
 class Support(StatesGroup):
     waiting_for_message = State()
     chatting = State()
-
-class Feedback(StatesGroup):
-    waiting_for_message = State()
 
 WEB_APP_URL = os.getenv("WEB_APP_URL", "https://gostwarrir186.github.io/mavsim-form/web/?v=19")
 LINK_TO_OFFER = os.getenv("LINK_TO_OFFER", "")
@@ -73,30 +69,6 @@ RECEIPTS = {
         "💰 **БАРОИ ПАДОХТ:** {price} TJS"
     )
 }
-
-# --- БЕЗОПАСНОСТЬ: верификация Telegram WebApp initData ---
-def verify_telegram_init_data(init_data: str) -> bool:
-    """
-    Проверяет подлинность данных от Telegram WebApp по HMAC-SHA256.
-    Документация: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
-    """
-    if not init_data:
-        return False
-    try:
-        parsed = dict(
-            x.split('=', 1) for x in urllib.parse.unquote(init_data).split('&')
-            if '=' in x
-        )
-        received_hash = parsed.pop('hash', '')
-        if not received_hash:
-            return False
-        check_string = '\n'.join(f'{k}={v}' for k, v in sorted(parsed.items()))
-        secret_key = hmac.new(b'WebAppData', CLIENT_TOKEN.encode(), hashlib.sha256).digest()
-        computed_hash = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(computed_hash, received_hash)
-    except Exception as e:
-        logging.warning(f"Ошибка верификации initData: {e}")
-        return False
 
 def generate_order_id() -> str:
     now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5)
@@ -160,22 +132,32 @@ def _sync_check_user_by_chat_id(chat_id: str):
         logging.error(f"Ошибка поиска клиента по chat_id {chat_id}: {e}")
         return None
 
-def _sync_update_profile(chat_id: str, new_fio: str, new_address: str) -> bool:
-    """Обновляет ФИО (C) и адрес забора (E) клиента по Chat ID (F = 6)."""
+def _sync_update_profile(chat_id: str, new_fio: str, new_address: str, lang: str | None = None) -> bool:
+    """Обновляет ФИО (C), адрес забора (E) и, если передан, язык (H) клиента по Chat ID (F = 6)."""
     if not clients_sheet:
         return False
     try:
         cell = clients_sheet.find(str(chat_id), in_column=6)
         if not cell:
             return False
-        clients_sheet.batch_update([
+        updates = [
             {'range': f'C{cell.row}', 'values': [[new_fio]]},
             {'range': f'E{cell.row}', 'values': [[new_address or '']]},
-        ])
+        ]
+        if lang in ("ru", "tj"):
+            updates.append({'range': f'H{cell.row}', 'values': [[lang]]})
+        clients_sheet.batch_update(updates)
         return True
     except Exception as e:
         logging.error(f"Ошибка обновления профиля для chat_id={chat_id}: {e}")
         return False
+
+
+def _lang_from_row(row) -> str:
+    """Достаёт сохранённое предпочтение языка из строки листа Клиенты (H = 8)."""
+    if row and len(row) > 7 and row[7] in ("ru", "tj"):
+        return row[7]
+    return "both"
 
 def _sync_append_row(row_data: list):
     if sheet:
@@ -258,7 +240,9 @@ async def go_main_menu(message: types.Message, state: FSMContext):
     user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
     fio   = user_data[2] if user_data and len(user_data) > 2 else "Пользователь"
     phone = user_data[3] if user_data and len(user_data) > 3 else ""
-    await message.answer("Меню асосӣ / Главное меню:", reply_markup=get_main_menu(fio, phone))
+    lang  = _lang_from_row(user_data)
+    menu_label = pick_lang("Менюи асосӣ:\n───────────────────────\nГлавное меню:", lang)
+    await message.answer(menu_label, reply_markup=get_main_menu(fio, phone))
 
 
 @dp.message(F.contact)
@@ -272,11 +256,13 @@ async def process_contact(message: types.Message, state: FSMContext):
 
     if user_data:
         fio = user_data[2] if len(user_data) > 2 else "Пользователь"
-        menu_text = (
+        lang = _lang_from_row(user_data)
+        menu_text = pick_lang(
             f"👋 **Мо хурсандем, ки шуморо боз дидем, {fio}!**\n\n"
             f"───────────────────────\n\n"
             f"👋 **С возвращением, {fio}!**\n"
-            f"Используйте кнопку ниже для перехода к заказам."
+            f"Используйте кнопку ниже для перехода к заказам.",
+            lang
         )
         await message.answer(
             menu_text,
@@ -336,7 +322,6 @@ def get_main_menu(fio: str, phone: str):
         web_app=types.WebAppInfo(url=final_url)
     ))
     builder.add(types.KeyboardButton(text="📞 Поддержка / Дастгирӣ"))
-    builder.add(types.KeyboardButton(text="💡 Обратная связь"))
     builder.adjust(1)
     return builder.as_markup(resize_keyboard=True)
 
@@ -349,6 +334,7 @@ async def handle_webapp_data(message: types.Message):
         if data.get("action") == "update_profile":
             updated_fio = data.get("fio", "").strip()
             updated_addr = data.get("address", "").strip()
+            new_lang = data.get("lang") if data.get("lang") in VALID_LANGS else None
 
             if not updated_fio:
                 await message.answer("❌ ФИО не может быть пустым.")
@@ -359,15 +345,24 @@ async def handle_webapp_data(message: types.Message):
                 _sync_update_profile,
                 str(message.chat.id),
                 updated_fio,
-                updated_addr
+                updated_addr,
+                new_lang
             )
             if success:
                 user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
                 phone_from_db = user_data[3] if user_data and len(user_data) > 3 else ""
+                lang = _lang_from_row(user_data)
                 await message.answer(
-                    f"✅ **Маълумот навшуд! / Данные обновлены!**\n\n"
-                    f"• **Ном / ФИО:** {updated_fio}\n"
-                    f"• **Суроға / Адрес:** {updated_addr if updated_addr else 'Нишон дода нашуд / Не указан'}",
+                    pick_lang(
+                        f"✅ **Маълумот навшуд!**\n\n"
+                        f"• **Ном:** {updated_fio}\n"
+                        f"• **Суроға:** {updated_addr if updated_addr else 'Нишон дода нашуд'}\n"
+                        f"───────────────────────\n"
+                        f"✅ **Данные обновлены!**\n\n"
+                        f"• **ФИО:** {updated_fio}\n"
+                        f"• **Адрес:** {updated_addr if updated_addr else 'Не указан'}",
+                        lang
+                    ),
                     reply_markup=get_main_menu(updated_fio, phone_from_db),
                     parse_mode="Markdown"
                 )
@@ -452,13 +447,14 @@ async def handle_webapp_data(message: types.Message):
             try:
                 from aiogram.utils.keyboard import InlineKeyboardBuilder as IKB
                 dtype_mgr = "До ПВЗ 🏢" if data['delivery_type'] == "pvz" else "До двери 🚪"
+                e = html.escape
                 mgr_text = (
                     f"🆕 <b>Новый заказ</b> <code>{order_id}</code>\n\n"
-                    f"📍 <b>{data['city_pickup']}</b> → <b>{data['city_delivery']}</b> · {dtype_mgr}\n"
-                    f"👤 Отправитель: {data['s_name']} · <code>{data['s_phone']}</code>\n"
-                    f"👤 Получатель: {data['r_name']} · <code>{data['r_phone']}</code>\n"
-                    f"📦 {data['weight']} кг · {data['sizes']} см\n"
-                    f"💰 {data['price']} TJS\n"
+                    f"📍 <b>{e(str(data['city_pickup']))}</b> → <b>{e(str(data['city_delivery']))}</b> · {dtype_mgr}\n"
+                    f"👤 Отправитель: {e(str(data['s_name']))} · <code>{e(str(data['s_phone']))}</code>\n"
+                    f"👤 Получатель: {e(str(data['r_name']))} · <code>{e(str(data['r_phone']))}</code>\n"
+                    f"📦 {e(str(data['weight']))} кг · {e(str(data['sizes']))} см\n"
+                    f"💰 {e(str(data['price']))} TJS\n"
                     f"📅 {dushanbe_time}"
                 )
                 b = IKB()
@@ -534,7 +530,7 @@ async def support_send(message: types.Message, state: FSMContext):
         await bot.send_message(
             chat_id=int(SUPPORT_CHAT_ID),
             message_thread_id=topic_id,
-            text=f"📨 <b>Клиент:</b> {message.text}",
+            text=f"📨 <b>Клиент:</b> {html.escape(message.text)}",
             parse_mode="HTML"
         )
         back_kb = ReplyKeyboardBuilder()
@@ -570,7 +566,7 @@ async def support_continue(message: types.Message, state: FSMContext):
         await bot.send_message(
             chat_id=int(SUPPORT_CHAT_ID),
             message_thread_id=topic_id,
-            text=f"📨 <b>Клиент:</b> {message.text}",
+            text=f"📨 <b>Клиент:</b> {html.escape(message.text)}",
             parse_mode="HTML"
         )
     except Exception as e:
@@ -599,61 +595,10 @@ async def support_group_message(message: types.Message):
     try:
         await bot.send_message(
             chat_id=int(client_chat_id),
-            text=f"💬 <b>Ответ от поддержки:</b>\n\n{message.text}",
+            text=f"💬 <b>Ответ от поддержки:</b>\n\n{html.escape(message.text)}",
             parse_mode="HTML"
         )
     except Exception as e:
         logging.error(f"Ошибка отправки ответа клиенту {client_chat_id}: {type(e).__name__}: {e}")
 
 
-# ─── Обратная связь ───────────────────────────────────────────────────────────
-
-@dp.message(F.text == "💡 Обратная связь")
-async def feedback_start(message: types.Message, state: FSMContext):
-    if not SUPPORT_CHAT_ID:
-        await message.answer("⚙️ Обратная связь временно недоступна.")
-        return
-    await message.answer(
-        "💡 <b>Бознигарӣ</b>\n\n"
-        "Хато ё пешниҳоди худро нависед.\n\n"
-        "💡 <b>Обратная связь</b>\n\n"
-        "Опишите баг или предложение по улучшению бота.",
-        reply_markup=types.ReplyKeyboardRemove(),
-        parse_mode="HTML"
-    )
-    await state.set_state(Feedback.waiting_for_message)
-
-
-@dp.message(Feedback.waiting_for_message)
-async def feedback_send(message: types.Message, state: FSMContext):
-    await state.clear()
-    user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
-    fio   = user_data[2] if user_data and len(user_data) > 2 else "Неизвестно"
-    phone = user_data[3] if user_data and len(user_data) > 3 else "Неизвестно"
-
-    topic_id = await get_or_create_feedback_topic(bot)
-    if not topic_id:
-        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=get_main_menu(fio, phone))
-        return
-
-    text = (
-        f"💡 <b>Обратная связь [Клиент]</b>\n"
-        f"👤 {fio} | {phone}\n"
-        f"🆔 <code>{message.chat.id}</code>\n"
-        f"───────────────\n"
-        f"{message.text}"
-    )
-    try:
-        await bot.send_message(
-            chat_id=int(SUPPORT_CHAT_ID),
-            message_thread_id=topic_id,
-            text=text,
-            parse_mode="HTML"
-        )
-        await message.answer(
-            "✅ Ташаккур! Бознигарии шумо қабул шуд.\n\n✅ Спасибо! Ваш отзыв получен.",
-            reply_markup=get_main_menu(fio, phone),
-        )
-    except Exception as e:
-        logging.error(f"Ошибка отправки обратной связи: {type(e).__name__}: {e}")
-        await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=get_main_menu(fio, phone))

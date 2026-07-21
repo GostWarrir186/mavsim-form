@@ -459,7 +459,7 @@
         }
     };
 
-    function setLang(lang) {
+    function setLang(lang, persist = true) {
         currentLang = lang;
         document.getElementById('lang-ru-btn').classList.toggle('active', lang === 'ru');
         document.getElementById('lang-tj-btn').classList.toggle('active', lang === 'tj');
@@ -469,6 +469,7 @@
             if (el) el.innerText = items[key];
         }
         calculatePrice();
+        if (persist) localStorage.setItem('lang', lang);
     }
 
     function switchTab(tabName) {
@@ -511,7 +512,7 @@
         document.getElementById('btn-save-profile').disabled = true;
 
         setTimeout(() => {
-            tg.sendData(JSON.stringify({ action: 'update_profile', fio: updatedFio, address: updatedAddr }));
+            tg.sendData(JSON.stringify({ action: 'update_profile', fio: updatedFio, address: updatedAddr, lang: currentLang }));
             tg.close();
         }, 1500);
     }
@@ -735,7 +736,7 @@
     }
 
     initProfile();
-    setLang('ru');
+    setLang(localStorage.getItem('lang') || 'ru', false);
 </script>
 </body>
 </html>

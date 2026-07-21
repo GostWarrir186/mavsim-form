@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import html
 import json
 import logging
 import os
@@ -40,7 +41,7 @@ from driver_bot import (
 
 MANAGER_CHAT_ID     = os.getenv("MANAGER_CHAT_ID", "")
 ADMIN_PANEL_URL     = os.getenv("ADMIN_PANEL_URL", "")
-DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "15.0"))
+DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "18.0"))
 
 CANCEL_REASONS = [
     "Не смогли согласовать детали",
@@ -444,7 +445,7 @@ async def order_cancel_custom_reason(message: types.Message, state: FSMContext):
     if not success:
         await message.answer(f"❌ Не удалось отменить заказ {order_id} — {err}.")
         return
-    await message.answer(f"❌ Заказ <code>{order_id}</code> отменён.\nПричина: {reason}", parse_mode="HTML")
+    await message.answer(f"❌ Заказ <code>{order_id}</code> отменён.\nПричина: {html.escape(reason)}", parse_mode="HTML")
     if client_chat_id:
         await send_client_push(
             client_chat_id,
@@ -456,6 +457,8 @@ async def order_cancel_custom_reason(message: types.Message, state: FSMContext):
 
 @dp.message(F.web_app_data)
 async def handle_webapp(message: types.Message):
+    if not _is_manager(message.chat.id):
+        return
     try:
         data = json.loads(message.web_app_data.data)
     except Exception:
@@ -477,14 +480,14 @@ async def handle_webapp(message: types.Message):
             await message.answer(f"❌ Не удалось сменить статус — {err}.")
             return
         await message.answer(
-            f"✅ Заказ <b>{order_id}</b> → <b>{new_status_lbl}</b>",
+            f"✅ Заказ <b>{order_id}</b> → <b>{html.escape(str(new_status_lbl))}</b>",
             parse_mode="HTML"
         )
         if courier_id:
             try:
                 await driver_bot_instance.send_message(
                     chat_id=int(courier_id),
-                    text=f"📋 <b>Статус заказа {order_id} изменён менеджером:</b> {new_status_lbl}",
+                    text=f"📋 <b>Статус заказа {order_id} изменён менеджером:</b> {html.escape(str(new_status_lbl))}",
                     parse_mode="HTML"
                 )
             except Exception as e:
@@ -510,14 +513,14 @@ async def handle_webapp(message: types.Message):
             await message.answer(f"❌ Не удалось отменить — {err}.")
             return
         await message.answer(
-            f"❌ Заказ <b>{order_id}</b> отменён.\nПричина: {reason}",
+            f"❌ Заказ <b>{order_id}</b> отменён.\nПричина: {html.escape(str(reason))}",
             parse_mode="HTML"
         )
         if courier_id:
             try:
                 await driver_bot_instance.send_message(
                     chat_id=int(courier_id),
-                    text=f"⚠️ <b>Заказ {order_id} отменён менеджером.</b>\nПричина: {reason}",
+                    text=f"⚠️ <b>Заказ {order_id} отменён менеджером.</b>\nПричина: {html.escape(str(reason))}",
                     parse_mode="HTML"
                 )
             except Exception as e:
@@ -570,7 +573,7 @@ async def handle_webapp(message: types.Message):
         city_from      = order_row_vals[4]
         city_to        = order_row_vals[6]
         await message.answer(
-            f"✅ Заказ <b>{confirmed_order_id}</b> переназначен → <b>{courier_name}</b>",
+            f"✅ Заказ <b>{confirmed_order_id}</b> переназначен → <b>{html.escape(str(courier_name))}</b>",
             parse_mode="HTML"
         )
         if old_courier_id and old_courier_id != courier_tid:
@@ -589,7 +592,7 @@ async def handle_webapp(message: types.Message):
                 chat_id=int(courier_tid),
                 text=(
                     f"📦 <b>Вам назначен заказ {confirmed_order_id}!</b>\n"
-                    f"📍 {city_from} → {city_to}\n\n"
+                    f"📍 {html.escape(str(city_from))} → {html.escape(str(city_to))}\n\n"
                     f"Нажмите кнопку, когда начнёте погрузку:"
                 ),
                 reply_markup=b.as_markup(),
@@ -631,7 +634,7 @@ async def handle_webapp(message: types.Message):
 
         if not deliveries:
             await wait.delete()
-            await message.answer(f"📭 За {period_label} у курьера <b>{courier_name}</b> доставок не найдено.", parse_mode="HTML")
+            await message.answer(f"📭 За {period_label} у курьера <b>{html.escape(courier_name)}</b> доставок не найдено.", parse_mode="HTML")
             return
 
         excel_buf = await asyncio.to_thread(generate_excel_report, courier_name, rate, deliveries, period_label)
@@ -641,7 +644,7 @@ async def handle_webapp(message: types.Message):
             types.BufferedInputFile(excel_buf.read(), filename=f"report_{courier_tid}_{week_start_str}.xlsx"),
             caption=(
                 f"📄 <b>Отчёт: {period_label}</b>\n"
-                f"👤 {courier_name}\n"
+                f"👤 {html.escape(courier_name)}\n"
                 f"✅ Доставлено: {delivered_count}\n"
                 f"💰 К выплате: {delivered_count * rate:.2f} TJS"
             ),
@@ -715,17 +718,17 @@ async def approve_driver(callback: types.CallbackQuery):
         await callback.message.edit_text("❌ Курьер не найден или уже обработан.", reply_markup=None)
         return
     await callback.message.edit_text(
-        f"✅ Курьер <b>{fio}</b> одобрен и активирован.",
+        f"✅ Курьер <b>{html.escape(fio)}</b> одобрен и активирован.",
         reply_markup=None, parse_mode="HTML"
     )
     try:
         await driver_bot_instance.send_message(
             chat_id=int(telegram_id),
             text=(
-                f"🎉 <b>Табрик, {fio}!</b>\n\n"
+                f"🎉 <b>Табрик, {html.escape(fio)}!</b>\n\n"
                 "Аккаунти курьери шумо фаъол шуд.\n"
                 "/start-ро пахш кунед то кор оғоз кунед.\n\n"
-                f"🎉 <b>Поздравляем, {fio}!</b>\n\n"
+                f"🎉 <b>Поздравляем, {html.escape(fio)}!</b>\n\n"
                 "Ваш аккаунт курьера активирован.\n"
                 "Нажмите /start чтобы начать работу."
             ),
@@ -746,7 +749,7 @@ async def reject_driver_cb(callback: types.CallbackQuery):
         await callback.message.edit_text("❌ Курьер не найден или уже обработан.", reply_markup=None)
         return
     await callback.message.edit_text(
-        f"❌ Курьер <b>{fio}</b> отклонён.",
+        f"❌ Курьер <b>{html.escape(fio)}</b> отклонён.",
         reply_markup=None, parse_mode="HTML"
     )
     try:
