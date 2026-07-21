@@ -526,7 +526,10 @@
             el.style.display = 'block';
         } catch (e) {
             console.error('Ошибка сохранения профиля:', e);
-            alert(currentLang === 'tj' ? 'Хатогӣ! Аз нав кӯшиш кунед.' : 'Ошибка сохранения. Попробуйте ещё раз.');
+            alert(
+                (currentLang === 'tj' ? 'Хатогӣ! Аз нав кӯшиш кунед.' : 'Ошибка сохранения. Попробуйте ещё раз.') +
+                `\n[debug] initData.length=${(tg.initData || '').length} platform=${tg.platform || '?'} version=${tg.version || '?'}`
+            );
         } finally {
             btn.disabled = false;
         }
