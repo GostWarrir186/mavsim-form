@@ -124,6 +124,7 @@ def verify_init_data(bot_token: str, init_data: str) -> Optional[dict]:
             if '=' in x
         )
         received_hash = raw_pairs.pop('hash', '')
+        raw_pairs.pop('signature', None)  # Ed25519-подпись, в data_check_string не входит
         if not received_hash:
             return None
         decoded = {k: urllib.parse.unquote(v) for k, v in raw_pairs.items()}
