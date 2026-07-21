@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import json
 import logging
 import os
@@ -527,35 +526,13 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
 
 # ─── Клавиатура главного меню водителя ──────────────────────────────────────
 async def build_driver_main_menu(driver_id: int):
+    # Кабинет курьера больше не зависит от предзашитых в URL данных —
+    # web/driver_cabinet.html сам подтягивает актуальные данные через GET /api/v1/driver/cabinet.
     b = ReplyKeyboardBuilder()
     b.button(text="🔍 Фармоишҳои озод / Свободные заказы")
     if DRIVER_WEBAPP_URL:
-        try:
-            driver_data = await asyncio.to_thread(_sync_get_driver, str(driver_id))
-            if driver_data and driver_data[0].upper() == "ACTIVE":
-                fio  = driver_data[2] if len(driver_data) > 2 else "Курьер"
-                rate = float(driver_data[4]) if len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
-                now = datetime.now(DUSHANBE_TZ)
-                date_from, date_to = _month_range(now)
-                week_start_dt, week_end_dt = _current_week_range(now)
-                deliveries = await asyncio.to_thread(
-                    _sync_get_driver_deliveries, str(driver_id), date_from, date_to
-                )
-                payload = {
-                    "name": fio, "rate": rate,
-                    "month": now.strftime("%m.%Y"),
-                    "month_label": _week_label(week_start_dt, week_end_dt),
-                    "deliveries": deliveries,
-                }
-                b64 = base64.urlsafe_b64encode(
-                    json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-                ).decode().rstrip("=")
-                b.button(text="📊 Кабинети ман / Мой кабинет",
-                         web_app=types.WebAppInfo(url=f"{DRIVER_WEBAPP_URL}?d={b64}"))
-            else:
-                b.button(text="📊 Кабинети ман / Мой кабинет")
-        except Exception:
-            b.button(text="📊 Кабинети ман / Мой кабинет")
+        b.button(text="📊 Кабинети ман / Мой кабинет",
+                 web_app=types.WebAppInfo(url=DRIVER_WEBAPP_URL))
     else:
         b.button(text="📊 Кабинети ман / Мой кабинет")
     b.button(text="📞 Дастгирӣ / Поддержка")

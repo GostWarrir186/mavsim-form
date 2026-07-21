@@ -1,6 +1,10 @@
 import os
 import sys
+import time
+import hmac
+import hashlib
 import logging
+import urllib.parse
 import gspread
 from google.oauth2.service_account import Credentials
 from aiogram import Bot, Dispatcher
@@ -102,6 +106,52 @@ except Exception as e:
     sys.exit(1)
 
 SUPPORT_CHAT_ID: str = os.getenv("SUPPORT_CHAT_ID", "")
+
+AUTH_MAX_AGE_SECONDS = 24 * 60 * 60  # initData считается протухшим через сутки
+
+
+def verify_init_data(bot_token: str, init_data: str) -> Optional[dict]:
+    """
+    Проверяет подлинность Telegram WebApp initData по HMAC-SHA256 и свежесть auth_date.
+    Документация: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+    Возвращает dict декодированных полей (включая распарсенный 'user') при успехе, иначе None.
+    """
+    if not init_data or not bot_token:
+        return None
+    try:
+        raw_pairs = dict(
+            x.split('=', 1) for x in init_data.split('&')
+            if '=' in x
+        )
+        received_hash = raw_pairs.pop('hash', '')
+        if not received_hash:
+            return None
+        decoded = {k: urllib.parse.unquote(v) for k, v in raw_pairs.items()}
+        check_string = '\n'.join(f'{k}={v}' for k, v in sorted(decoded.items()))
+        secret_key = hmac.new(b'WebAppData', bot_token.encode(), hashlib.sha256).digest()
+        computed_hash = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(computed_hash, received_hash):
+            return None
+
+        auth_date = int(decoded.get('auth_date', 0))
+        if auth_date <= 0 or (time.time() - auth_date) > AUTH_MAX_AGE_SECONDS:
+            return None
+
+        decoded['auth_date'] = auth_date
+        return decoded
+    except Exception as e:
+        logging.warning(f"Ошибка верификации initData: {e}")
+        return None
+
+
+def extract_user_id(verified_data: dict) -> Optional[int]:
+    """Достаёт Telegram user id из уже провалидированного initData (поле 'user' — JSON-строка)."""
+    import json as _json
+    try:
+        user = _json.loads(verified_data.get('user', '{}'))
+        return int(user['id'])
+    except Exception:
+        return None
 
 # Общий топик обратной связи — шарится обоими ботами в одном процессе
 feedback_topic_id: Optional[int] = None

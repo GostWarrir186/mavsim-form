@@ -191,33 +191,13 @@
 <script>
     const tg = (window.Telegram && window.Telegram.WebApp)
         ? window.Telegram.WebApp
-        : { ready: () => {}, expand: () => {}, close: () => {} };
+        : { ready: () => {}, expand: () => {}, close: () => {}, initData: '' };
     tg.ready(); tg.expand();
 
-    // ─── Загрузка данных из URL hash ────────────────────────────────────────
-    let DATA = null;
-    try {
-        const raw = new URLSearchParams(window.location.search).get('d');
-        if (raw) {
-            const b64  = raw.replace(/-/g, '+').replace(/_/g, '/');
-            const pad  = '='.repeat((4 - b64.length % 4) % 4);
-            const bytes = Uint8Array.from(atob(b64 + pad), c => c.charCodeAt(0));
-            DATA = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-        }
-    } catch(e) {
-        console.error('Ошибка парсинга данных:', e);
-    }
+    const API_BASE = 'https://a8n.mavsim.com/api/mavsim/v1';
+    const REFRESH_MS = 15000;
 
     const app = document.getElementById('app');
-
-    if (!DATA) {
-        app.innerHTML = `
-            <div class="error-screen">
-                <div class="error-icon">🔗</div>
-                <div class="error-title">Нет данных</div>
-                <div class="error-sub">Откройте кабинет через бота Mavsimi Rason.</div>
-            </div>`;
-    } else {
 
     // ─── Утилиты ────────────────────────────────────────────────────────────
     const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь',
@@ -246,17 +226,25 @@
     function sameDay(a, b) { return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
 
     // ─── Состояние ──────────────────────────────────────────────────────────
-    const deliveries = DATA.deliveries || [];
-    const rate       = DATA.rate || 15;
-    const driverName = DATA.name || 'Курьер';
-    const monthLabel = DATA.month_label || '';
+    let DATA = null;
+    let deliveries = [];
+    let rate       = 15;
+    let driverName = 'Курьер';
+    let monthLabel = '';
+    let byDate     = {};
 
-    // Группировка по дате
-    const byDate = {};
-    deliveries.forEach(d => {
-        if (!byDate[d.d]) byDate[d.d] = [];
-        byDate[d.d].push(d);
-    });
+    function applyData(data) {
+        DATA = data;
+        deliveries = DATA.deliveries || [];
+        rate       = DATA.rate || 15;
+        driverName = DATA.name || 'Курьер';
+        monthLabel = DATA.month_label || '';
+        byDate = {};
+        deliveries.forEach(d => {
+            if (!byDate[d.d]) byDate[d.d] = [];
+            byDate[d.d].push(d);
+        });
+    }
 
     const today = new Date();
     let weekStart = getMondayOf(today);   // Текущая неделя
@@ -456,8 +444,30 @@
         render();
     }
 
-    render();
-    } // end else (DATA exists)
+    // ─── Загрузка данных с сервера ─────────────────────────────────────────
+    async function loadData() {
+        try {
+            const resp = await fetch(`${API_BASE}/driver/cabinet`, {
+                headers: { 'X-Telegram-Init-Data': tg.initData || '' }
+            });
+            if (!resp.ok) throw new Error(`http ${resp.status}`);
+            applyData(await resp.json());
+            render();
+        } catch (e) {
+            console.error('Ошибка загрузки данных кабинета:', e);
+            if (!DATA) {
+                app.innerHTML = `
+                    <div class="error-screen">
+                        <div class="error-icon">🔗</div>
+                        <div class="error-title">Нет данных</div>
+                        <div class="error-sub">Откройте кабинет через бота Mavsimi Rason.</div>
+                    </div>`;
+            }
+        }
+    }
+
+    loadData();
+    setInterval(loadData, REFRESH_MS);
 </script>
 </body>
 </html>

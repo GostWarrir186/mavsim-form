@@ -348,7 +348,7 @@
             <label id="lbl-prof-addr">Постоянный адрес забора</label>
             <input type="text" id="prof_address" placeholder="ул. Рудаки, дом 15, кв 4" oninput="localStorage.setItem('prof_address', this.value)">
         </div>
-        <div class="save-feedback" id="save-feedback">✅ <span id="txt-save-ok">Данные сохранены! Приложение закроется...</span></div>
+        <div class="save-feedback" id="save-feedback">✅ <span id="txt-save-ok">Данные сохранены!</span></div>
         <button class="btn btn-success" id="btn-save-profile" onclick="saveProfileData()"><span id="txt-btn-save">Сохранить изменения</span></button>
     </div>
 
@@ -368,6 +368,8 @@
         initDataUnsafe: {}, initData: ''
     };
     tg.ready(); tg.expand();
+
+    const API_BASE = 'https://a8n.mavsim.com/api/mavsim/v1';
 
     let verifiedFio = 'Пользователь';
     let verifiedPhone = '+992920000000';
@@ -418,7 +420,7 @@
             'lbl-prof-fio': 'Ваше ФИО (Имя отправителя)',
             'lbl-prof-addr': 'Постоянный адрес забора',
             'txt-btn-save': 'Сохранить изменения',
-            'txt-save-ok': 'Данные сохранены! Приложение закроется...',
+            'txt-save-ok': 'Данные сохранены!',
             'txt-orders-history': 'История моих заказов',
             'txt-swipe-hint': 'Смахните влево для удаления',
         },
@@ -453,7 +455,7 @@
             'lbl-prof-fio': 'Ному Насаби шумо',
             'lbl-prof-addr': 'Суроғаи доимии гирифтан',
             'txt-btn-save': 'Захира кардан',
-            'txt-save-ok': 'Захира шуд! Барнома мебандад...',
+            'txt-save-ok': 'Захира шуд!',
             'txt-orders-history': 'Таърихи дархостҳо',
             'txt-swipe-hint': 'Барои нест кардан чап кашед',
         }
@@ -496,24 +498,38 @@
         }
     }
 
-    function saveProfileData() {
+    async function saveProfileData() {
         const updatedFio = document.getElementById('prof_fio_input').value.trim();
         const updatedAddr = document.getElementById('prof_address').value.trim();
         if (!updatedFio) {
             alert(currentLang === 'tj' ? 'Лутфан, Ному Насабро ворид кунед!' : 'Пожалуйста, введите ФИО!');
             return;
         }
-        verifiedFio = updatedFio;
-        localStorage.setItem('prof_address', updatedAddr);
 
+        const btn = document.getElementById('btn-save-profile');
         const el = document.getElementById('save-feedback');
-        el.style.display = 'block';
-        document.getElementById('btn-save-profile').disabled = true;
+        btn.disabled = true;
 
-        setTimeout(() => {
-            tg.sendData(JSON.stringify({ action: 'update_profile', fio: updatedFio, address: updatedAddr }));
-            tg.close();
-        }, 1500);
+        try {
+            const resp = await fetch(`${API_BASE}/client/profile`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': tg.initData || '',
+                },
+                body: JSON.stringify({ fio: updatedFio, address: updatedAddr }),
+            });
+            if (!resp.ok) throw new Error(`http ${resp.status}`);
+
+            verifiedFio = updatedFio;
+            localStorage.setItem('prof_address', updatedAddr);
+            el.style.display = 'block';
+        } catch (e) {
+            console.error('Ошибка сохранения профиля:', e);
+            alert(currentLang === 'tj' ? 'Хатогӣ! Аз нав кӯшиш кунед.' : 'Ошибка сохранения. Попробуйте ещё раз.');
+        } finally {
+            btn.disabled = false;
+        }
     }
 
     function getZone(city) {

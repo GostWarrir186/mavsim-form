@@ -1,5 +1,4 @@
 import asyncio
-import base64
 import json
 import logging
 import os
@@ -27,8 +26,6 @@ from config import (
 )
 from driver_bot import (
     _pad_row,
-    _sync_find_order_by_id,
-    _sync_reassign_order,
     _sync_get_all_active_drivers,
     _async_get_admin_dashboard_data,
     _sync_get_driver,
@@ -298,6 +295,8 @@ def generate_summary_excel(couriers_stats: list[dict], period_label: str) -> Byt
 # ─── Панель управления ───────────────────────────────────────────────────────
 
 def _build_panel_message(data: dict) -> tuple[str, str | None]:
+    # admin_panel.html больше не получает данные через base64 в URL —
+    # страница сама тянет их из GET /api/v1/manager/dashboard и обновляется по таймеру.
     active_cnt = len(data["orders"])
     free_cnt   = len(data["free"])
     busy_cnt   = sum(1 for c in data["couriers"] if c["busy"])
@@ -308,11 +307,7 @@ def _build_panel_message(data: dict) -> tuple[str, str | None]:
         f"🕳️ Свободных заказов: <b>{free_cnt}</b>\n"
         f"🚗 Курьеров в работе: <b>{busy_cnt}/{total_cnt}</b>"
     )
-    webapp_url = None
-    if ADMIN_PANEL_URL:
-        raw = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
-        b64 = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
-        webapp_url = f"{ADMIN_PANEL_URL}?d={b64}"
+    webapp_url = ADMIN_PANEL_URL or None
     return text, webapp_url
 
 
@@ -463,147 +458,9 @@ async def handle_webapp(message: types.Message):
 
     action = data.get("action")
 
-    # ── Сменить статус активного заказа ─────────────────────────────────────
-    if action == "change_status":
-        order_id       = data.get("order_id")
-        new_status     = data.get("new_status")
-        new_status_lbl = data.get("new_status_label", new_status)
-        if not order_id or not new_status:
-            return
-        success, client_chat_id, courier_id, err = await asyncio.to_thread(
-            _sync_change_order_status, order_id, new_status
-        )
-        if not success:
-            await message.answer(f"❌ Не удалось сменить статус — {err}.")
-            return
-        await message.answer(
-            f"✅ Заказ <b>{order_id}</b> → <b>{new_status_lbl}</b>",
-            parse_mode="HTML"
-        )
-        if courier_id:
-            try:
-                await driver_bot_instance.send_message(
-                    chat_id=int(courier_id),
-                    text=f"📋 <b>Статус заказа {order_id} изменён менеджером:</b> {new_status_lbl}",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logging.error(f"Не удалось уведомить курьера {courier_id}: {e}")
-        if client_chat_id:
-            await send_client_push(
-                client_chat_id,
-                f"📦 Статус вашего заказа *{order_id}* обновлён: *{new_status_lbl}*"
-            )
-        await _send_panel(message.chat.id, bot)
-        return
-
-    # ── Отменить активный заказ (с курьером) ────────────────────────────────
-    if action == "cancel_active":
-        order_id   = data.get("order_id")
-        reason     = data.get("reason", "Отменён менеджером")
-        if not order_id:
-            return
-        success, client_chat_id, courier_id, err = await asyncio.to_thread(
-            _sync_change_order_status, order_id, "CANCELLED"
-        )
-        if not success:
-            await message.answer(f"❌ Не удалось отменить — {err}.")
-            return
-        await message.answer(
-            f"❌ Заказ <b>{order_id}</b> отменён.\nПричина: {reason}",
-            parse_mode="HTML"
-        )
-        if courier_id:
-            try:
-                await driver_bot_instance.send_message(
-                    chat_id=int(courier_id),
-                    text=f"⚠️ <b>Заказ {order_id} отменён менеджером.</b>\nПричина: {reason}",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logging.error(f"Не удалось уведомить курьера {courier_id}: {e}")
-        if client_chat_id:
-            await send_client_push(
-                client_chat_id,
-                f"❌ Ваш заказ *{order_id}* был отменён.\n📝 Причина: {reason}"
-            )
-        await _send_panel(message.chat.id, bot)
-        return
-
-    # ── Принять NEW-заказ → READY_FOR_DRIVERS ───────────────────────────────
-    if action == "set_ready":
-        order_id = data.get("order_id")
-        if not order_id:
-            return
-        success, client_chat_id, err = await asyncio.to_thread(_sync_set_order_ready, order_id)
-        if not success:
-            await message.answer(f"❌ Не удалось принять заказ — {err}.")
-            return
-        await message.answer(
-            f"✅ Заказ <b>{order_id}</b> принят и передан на биржу курьеров!",
-            parse_mode="HTML"
-        )
-        if client_chat_id:
-            await send_client_push(
-                client_chat_id,
-                f"📦 Ваш заказ *{order_id}* принят и передан в доставку!\nОжидайте назначения курьера."
-            )
-        await _send_panel(message.chat.id, bot)
-        return
-
-    # ── Переназначение — выбор курьера внутри WebApp ────────────────────────
-    if action == "reassign_confirm":
-        order_row    = data.get("order_row")
-        order_id     = data.get("order_id")
-        courier_tid  = str(data.get("courier_tid", ""))
-        courier_name = data.get("courier_name", "")
-        if not order_row or not order_id or not courier_tid:
-            return
-        success, old_courier_id, confirmed_order_id = await asyncio.to_thread(
-            _sync_reassign_order, int(order_row), courier_name, courier_tid
-        )
-        if not success:
-            await message.answer("❌ Не удалось переназначить. Проверьте статус заказа.")
-            return
-        order_row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, int(order_row)))
-        client_chat_id = order_row_vals[18]
-        city_from      = order_row_vals[4]
-        city_to        = order_row_vals[6]
-        await message.answer(
-            f"✅ Заказ <b>{confirmed_order_id}</b> переназначен → <b>{courier_name}</b>",
-            parse_mode="HTML"
-        )
-        if old_courier_id and old_courier_id != courier_tid:
-            try:
-                await driver_bot_instance.send_message(
-                    chat_id=int(old_courier_id),
-                    text=f"⚠️ <b>Ваш заказ {confirmed_order_id} переназначен другому курьеру.</b>",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logging.error(f"Не удалось уведомить старого курьера: {e}")
-        b = InlineKeyboardBuilder()
-        b.button(text="📦 Приступить к погрузке", callback_data=f"load:{order_row}")
-        try:
-            await driver_bot_instance.send_message(
-                chat_id=int(courier_tid),
-                text=(
-                    f"📦 <b>Вам назначен заказ {confirmed_order_id}!</b>\n"
-                    f"📍 {city_from} → {city_to}\n\n"
-                    f"Нажмите кнопку, когда начнёте погрузку:"
-                ),
-                reply_markup=b.as_markup(),
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logging.error(f"Не удалось уведомить нового курьера {courier_tid}: {e}")
-        if client_chat_id:
-            await send_client_push(
-                client_chat_id,
-                f"🔄 Ваш заказ *{confirmed_order_id}* передан новому курьеру: *{courier_name}*."
-            )
-        await _send_panel(message.chat.id, bot)
-        return
+    # change_status / cancel_active / set_ready / reassign_confirm мигрировали
+    # на REST (POST /api/v1/manager/orders/{order_id}/...) в web_api.py —
+    # это не закрывает WebApp менеджера при действии.
 
     # ── Отчёт на одного курьера ──────────────────────────────────────────────
     if action == "manager_report":

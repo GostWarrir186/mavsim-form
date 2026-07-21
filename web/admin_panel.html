@@ -287,21 +287,49 @@
 <script>
     const tg = (window.Telegram && window.Telegram.WebApp)
         ? window.Telegram.WebApp
-        : { ready:()=>{}, expand:()=>{}, sendData:()=>{} };
+        : { ready:()=>{}, expand:()=>{}, sendData:()=>{}, initData: '' };
     tg.ready(); tg.expand();
 
-    let DATA = null;
-    try {
-        const raw = new URLSearchParams(window.location.search).get('d');
-        if (raw) {
-            const b64   = raw.replace(/-/g,'+').replace(/_/g,'/');
-            const pad   = '='.repeat((4 - b64.length % 4) % 4);
-            const bytes = Uint8Array.from(atob(b64+pad), c => c.charCodeAt(0));
-            DATA = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-        }
-    } catch(e) { console.error(e); }
+    const API_BASE = 'https://a8n.mavsim.com/api/mavsim/v1';
+    const REFRESH_MS = 15000;
 
+    let DATA = null;
     const app = document.getElementById('app');
+
+    function applyData(data) { DATA = data; }
+
+    async function postAction(path, body) {
+        const resp = await fetch(`${API_BASE}${path}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': tg.initData || '',
+            },
+            body: JSON.stringify(body || {}),
+        });
+        if (!resp.ok) {
+            let detail = '';
+            try { detail = (await resp.json()).detail || ''; } catch (e) {}
+            throw new Error(detail || `http ${resp.status}`);
+        }
+        return resp.json();
+    }
+
+    async function loadDashboard() {
+        try {
+            const resp = await fetch(`${API_BASE}/manager/dashboard`, {
+                headers: { 'X-Telegram-Init-Data': tg.initData || '' }
+            });
+            if (!resp.ok) throw new Error(`http ${resp.status}`);
+            applyData(await resp.json());
+            render();
+        } catch (e) {
+            console.error('Ошибка загрузки панели:', e);
+            if (!DATA) {
+                app.innerHTML = `<div class="err-screen"><div style="font-size:48px">🔗</div><div style="font-size:17px;font-weight:700;margin-top:12px">Нет данных</div><div style="font-size:13px;color:var(--hint);margin-top:6px">Откройте панель через бота</div></div>`;
+            }
+        }
+    }
 
     let activeTab = 0;
     let weekOffset = 0; // 0 = текущая, -1 = прошлая и т.д.
@@ -434,39 +462,48 @@
         </div>`;
     }
 
-    function doChangeStatus(newStatus) {
+    async function doChangeStatus(newStatus) {
         if (!_manageOrder) return;
         const label = STATUSES.find(s => s.key === newStatus)?.label || newStatus;
-        tg.sendData(JSON.stringify({
-            action: 'change_status',
-            order_id: _manageOrder.id,
-            order_row: _manageOrder.row,
-            courier_id: _manageOrder.courier_id,
-            new_status: newStatus,
-            new_status_label: label,
-        }));
+        try {
+            const fresh = await postAction(`/manager/orders/${encodeURIComponent(_manageOrder.id)}/status`, {
+                new_status: newStatus,
+                new_status_label: label,
+            });
+            closeManageModal();
+            applyData(fresh);
+            render();
+        } catch (e) {
+            alert('❌ Не удалось сменить статус: ' + e.message);
+        }
     }
 
-    function doReassign(courierTid, courierName) {
+    async function doReassign(courierTid, courierName) {
         if (!_manageOrder) return;
-        tg.sendData(JSON.stringify({
-            action: 'reassign_confirm',
-            order_row: _manageOrder.row,
-            order_id: _manageOrder.id,
-            courier_tid: courierTid,
-            courier_name: courierName,
-        }));
+        try {
+            const fresh = await postAction(`/manager/orders/${encodeURIComponent(_manageOrder.id)}/reassign`, {
+                order_row: _manageOrder.row,
+                courier_tid: courierTid,
+                courier_name: courierName,
+            });
+            closeManageModal();
+            applyData(fresh);
+            render();
+        } catch (e) {
+            alert('❌ Не удалось переназначить: ' + e.message);
+        }
     }
 
-    function doCancelActive(reason) {
+    async function doCancelActive(reason) {
         if (!_manageOrder) return;
-        tg.sendData(JSON.stringify({
-            action: 'cancel_active',
-            order_id: _manageOrder.id,
-            order_row: _manageOrder.row,
-            courier_id: _manageOrder.courier_id,
-            reason: reason,
-        }));
+        try {
+            const fresh = await postAction(`/manager/orders/${encodeURIComponent(_manageOrder.id)}/cancel`, { reason });
+            closeManageModal();
+            applyData(fresh);
+            render();
+        } catch (e) {
+            alert('❌ Не удалось отменить заказ: ' + e.message);
+        }
     }
 
     function showCustomCancel() {
@@ -529,8 +566,14 @@
         </div>`;
     }
 
-    function acceptOrder(orderRow, orderId) {
-        tg.sendData(JSON.stringify({ action: 'set_ready', order_id: orderId, order_row: orderRow }));
+    async function acceptOrder(orderRow, orderId) {
+        try {
+            const fresh = await postAction(`/manager/orders/${encodeURIComponent(orderId)}/set-ready`, {});
+            applyData(fresh);
+            render();
+        } catch (e) {
+            alert('❌ Не удалось принять заказ: ' + e.message);
+        }
     }
 
     function renderFreeCard(o) {
@@ -630,31 +673,31 @@
         </div>
 
         <div class="tabs">
-            <div class="tab active" onclick="selectTab(0)">🚚 В работе (${orders.length})</div>
-            <div class="tab" onclick="selectTab(1)">📦 Заказы (${birzhaCount})</div>
-            <div class="tab" onclick="selectTab(2)">👤 Курьеры (${couriers.length})</div>
-            <div class="tab" onclick="selectTab(3)">📊 Отчёты</div>
+            <div class="tab ${activeTab===0?'active':''}" onclick="selectTab(0)">🚚 В работе (${orders.length})</div>
+            <div class="tab ${activeTab===1?'active':''}" onclick="selectTab(1)">📦 Заказы (${birzhaCount})</div>
+            <div class="tab ${activeTab===2?'active':''}" onclick="selectTab(2)">👤 Курьеры (${couriers.length})</div>
+            <div class="tab ${activeTab===3?'active':''}" onclick="selectTab(3)">📊 Отчёты</div>
         </div>
 
-        <div class="pane active">
+        <div class="pane ${activeTab===0?'active':''}">
             ${orders.length
                 ? orders.map((o, i) => renderOrderCard(o, i)).join('')
                 : '<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">Нет активных заказов</div></div>'
             }
         </div>
 
-        <div class="pane">
+        <div class="pane ${activeTab===1?'active':''}">
             ${birzhaHtml}
         </div>
 
-        <div class="pane">
+        <div class="pane ${activeTab===2?'active':''}">
             ${couriers.length
                 ? couriers.map(renderCourierCard).join('')
                 : '<div class="empty"><div class="empty-icon">🚗</div><div class="empty-text">Нет активных курьеров</div></div>'
             }
         </div>
 
-        <div class="pane">
+        <div class="pane ${activeTab===3?'active':''}">
             <div class="week-nav">
                 <button class="week-btn" onclick="changeWeek(-1)">&#8592;</button>
                 <span class="week-lbl" id="weekLbl">${wLabel}</span>
@@ -674,11 +717,8 @@
         </div>`;
     }
 
-    if (!DATA) {
-        app.innerHTML = `<div class="err-screen"><div style="font-size:48px">🔗</div><div style="font-size:17px;font-weight:700;margin-top:12px">Нет данных</div><div style="font-size:13px;color:var(--hint);margin-top:6px">Откройте панель через бота</div></div>`;
-    } else {
-        render();
-    }
+    loadDashboard();
+    setInterval(loadDashboard, REFRESH_MS);
 </script>
 </body>
 </html>

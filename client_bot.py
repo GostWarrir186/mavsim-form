@@ -1,7 +1,5 @@
 import asyncio
 import datetime
-import hmac
-import hashlib
 import json
 import logging
 import os
@@ -73,30 +71,6 @@ RECEIPTS = {
         "💰 **БАРОИ ПАДОХТ:** {price} TJS"
     )
 }
-
-# --- БЕЗОПАСНОСТЬ: верификация Telegram WebApp initData ---
-def verify_telegram_init_data(init_data: str) -> bool:
-    """
-    Проверяет подлинность данных от Telegram WebApp по HMAC-SHA256.
-    Документация: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
-    """
-    if not init_data:
-        return False
-    try:
-        parsed = dict(
-            x.split('=', 1) for x in urllib.parse.unquote(init_data).split('&')
-            if '=' in x
-        )
-        received_hash = parsed.pop('hash', '')
-        if not received_hash:
-            return False
-        check_string = '\n'.join(f'{k}={v}' for k, v in sorted(parsed.items()))
-        secret_key = hmac.new(b'WebAppData', CLIENT_TOKEN.encode(), hashlib.sha256).digest()
-        computed_hash = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
-        return hmac.compare_digest(computed_hash, received_hash)
-    except Exception as e:
-        logging.warning(f"Ошибка верификации initData: {e}")
-        return False
 
 def generate_order_id() -> str:
     now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5)
@@ -344,36 +318,6 @@ def get_main_menu(fio: str, phone: str):
 async def handle_webapp_data(message: types.Message):
     try:
         data = json.loads(message.web_app_data.data)
-
-        # --- Обновление профиля ---
-        if data.get("action") == "update_profile":
-            updated_fio = data.get("fio", "").strip()
-            updated_addr = data.get("address", "").strip()
-
-            if not updated_fio:
-                await message.answer("❌ ФИО не может быть пустым.")
-                return
-
-            # Ищем пользователя по chat_id (не по phone из запроса — безопасно)
-            success = await asyncio.to_thread(
-                _sync_update_profile,
-                str(message.chat.id),
-                updated_fio,
-                updated_addr
-            )
-            if success:
-                user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
-                phone_from_db = user_data[3] if user_data and len(user_data) > 3 else ""
-                await message.answer(
-                    f"✅ **Маълумот навшуд! / Данные обновлены!**\n\n"
-                    f"• **Ном / ФИО:** {updated_fio}\n"
-                    f"• **Суроға / Адрес:** {updated_addr if updated_addr else 'Нишон дода нашуд / Не указан'}",
-                    reply_markup=get_main_menu(updated_fio, phone_from_db),
-                    parse_mode="Markdown"
-                )
-            else:
-                await message.answer("❌ Хатогӣ. Корбар дар база нест.\n\n❌ Ошибка обновления. Пользователь не найден.")
-            return
 
         # --- Новый заказ ---
         error_msg = validate_order_data(data)
