@@ -79,7 +79,7 @@ manager_auth = _auth_dependency(MANAGER_TOKEN, require_manager=True)
 
 # ─── Клиент ──────────────────────────────────────────────────────────────────
 
-@app.get("/api/v1/client/profile")
+@app.get("/v1/client/profile")
 async def client_get_profile(user_id: int = Depends(client_auth)):
     user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(user_id))
     if not user_data:
@@ -96,7 +96,7 @@ class ProfileBody(BaseModel):
     address: str = ""
 
 
-@app.post("/api/v1/client/profile")
+@app.post("/v1/client/profile")
 async def client_update_profile(body: ProfileBody, user_id: int = Depends(client_auth)):
     fio = body.fio.strip()
     address = body.address.strip()
@@ -115,7 +115,7 @@ async def client_update_profile(body: ProfileBody, user_id: int = Depends(client
 
 # ─── Курьер ──────────────────────────────────────────────────────────────────
 
-@app.get("/api/v1/driver/cabinet")
+@app.get("/v1/driver/cabinet")
 async def driver_cabinet(user_id: int = Depends(driver_auth)):
     driver_data = await asyncio.to_thread(_sync_get_driver, str(user_id))
     if not driver_data or driver_data[0].upper() != "ACTIVE":
@@ -137,12 +137,12 @@ async def driver_cabinet(user_id: int = Depends(driver_auth)):
 
 # ─── Менеджер ────────────────────────────────────────────────────────────────
 
-@app.get("/api/v1/manager/dashboard")
+@app.get("/v1/manager/dashboard")
 async def manager_dashboard(_: int = Depends(manager_auth)):
     return await _async_get_admin_dashboard_data()
 
 
-@app.post("/api/v1/manager/orders/{order_id}/set-ready")
+@app.post("/v1/manager/orders/{order_id}/set-ready")
 async def manager_set_ready(order_id: str, _: int = Depends(manager_auth)):
     success, client_chat_id, err = await asyncio.to_thread(_sync_set_order_ready, order_id)
     if not success:
@@ -160,7 +160,7 @@ class StatusBody(BaseModel):
     new_status_label: str | None = None
 
 
-@app.post("/api/v1/manager/orders/{order_id}/status")
+@app.post("/v1/manager/orders/{order_id}/status")
 async def manager_change_status(order_id: str, body: StatusBody, _: int = Depends(manager_auth)):
     label = body.new_status_label or body.new_status
     success, client_chat_id, courier_id, err = await asyncio.to_thread(
@@ -189,7 +189,7 @@ class CancelBody(BaseModel):
     reason: str = "Отменён менеджером"
 
 
-@app.post("/api/v1/manager/orders/{order_id}/cancel")
+@app.post("/v1/manager/orders/{order_id}/cancel")
 async def manager_cancel_active(order_id: str, body: CancelBody, _: int = Depends(manager_auth)):
     success, client_chat_id, courier_id, err = await asyncio.to_thread(
         _sync_change_order_status, order_id, "CANCELLED"
@@ -219,7 +219,7 @@ class ReassignBody(BaseModel):
     courier_name: str
 
 
-@app.post("/api/v1/manager/orders/{order_id}/reassign")
+@app.post("/v1/manager/orders/{order_id}/reassign")
 async def manager_reassign(order_id: str, body: ReassignBody, _: int = Depends(manager_auth)):
     success, old_courier_id, confirmed_order_id = await asyncio.to_thread(
         _sync_reassign_order, body.order_row, body.courier_name, body.courier_tid
