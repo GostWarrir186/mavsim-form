@@ -179,14 +179,14 @@ def _sync_update_profile(chat_id: str, new_fio: str, new_address: str) -> bool:
 
 def _sync_append_row(row_data: list):
     if sheet:
-        sheet.append_row(row_data)
+        sheet.append_row(row_data, table_range="A1")
 
 def _sync_register_client(chat_id: str, fio: str, phone: str) -> bool:
     if not clients_sheet:
         return False
     try:
         now = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5)).strftime("%d.%m.%Y %H:%M")
-        clients_sheet.append_row(["ACTIVE", now, fio, phone, "", str(chat_id), ""])
+        clients_sheet.append_row(["ACTIVE", now, fio, phone, "", str(chat_id), ""], table_range="A1")
         return True
     except Exception as e:
         logging.error(f"Ошибка регистрации клиента chat_id={chat_id}: {e}")
@@ -423,12 +423,13 @@ async def handle_webapp_data(message: types.Message):
         # Запись в чистый лист «Заказы»
         if orders_info_sheet:
             def _sync_append_order_info():
+                dtype_plain = "До ПВЗ" if data['delivery_type'] == "pvz" else "До двери"
                 orders_info_sheet.append_row([
                     order_id,                        # A — ID заказа
                     dushanbe_time,                   # B — Дата
                     "NEW",                           # C — Статус
                     s(data['price']),                # D — Цена (TJS)
-                    dtype_readable,                  # E — Тип доставки
+                    dtype_plain,                      # E — Тип доставки
                     s(data['weight']),               # F — Вес (кг)
                     s(data['sizes']),                # G — Габариты
                     s(data['s_name']),               # H — ФИО отправителя
@@ -440,7 +441,7 @@ async def handle_webapp_data(message: types.Message):
                     s(data['city_delivery']),        # N — Город куда
                     s(data['address_delivery']),     # O — Адрес куда
                     s(data['driver_comment']),       # P — Ориентир
-                ])
+                ], table_range="A1")
             try:
                 await asyncio.to_thread(_sync_append_order_info)
             except Exception as e:

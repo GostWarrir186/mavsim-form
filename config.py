@@ -49,7 +49,22 @@ try:
         sys.exit(1)
 
     spreadsheet = gc.open(sheet_name)
-    sheet = spreadsheet.worksheet("Лист1")
+
+    LIST1_HEADERS = [
+        "Статус", "ID заказа", "Дата", "Цена", "Город откуда", "Адрес откуда",
+        "Город куда", "Адрес куда", "Ориентир", "Тип", "Вес", "Габариты",
+        "ФИО отправителя", "Тел отправителя", "ФИО получателя", "Тел получателя",
+        "Источник", "Имя курьера", "Chat ID клиента", "Telegram ID курьера"
+    ]
+    try:
+        sheet = spreadsheet.worksheet("Лист1")
+        if not sheet.row_values(1):
+            sheet.update("A1", [LIST1_HEADERS])
+            logging.info("✅ Заголовки добавлены в существующий лист 'Лист1'")
+    except gspread.WorksheetNotFound:
+        sheet = spreadsheet.add_worksheet(title="Лист1", rows=5000, cols=20)
+        sheet.append_row(LIST1_HEADERS)
+        logging.info("✅ Создан лист 'Лист1'")
 
     try:
         drivers_sheet = spreadsheet.worksheet("Водители")

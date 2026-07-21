@@ -27,6 +27,7 @@ DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "15.0"))
 LINK_TO_DRIVER_OFFER = os.getenv("DRIVER_OFFER_URL", "https://www.google.com")
 SUPPORT_CHAT_ID     = os.getenv("SUPPORT_CHAT_ID", "")
 MANAGER_CHAT_ID     = os.getenv("MANAGER_CHAT_ID", "")
+NEW_ORDERS_POLL_SECONDS = int(os.getenv("NEW_ORDERS_POLL_SECONDS", "15"))
 
 DUSHANBE_TZ = timezone(timedelta(hours=5))
 
@@ -164,7 +165,7 @@ def _sync_register_driver(chat_id: str, fio: str, phone: str = "") -> bool:
         drivers_sheet.append_row([
             "PENDING", now, fio, str(chat_id),
             str(DEFAULT_DRIVER_RATE), now, "", phone
-        ])
+        ], table_range="A1")
         return True
     except Exception as e:
         logging.error(f"Ошибка регистрации водителя {chat_id}: {e}")
@@ -909,34 +910,43 @@ async def _do_reject(chat_id: int, state: FSMContext, reason: str | None, photo_
         parse_mode="HTML"
     )
 
-    if client_chat_id:
+    async def _notify_client():
+        if not client_chat_id:
+            return
         await send_client_push(
             client_chat_id,
             f"ℹ️ Дар фармоиши шумо *{order_id}* тағйирот рӯй дод — курьери нав меҷӯем.\n\n"
             f"ℹ️ По вашему заказу *{order_id}* происходят изменения — ищем нового курьера."
         )
 
-    if mgr_bot and MANAGER_CHAT_ID:
-        try:
-            mgr_text = (
-                f"⚠️ Курьер <b>{c_name}</b> отказался от заказа <b>{order_id}</b>.\n"
-                f"📝 Причина: {reason or '—'}"
+    async def _notify_manager():
+        if not (mgr_bot and MANAGER_CHAT_ID):
+            return
+        mgr_text = (
+            f"⚠️ Курьер <b>{c_name}</b> отказался от заказа <b>{order_id}</b>.\n"
+            f"📝 Причина: {reason or '—'}"
+        )
+        if photo_file_id:
+            # file_id привязан к боту, который его получил (driver_bot) —
+            # manager_bot чужой file_id использовать не может, скачиваем и грузим заново
+            photo_bytes = await bot.download(photo_file_id)
+            await mgr_bot.send_photo(
+                chat_id=int(MANAGER_CHAT_ID),
+                photo=types.BufferedInputFile(photo_bytes.read(), filename="reject.jpg"),
+                caption=mgr_text,
+                parse_mode="HTML"
             )
-            if photo_file_id:
-                await mgr_bot.send_photo(
-                    chat_id=int(MANAGER_CHAT_ID),
-                    photo=photo_file_id,
-                    caption=mgr_text,
-                    parse_mode="HTML"
-                )
-            else:
-                await mgr_bot.send_message(
-                    chat_id=int(MANAGER_CHAT_ID),
-                    text=mgr_text,
-                    parse_mode="HTML"
-                )
-        except Exception as e:
-            logging.error(f"Не удалось уведомить менеджера об отказе: {e}")
+        else:
+            await mgr_bot.send_message(
+                chat_id=int(MANAGER_CHAT_ID),
+                text=mgr_text,
+                parse_mode="HTML"
+            )
+
+    results = await asyncio.gather(_notify_client(), _notify_manager(), return_exceptions=True)
+    for label, result in zip(("клиента", "менеджера"), results):
+        if isinstance(result, Exception):
+            logging.error(f"Не удалось уведомить {label} об отказе: {result}")
 
 
 @dp.callback_query(F.data == "reject_skip", DriverRejectReason.waiting_for_reason)
@@ -1233,3 +1243,60 @@ async def driver_feedback_send(message: types.Message, state: FSMContext):
     except Exception as e:
         logging.error(f"Ошибка отправки обратной связи курьера: {type(e).__name__}: {e}")
         await message.answer("❌ Не удалось отправить. Попробуйте позже.", reply_markup=await build_driver_main_menu(message.from_user.id))
+
+
+# ─── Автоуведомление курьеров о новых заказах ────────────────────────────────
+_notified_order_ids: set[str] = set()
+
+
+async def _broadcast_new_free_orders():
+    while True:
+        try:
+            free_jobs = await asyncio.to_thread(_sync_get_free_orders)
+            current_ids = {o["id"] for o in free_jobs}
+            new_jobs = [o for o in free_jobs if o["id"] not in _notified_order_ids]
+
+            if new_jobs:
+                drivers = await asyncio.to_thread(_sync_get_all_active_drivers)
+                if not drivers:
+                    logging.info("Новые заказы есть, но активных курьеров нет — повторим на следующей проверке.")
+                for o in (new_jobs if drivers else []):
+                    dtype_readable = "ПВЗ 🏢" if o["delivery_type"] == "PVZ" else "То дар / До двери 🚪"
+                    card = (
+                        f"🆕 **Фармоиши нав / Новый заказ!**\n\n"
+                        f"🆔 **Фармоиш / Заказ №:** `{o['id']}`\n"
+                        f"• **Қабулкунанда / Получатель:** {o['r_phone']}\n"
+                        f"• **Намуд / Тип:** {dtype_readable}\n"
+                        f"• **Ориентир:** {o['driver_comment']}\n"
+                        f"────────────────────\n"
+                        f"📍 **Аз куҷо / Откуда:** {o['city_pickup']}, {o['address_pickup']}\n"
+                        f"🌆 **Ба куҷо / Куда:** {o['city_delivery']}, {o['address_delivery']}\n"
+                        f"💰 **Тариф:** {o['price']} TJS\n"
+                        f"👤 **Фиристанда / Отправитель:** {o['s_name']}"
+                    )
+                    b = InlineKeyboardBuilder()
+                    b.button(text="✅ Фармоишро гиред / Взять заказ", callback_data=f"take:{o['row_num']}")
+                    keyboard = b.as_markup()
+
+                    for d in drivers:
+                        try:
+                            await bot.send_message(
+                                d["telegram_id"], card,
+                                reply_markup=keyboard, parse_mode="Markdown"
+                            )
+                        except Exception as e:
+                            logging.warning(f"Не удалось отправить пуш курьеру {d['telegram_id']}: {e}")
+
+                    _notified_order_ids.add(o["id"])
+
+            # заказ забрали/отменили — освобождаем id, чтобы он мог снова попасть в рассылку при повторном появлении
+            _notified_order_ids.intersection_update(current_ids)
+        except Exception:
+            logging.error(f"Сбой автоуведомления о новых заказах: {traceback.format_exc()}")
+
+        await asyncio.sleep(NEW_ORDERS_POLL_SECONDS)
+
+
+@dp.startup()
+async def _on_driver_bot_startup(**kwargs):
+    asyncio.create_task(_broadcast_new_free_orders())
