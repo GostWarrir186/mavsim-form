@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 async def start_all():
     bot_count = 2 + (1 if manager_bot_instance else 0)
     print(f"🚀 СЕТЬ ОК! {bot_count} бота успешно запущены и слушают команды.")
-    print(f"🌐 WebApp API слушает 127.0.0.1:{API_PORT}")
+    print(f"🌐 WebApp API слушает 0.0.0.0:{API_PORT} (наружу проброшен только 127.0.0.1 хоста, см. docker-compose.yml)")
     loop = asyncio.get_running_loop()
     try:
         loop.add_signal_handler(signal.SIGINT, emergency_exit)
@@ -39,7 +39,7 @@ async def start_all():
         client_dp.start_polling(client_bot, handle_signals=False, drop_pending_updates=True),
         driver_dp.start_polling(driver_bot_instance, handle_signals=False, drop_pending_updates=True),
         uvicorn.Server(
-            uvicorn.Config(web_api.app, host="127.0.0.1", port=API_PORT, log_level="info")
+            uvicorn.Config(web_api.app, host="0.0.0.0", port=API_PORT, log_level="info")
         ).serve(),
     ]
     if manager_bot_instance and manager_dp:
