@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import json
 import logging
 import os
 from datetime import datetime, timedelta
@@ -25,6 +27,8 @@ from config import (
 )
 from driver_bot import (
     _pad_row,
+    _sync_find_order_by_id,
+    _sync_reassign_order,
     _sync_get_all_active_drivers,
     _async_get_admin_dashboard_data,
     _sync_get_driver,
@@ -294,8 +298,6 @@ def generate_summary_excel(couriers_stats: list[dict], period_label: str) -> Byt
 # ─── Панель управления ───────────────────────────────────────────────────────
 
 def _build_panel_message(data: dict) -> tuple[str, str | None]:
-    # admin_panel.html больше не получает данные через base64 в URL —
-    # страница сама тянет их из GET /api/v1/manager/dashboard и обновляется по таймеру.
     active_cnt = len(data["orders"])
     free_cnt   = len(data["free"])
     busy_cnt   = sum(1 for c in data["couriers"] if c["busy"])
@@ -306,7 +308,11 @@ def _build_panel_message(data: dict) -> tuple[str, str | None]:
         f"🕳️ Свободных заказов: <b>{free_cnt}</b>\n"
         f"🚗 Курьеров в работе: <b>{busy_cnt}/{total_cnt}</b>"
     )
-    webapp_url = ADMIN_PANEL_URL or None
+    webapp_url = None
+    if ADMIN_PANEL_URL:
+        raw = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        b64 = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+        webapp_url = f"{ADMIN_PANEL_URL}?d={b64}"
     return text, webapp_url
 
 
@@ -321,16 +327,20 @@ async def cmd_start_manager(message: types.Message):
 async def _send_panel(chat_id: int, bot_instance):
     data = await _async_get_admin_dashboard_data()
     text, webapp_url = _build_panel_message(data)
-    reply_kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🔄 Обновить")]],
-        resize_keyboard=True
-    )
-    await bot_instance.send_message(chat_id, text, reply_markup=reply_kb, parse_mode="HTML")
     if webapp_url:
-        # Только inline-кнопка передаёт Telegram подписанный initData для web_api.py
-        b = InlineKeyboardBuilder()
-        b.button(text="🎛 Открыть панель", web_app=types.WebAppInfo(url=webapp_url))
-        await bot_instance.send_message(chat_id, "👇 Панель управления:", reply_markup=b.as_markup())
+        reply_kb = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🎛 Открыть панель", web_app=types.WebAppInfo(url=webapp_url))],
+                [KeyboardButton(text="🔄 Обновить")],
+            ],
+            resize_keyboard=True
+        )
+    else:
+        reply_kb = ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="🔄 Обновить")]],
+            resize_keyboard=True
+        )
+    await bot_instance.send_message(chat_id, text, reply_markup=reply_kb, parse_mode="HTML")
 
 
 
@@ -440,6 +450,256 @@ async def order_cancel_custom_reason(message: types.Message, state: FSMContext):
             client_chat_id,
             f"❌ К сожалению, ваш заказ *{order_id}* был отменён.\n📝 Причина: {reason}\n\nПожалуйста, свяжитесь с поддержкой если возникли вопросы."
         )
+
+
+# ─── WebApp от панели менеджера ──────────────────────────────────────────────
+
+@dp.message(F.web_app_data)
+async def handle_webapp(message: types.Message):
+    try:
+        data = json.loads(message.web_app_data.data)
+    except Exception:
+        return
+
+    action = data.get("action")
+
+    # ── Сменить статус активного заказа ─────────────────────────────────────
+    if action == "change_status":
+        order_id       = data.get("order_id")
+        new_status     = data.get("new_status")
+        new_status_lbl = data.get("new_status_label", new_status)
+        if not order_id or not new_status:
+            return
+        success, client_chat_id, courier_id, err = await asyncio.to_thread(
+            _sync_change_order_status, order_id, new_status
+        )
+        if not success:
+            await message.answer(f"❌ Не удалось сменить статус — {err}.")
+            return
+        await message.answer(
+            f"✅ Заказ <b>{order_id}</b> → <b>{new_status_lbl}</b>",
+            parse_mode="HTML"
+        )
+        if courier_id:
+            try:
+                await driver_bot_instance.send_message(
+                    chat_id=int(courier_id),
+                    text=f"📋 <b>Статус заказа {order_id} изменён менеджером:</b> {new_status_lbl}",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logging.error(f"Не удалось уведомить курьера {courier_id}: {e}")
+        if client_chat_id:
+            await send_client_push(
+                client_chat_id,
+                f"📦 Статус вашего заказа *{order_id}* обновлён: *{new_status_lbl}*"
+            )
+        await _send_panel(message.chat.id, bot)
+        return
+
+    # ── Отменить активный заказ (с курьером) ────────────────────────────────
+    if action == "cancel_active":
+        order_id   = data.get("order_id")
+        reason     = data.get("reason", "Отменён менеджером")
+        if not order_id:
+            return
+        success, client_chat_id, courier_id, err = await asyncio.to_thread(
+            _sync_change_order_status, order_id, "CANCELLED"
+        )
+        if not success:
+            await message.answer(f"❌ Не удалось отменить — {err}.")
+            return
+        await message.answer(
+            f"❌ Заказ <b>{order_id}</b> отменён.\nПричина: {reason}",
+            parse_mode="HTML"
+        )
+        if courier_id:
+            try:
+                await driver_bot_instance.send_message(
+                    chat_id=int(courier_id),
+                    text=f"⚠️ <b>Заказ {order_id} отменён менеджером.</b>\nПричина: {reason}",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logging.error(f"Не удалось уведомить курьера {courier_id}: {e}")
+        if client_chat_id:
+            await send_client_push(
+                client_chat_id,
+                f"❌ Ваш заказ *{order_id}* был отменён.\n📝 Причина: {reason}"
+            )
+        await _send_panel(message.chat.id, bot)
+        return
+
+    # ── Принять NEW-заказ → READY_FOR_DRIVERS ───────────────────────────────
+    if action == "set_ready":
+        order_id = data.get("order_id")
+        if not order_id:
+            return
+        success, client_chat_id, err = await asyncio.to_thread(_sync_set_order_ready, order_id)
+        if not success:
+            await message.answer(f"❌ Не удалось принять заказ — {err}.")
+            return
+        await message.answer(
+            f"✅ Заказ <b>{order_id}</b> принят и передан на биржу курьеров!",
+            parse_mode="HTML"
+        )
+        if client_chat_id:
+            await send_client_push(
+                client_chat_id,
+                f"📦 Ваш заказ *{order_id}* принят и передан в доставку!\nОжидайте назначения курьера."
+            )
+        await _send_panel(message.chat.id, bot)
+        return
+
+    # ── Переназначение — выбор курьера внутри WebApp ────────────────────────
+    if action == "reassign_confirm":
+        order_row    = data.get("order_row")
+        order_id     = data.get("order_id")
+        courier_tid  = str(data.get("courier_tid", ""))
+        courier_name = data.get("courier_name", "")
+        if not order_row or not order_id or not courier_tid:
+            return
+        success, old_courier_id, confirmed_order_id = await asyncio.to_thread(
+            _sync_reassign_order, int(order_row), courier_name, courier_tid
+        )
+        if not success:
+            await message.answer("❌ Не удалось переназначить. Проверьте статус заказа.")
+            return
+        order_row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, int(order_row)))
+        client_chat_id = order_row_vals[18]
+        city_from      = order_row_vals[4]
+        city_to        = order_row_vals[6]
+        await message.answer(
+            f"✅ Заказ <b>{confirmed_order_id}</b> переназначен → <b>{courier_name}</b>",
+            parse_mode="HTML"
+        )
+        if old_courier_id and old_courier_id != courier_tid:
+            try:
+                await driver_bot_instance.send_message(
+                    chat_id=int(old_courier_id),
+                    text=f"⚠️ <b>Ваш заказ {confirmed_order_id} переназначен другому курьеру.</b>",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logging.error(f"Не удалось уведомить старого курьера: {e}")
+        b = InlineKeyboardBuilder()
+        b.button(text="📦 Приступить к погрузке", callback_data=f"load:{order_row}")
+        try:
+            await driver_bot_instance.send_message(
+                chat_id=int(courier_tid),
+                text=(
+                    f"📦 <b>Вам назначен заказ {confirmed_order_id}!</b>\n"
+                    f"📍 {city_from} → {city_to}\n\n"
+                    f"Нажмите кнопку, когда начнёте погрузку:"
+                ),
+                reply_markup=b.as_markup(),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logging.error(f"Не удалось уведомить нового курьера {courier_tid}: {e}")
+        if client_chat_id:
+            await send_client_push(
+                client_chat_id,
+                f"🔄 Ваш заказ *{confirmed_order_id}* передан новому курьеру: *{courier_name}*."
+            )
+        await _send_panel(message.chat.id, bot)
+        return
+
+    # ── Отчёт на одного курьера ──────────────────────────────────────────────
+    if action == "manager_report":
+        courier_tid    = str(data.get("courier_tid", ""))
+        courier_name   = data.get("courier_name", "Курьер")
+        week_start_str = data.get("week_start", "")
+        if not courier_tid or not week_start_str:
+            return
+        try:
+            week_start = datetime.strptime(week_start_str, "%Y-%m-%d")
+        except ValueError:
+            await message.answer("❌ Некорректный формат даты.")
+            return
+        week_end     = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        period_label = _week_label(week_start, week_end)
+
+        driver_data = await asyncio.to_thread(_sync_get_driver, courier_tid)
+        try:
+            rate = float(driver_data[4]) if driver_data and len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
+        except (ValueError, TypeError):
+            rate = DEFAULT_DRIVER_RATE
+
+        wait = await message.answer(f"⏳ Формирую отчёт для {courier_name}...")
+        deliveries = await asyncio.to_thread(_sync_get_driver_deliveries, courier_tid, week_start, week_end)
+
+        if not deliveries:
+            await wait.delete()
+            await message.answer(f"📭 За {period_label} у курьера <b>{courier_name}</b> доставок не найдено.", parse_mode="HTML")
+            return
+
+        excel_buf = await asyncio.to_thread(generate_excel_report, courier_name, rate, deliveries, period_label)
+        delivered_count = sum(1 for d in deliveries if d["s"] == "DELIVERED")
+        await wait.delete()
+        await message.answer_document(
+            types.BufferedInputFile(excel_buf.read(), filename=f"report_{courier_tid}_{week_start_str}.xlsx"),
+            caption=(
+                f"📄 <b>Отчёт: {period_label}</b>\n"
+                f"👤 {courier_name}\n"
+                f"✅ Доставлено: {delivered_count}\n"
+                f"💰 К выплате: {delivered_count * rate:.2f} TJS"
+            ),
+            parse_mode="HTML"
+        )
+        return
+
+    # ── Сводный отчёт на всех курьеров ───────────────────────────────────────
+    if action == "manager_report_all":
+        week_start_str = data.get("week_start", "")
+        if not week_start_str:
+            return
+        try:
+            week_start = datetime.strptime(week_start_str, "%Y-%m-%d")
+        except ValueError:
+            await message.answer("❌ Некорректный формат даты.")
+            return
+        week_end     = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        period_label = _week_label(week_start, week_end)
+
+        active_couriers = await asyncio.to_thread(_sync_get_all_active_drivers)
+        if not active_couriers:
+            await message.answer("❌ Нет активных курьеров.")
+            return
+
+        wait = await message.answer(f"⏳ Формирую сводный отчёт за {period_label}...")
+
+        deliveries_map, rates_map = await asyncio.gather(
+            asyncio.to_thread(_sync_get_all_couriers_deliveries, week_start, week_end),
+            asyncio.to_thread(_sync_get_all_drivers_rates),
+        )
+
+        couriers_stats = []
+        for c in active_couriers:
+            rate  = rates_map.get(c["telegram_id"], DEFAULT_DRIVER_RATE)
+            stats = deliveries_map.get(c["telegram_id"], {"total": 0, "delivered": 0})
+            couriers_stats.append({
+                "fio":       c["fio"],
+                "rate":      rate,
+                "total":     stats["total"],
+                "delivered": stats["delivered"],
+            })
+
+        excel_buf   = await asyncio.to_thread(generate_summary_excel, couriers_stats, period_label)
+        total_earn  = sum(c["delivered"] * c["rate"] for c in couriers_stats)
+        total_deliv = sum(c["delivered"] for c in couriers_stats)
+        await wait.delete()
+        await message.answer_document(
+            types.BufferedInputFile(excel_buf.read(), filename=f"summary_{week_start_str}.xlsx"),
+            caption=(
+                f"📊 <b>Сводный отчёт: {period_label}</b>\n"
+                f"👥 Курьеров: {len(couriers_stats)}\n"
+                f"✅ Доставлено: {total_deliv}\n"
+                f"💰 Итого к выплате: {total_earn:.2f} TJS"
+            ),
+            parse_mode="HTML"
+        )
+        return
 
 
 # ─── Одобрение / отклонение курьеров ────────────────────────────────────────

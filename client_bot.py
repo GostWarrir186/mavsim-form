@@ -1,5 +1,8 @@
 import asyncio
 import datetime
+import hmac
+import hashlib
+import json
 import logging
 import os
 import urllib.parse
@@ -9,9 +12,9 @@ from aiogram import types, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
 
-from config import client_bot as bot, client_dp as dp, sheet, clients_sheet, orders_info_sheet, get_or_create_feedback_topic
+from config import client_bot as bot, client_dp as dp, manager_bot as mgr_bot, sheet, clients_sheet, orders_info_sheet, CLIENT_TOKEN, get_or_create_feedback_topic
 
 class Registration(StatesGroup):
     waiting_for_fio = State()
@@ -26,6 +29,7 @@ class Feedback(StatesGroup):
 WEB_APP_URL = os.getenv("WEB_APP_URL", "https://gostwarrir186.github.io/mavsim-form/web/?v=19")
 LINK_TO_OFFER = os.getenv("LINK_TO_OFFER", "")
 SUPPORT_CHAT_ID = os.getenv("SUPPORT_CHAT_ID", "")
+MANAGER_CHAT_ID = os.getenv("MANAGER_CHAT_ID", "")
 
 RECEIPTS = {
     "ru": (
@@ -69,6 +73,30 @@ RECEIPTS = {
         "💰 **БАРОИ ПАДОХТ:** {price} TJS"
     )
 }
+
+# --- БЕЗОПАСНОСТЬ: верификация Telegram WebApp initData ---
+def verify_telegram_init_data(init_data: str) -> bool:
+    """
+    Проверяет подлинность данных от Telegram WebApp по HMAC-SHA256.
+    Документация: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+    """
+    if not init_data:
+        return False
+    try:
+        parsed = dict(
+            x.split('=', 1) for x in urllib.parse.unquote(init_data).split('&')
+            if '=' in x
+        )
+        received_hash = parsed.pop('hash', '')
+        if not received_hash:
+            return False
+        check_string = '\n'.join(f'{k}={v}' for k, v in sorted(parsed.items()))
+        secret_key = hmac.new(b'WebAppData', CLIENT_TOKEN.encode(), hashlib.sha256).digest()
+        computed_hash = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(computed_hash, received_hash)
+    except Exception as e:
+        logging.warning(f"Ошибка верификации initData: {e}")
+        return False
 
 def generate_order_id() -> str:
     now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5)
@@ -231,7 +259,6 @@ async def go_main_menu(message: types.Message, state: FSMContext):
     fio   = user_data[2] if user_data and len(user_data) > 2 else "Пользователь"
     phone = user_data[3] if user_data and len(user_data) > 3 else ""
     await message.answer("Меню асосӣ / Главное меню:", reply_markup=get_main_menu(fio, phone))
-    await send_order_button(message, fio, phone)
 
 
 @dp.message(F.contact)
@@ -256,7 +283,6 @@ async def process_contact(message: types.Message, state: FSMContext):
             reply_markup=get_main_menu(fio, phone),
             parse_mode="Markdown"
         )
-        await send_order_button(message, fio, phone)
     else:
         not_found_text = (
             f"📋 **Диққат! Рақами шумо дар систем нест.**\n"
@@ -298,32 +324,174 @@ async def save_fio(message: types.Message, state: FSMContext):
         reply_markup=get_main_menu(fio, phone),
         parse_mode="Markdown"
     )
-    await send_order_button(message, fio, phone)
 
-def get_main_menu(fio: str = "", phone: str = ""):
-    # fio/phone больше не нужны для клавиатуры (кнопка WebApp — inline, см. send_order_button),
-    # сигнатура сохранена ради существующих вызовов.
+def get_main_menu(fio: str, phone: str):
+    safe_fio = urllib.parse.quote(fio)
+    safe_phone = urllib.parse.quote(str(phone))
+    final_url = f"{WEB_APP_URL}&fio={safe_fio}&phone={safe_phone}"
+
     builder = ReplyKeyboardBuilder()
+    builder.add(types.KeyboardButton(
+        text="📦 Оформить доставку / Ороиши дархост",
+        web_app=types.WebAppInfo(url=final_url)
+    ))
     builder.add(types.KeyboardButton(text="📞 Поддержка / Дастгирӣ"))
     builder.add(types.KeyboardButton(text="💡 Обратная связь"))
     builder.adjust(1)
     return builder.as_markup(resize_keyboard=True)
 
+@dp.message(F.web_app_data)
+async def handle_webapp_data(message: types.Message):
+    try:
+        data = json.loads(message.web_app_data.data)
 
-async def send_order_button(message: types.Message, fio: str, phone: str):
-    """
-    Inline-кнопка (не reply!) — только через неё Telegram передаёт подписанный
-    initData, которым потом проверяется подлинность запросов к web_api.py.
-    """
-    safe_fio = urllib.parse.quote(fio)
-    safe_phone = urllib.parse.quote(str(phone))
-    final_url = f"{WEB_APP_URL}&fio={safe_fio}&phone={safe_phone}"
-    b = InlineKeyboardBuilder()
-    b.button(text="📦 Оформить доставку / Ороиши дархост", web_app=types.WebAppInfo(url=final_url))
-    await message.answer(
-        "👇 Нажмите, чтобы оформить доставку / Барои ороиши дархост пахш кунед:",
-        reply_markup=b.as_markup()
-    )
+        # --- Обновление профиля ---
+        if data.get("action") == "update_profile":
+            updated_fio = data.get("fio", "").strip()
+            updated_addr = data.get("address", "").strip()
+
+            if not updated_fio:
+                await message.answer("❌ ФИО не может быть пустым.")
+                return
+
+            # Ищем пользователя по chat_id (не по phone из запроса — безопасно)
+            success = await asyncio.to_thread(
+                _sync_update_profile,
+                str(message.chat.id),
+                updated_fio,
+                updated_addr
+            )
+            if success:
+                user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
+                phone_from_db = user_data[3] if user_data and len(user_data) > 3 else ""
+                await message.answer(
+                    f"✅ **Маълумот навшуд! / Данные обновлены!**\n\n"
+                    f"• **Ном / ФИО:** {updated_fio}\n"
+                    f"• **Суроға / Адрес:** {updated_addr if updated_addr else 'Нишон дода нашуд / Не указан'}",
+                    reply_markup=get_main_menu(updated_fio, phone_from_db),
+                    parse_mode="Markdown"
+                )
+            else:
+                await message.answer("❌ Хатогӣ. Корбар дар база нест.\n\n❌ Ошибка обновления. Пользователь не найден.")
+            return
+
+        # --- Новый заказ ---
+        error_msg = validate_order_data(data)
+        if error_msg:
+            logging.warning(f"Невалидные данные формы от chat_id={message.chat.id}: {error_msg}")
+            await message.answer(f"❌ Ошибка в данных формы: {error_msg}. Попробуйте снова.")
+            return
+
+        lang = data.get('lang', 'ru') if data.get('lang') in VALID_LANGS else 'ru'
+
+        dtype_readable = "Ба ПВЗ 🏢" if data['delivery_type'] == "pvz" else "То дар 🚪"
+        if lang == "ru":
+            dtype_readable = "До ПВЗ 🏢" if data['delivery_type'] == "pvz" else "До двери 🚪"
+
+        utc_now = datetime.datetime.now(datetime.timezone.utc)
+        dushanbe_time = (utc_now + datetime.timedelta(hours=5)).strftime("%d.%m.%Y %H:%M")
+
+        # ID генерируется на СЕРВЕРЕ, не доверяем клиентскому
+        order_id = generate_order_id()
+
+        s = sanitize_for_sheet
+        row = [
+            "NEW",                               # A (1)  - Статус заявки
+            order_id,                            # B (2)  - ID заказа
+            dushanbe_time,                       # C (3)  - Дата и время оформления
+            s(data['price']),                    # D (4)  - Итоговая стоимость
+            s(data['city_pickup']),              # E (5)  - Город забора
+            s(data['address_pickup']),           # F (6)  - Точный адрес забора
+            s(data['city_delivery']),            # G (7)  - Город доставки
+            s(data['address_delivery']),         # H (8)  - Точный адрес доставки
+            s(data['driver_comment']),           # I (9)  - Ориентир для курьера
+            data['delivery_type'].upper(),       # J (10) - Тип доставки (PVZ / DOOR)
+            s(data['weight']),                   # K (11) - Вес посылки
+            s(data['sizes']),                    # L (12) - Габариты
+            s(data['s_name']),                   # M (13) - ФИО отправителя
+            s(data['s_phone']),                  # N (14) - Телефон отправителя
+            s(data['r_name']),                   # O (15) - ФИО получателя
+            s(data['r_phone']),                  # P (16) - Телефон получателя
+            "bot_webapp",                        # Q (17) - Источник создания
+            "",                                  # R (18) - Имя курьера
+            str(message.chat.id),                # S (19) - Telegram Chat ID клиента
+            ""                                   # T (20) - Telegram Chat ID курьера
+        ]
+
+        await asyncio.to_thread(_sync_append_row, row)
+
+        # Запись в чистый лист «Заказы»
+        if orders_info_sheet:
+            def _sync_append_order_info():
+                dtype_plain = "До ПВЗ" if data['delivery_type'] == "pvz" else "До двери"
+                orders_info_sheet.append_row([
+                    order_id,                        # A — ID заказа
+                    dushanbe_time,                   # B — Дата
+                    "NEW",                           # C — Статус
+                    s(data['price']),                # D — Цена (TJS)
+                    dtype_plain,                      # E — Тип доставки
+                    s(data['weight']),               # F — Вес (кг)
+                    s(data['sizes']),                # G — Габариты
+                    s(data['s_name']),               # H — ФИО отправителя
+                    s(data['s_phone']),              # I — Тел отправителя
+                    s(data['city_pickup']),          # J — Город откуда
+                    s(data['address_pickup']),       # K — Адрес откуда
+                    s(data['r_name']),               # L — ФИО получателя
+                    s(data['r_phone']),              # M — Тел получателя
+                    s(data['city_delivery']),        # N — Город куда
+                    s(data['address_delivery']),     # O — Адрес куда
+                    s(data['driver_comment']),       # P — Ориентир
+                ], table_range="A1")
+            try:
+                await asyncio.to_thread(_sync_append_order_info)
+            except Exception as e:
+                logging.error(f"Ошибка записи в лист Заказы: {e}")
+
+        # Уведомление менеджеру о новом заказе
+        if MANAGER_CHAT_ID:
+            try:
+                from aiogram.utils.keyboard import InlineKeyboardBuilder as IKB
+                dtype_mgr = "До ПВЗ 🏢" if data['delivery_type'] == "pvz" else "До двери 🚪"
+                mgr_text = (
+                    f"🆕 <b>Новый заказ</b> <code>{order_id}</code>\n\n"
+                    f"📍 <b>{data['city_pickup']}</b> → <b>{data['city_delivery']}</b> · {dtype_mgr}\n"
+                    f"👤 Отправитель: {data['s_name']} · <code>{data['s_phone']}</code>\n"
+                    f"👤 Получатель: {data['r_name']} · <code>{data['r_phone']}</code>\n"
+                    f"📦 {data['weight']} кг · {data['sizes']} см\n"
+                    f"💰 {data['price']} TJS\n"
+                    f"📅 {dushanbe_time}"
+                )
+                b = IKB()
+                b.button(text="✅ Принять", callback_data=f"oa:{order_id}")
+                b.button(text="❌ Отменить", callback_data=f"oc:{order_id}")
+                b.adjust(2)
+                await mgr_bot.send_message(
+                    chat_id=int(MANAGER_CHAT_ID),
+                    text=mgr_text,
+                    reply_markup=b.as_markup(),
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logging.error(f"Не удалось уведомить менеджера о заказе {order_id}: {e}")
+
+        msg = RECEIPTS[lang].format(
+            date=dushanbe_time, order_id=order_id,
+            s_name=data['s_name'], s_phone=data['s_phone'],
+            city_pickup=data['city_pickup'], address_pickup=data['address_pickup'],
+            city_delivery=data['city_delivery'], address_delivery=data['address_delivery'],
+            delivery_type=dtype_readable,
+            r_name=data['r_name'], r_phone=data['r_phone'],
+            price=data['price']
+        )
+        await message.answer(msg, parse_mode="Markdown")
+
+    except KeyError as e:
+        logging.error(f"Отсутствует обязательное поле в данных формы: {e}")
+        await message.answer("❌ Ошибка в данных формы. Попробуйте снова.")
+    except Exception as e:
+        logging.error(f"Критическая ошибка обработки webapp_data: {e}", exc_info=True)
+        await message.answer("❌ Системная ошибка обработки формы. Попробуйте позже.")
+
 
 # ─── Поддержка (Topics) ──────────────────────────────────────────────────────
 

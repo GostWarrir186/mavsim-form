@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import json
 import logging
 import os
 import threading
@@ -525,22 +527,41 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
 
 # ─── Клавиатура главного меню водителя ──────────────────────────────────────
 async def build_driver_main_menu(driver_id: int):
-    # Кабинет курьера открывается отдельной inline-кнопкой (см. send_cabinet_button) —
-    # только через неё Telegram передаёт подписанный initData для web_api.py.
     b = ReplyKeyboardBuilder()
     b.button(text="🔍 Фармоишҳои озод / Свободные заказы")
+    if DRIVER_WEBAPP_URL:
+        try:
+            driver_data = await asyncio.to_thread(_sync_get_driver, str(driver_id))
+            if driver_data and driver_data[0].upper() == "ACTIVE":
+                fio  = driver_data[2] if len(driver_data) > 2 else "Курьер"
+                rate = float(driver_data[4]) if len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
+                now = datetime.now(DUSHANBE_TZ)
+                date_from, date_to = _month_range(now)
+                week_start_dt, week_end_dt = _current_week_range(now)
+                deliveries = await asyncio.to_thread(
+                    _sync_get_driver_deliveries, str(driver_id), date_from, date_to
+                )
+                payload = {
+                    "name": fio, "rate": rate,
+                    "month": now.strftime("%m.%Y"),
+                    "month_label": _week_label(week_start_dt, week_end_dt),
+                    "deliveries": deliveries,
+                }
+                b64 = base64.urlsafe_b64encode(
+                    json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
+                ).decode().rstrip("=")
+                b.button(text="📊 Кабинети ман / Мой кабинет",
+                         web_app=types.WebAppInfo(url=f"{DRIVER_WEBAPP_URL}?d={b64}"))
+            else:
+                b.button(text="📊 Кабинети ман / Мой кабинет")
+        except Exception:
+            b.button(text="📊 Кабинети ман / Мой кабинет")
+    else:
+        b.button(text="📊 Кабинети ман / Мой кабинет")
     b.button(text="📞 Дастгирӣ / Поддержка")
     b.button(text="💡 Бознигарӣ / Обратная связь")
     b.adjust(1)
     return b.as_markup(resize_keyboard=True)
-
-
-async def send_cabinet_button(message: types.Message):
-    if not DRIVER_WEBAPP_URL:
-        return
-    b = InlineKeyboardBuilder()
-    b.button(text="📊 Кабинети ман / Мой кабинет", web_app=types.WebAppInfo(url=DRIVER_WEBAPP_URL))
-    await message.answer("👇 Кабинет / Личный кабинет:", reply_markup=b.as_markup())
 
 
 async def send_client_push(chat_id: str, text: str):
@@ -557,7 +578,6 @@ async def driver_go_main_menu(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("Амалро интихоб кунед / Выберите действие:",
                          reply_markup=await build_driver_main_menu(message.from_user.id))
-    await send_cabinet_button(message)
 
 
 # ─── Регистрация ─────────────────────────────────────────────────────────────
@@ -600,7 +620,6 @@ async def cmd_start_driver(message: types.Message, state: FSMContext):
             reply_markup=await build_driver_main_menu(message.from_user.id),
             parse_mode="Markdown"
         )
-        await send_cabinet_button(message)
     else:
         await message.answer("⛔ Аккаунти шумо баста шудааст.\n\n⛔ Аккаунт заблокирован. Обратитесь к администратору.")
 
@@ -688,6 +707,67 @@ async def save_driver_phone(message: types.Message, state: FSMContext):
     else:
         await message.answer("❌ Ошибка при регистрации. Попробуйте позже (/start).")
 
+
+@dp.message(F.web_app_data)
+async def handle_webapp(message: types.Message):
+    try:
+        data = json.loads(message.web_app_data.data)
+    except Exception:
+        return
+
+    action = data.get("action")
+
+    # ── Еженедельный отчёт ───────────────────────────────────────────────────
+    if action == "generate_report":
+        if not await _get_active_driver(message.from_user.id):
+            return
+        week_start_str = data.get("week_start", "")
+        try:
+            week_start = datetime.strptime(week_start_str, "%Y-%m-%d")
+        except ValueError:
+            await message.answer("❌ Некорректный формат даты.")
+            return
+        week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        period_label = _week_label(week_start, week_end)
+
+        driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+        if not driver_data:
+            await message.answer("❌ Вы не зарегистрированы. Нажмите /start.")
+            return
+
+        fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
+        try:
+            rate = float(driver_data[4]) if len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
+        except (ValueError, TypeError):
+            rate = DEFAULT_DRIVER_RATE
+
+        wait_msg = await message.answer("⏳ Формирую отчёт...")
+        deliveries = await asyncio.to_thread(
+            _sync_get_driver_deliveries, str(message.from_user.id), week_start, week_end
+        )
+
+        if not deliveries:
+            await wait_msg.delete()
+            await message.answer(f"📭 За {period_label} доставок не найдено.")
+            return
+
+        excel_buf = await asyncio.to_thread(generate_excel_report, fio, rate, deliveries, period_label)
+        filename = f"report_{week_start_str}_{message.from_user.id}.xlsx"
+        delivered_count = sum(1 for d in deliveries if d["s"] == "DELIVERED")
+        await wait_msg.delete()
+        await message.answer_document(
+            types.BufferedInputFile(excel_buf.read(), filename=filename),
+            caption=(
+                f"📄 **Отчёт: {period_label}**\n"
+                f"👤 {fio}\n"
+                f"✅ Доставлено: {delivered_count}\n"
+                f"💰 К выплате: {delivered_count * rate:.2f} TJS"
+            ),
+            parse_mode="Markdown"
+        )
+        return
+
+    logging.warning(f"Неизвестный action из WebApp: {action}")
 
 
 # ─── Биржа заказов ───────────────────────────────────────────────────────────
