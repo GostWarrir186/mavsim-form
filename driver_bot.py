@@ -170,22 +170,75 @@ def _sync_register_driver(chat_id: str, fio: str, phone: str = "") -> bool:
         return False
 
 
-def _sync_update_driver_profile(chat_id: str, new_fio: str, lang: str | None = None) -> bool:
-    """Обновляет ФИО (C) и, если передан, язык (I) водителя по Telegram ID (D = 4)."""
+def _sync_set_driver_lang(chat_id: str, lang: str) -> bool:
+    """Сохраняет предпочтение языка (I) водителя по Telegram ID (D = 4). Меняется сразу, без одобрения."""
+    if not drivers_sheet or lang not in ("ru", "tj"):
+        return False
+    try:
+        cell = drivers_sheet.find(str(chat_id), in_column=4)
+        if not cell:
+            return False
+        drivers_sheet.update_cell(cell.row, 9, lang)
+        return True
+    except Exception as e:
+        logging.error(f"Ошибка сохранения языка водителя {chat_id}: {e}")
+        return False
+
+
+def _sync_request_name_change(chat_id: str, new_fio: str) -> bool:
+    """Пишет заявку на смену ФИО (J) — реальное ФИО (C) не трогается до одобрения менеджером."""
     if not drivers_sheet:
         return False
     try:
         cell = drivers_sheet.find(str(chat_id), in_column=4)
         if not cell:
             return False
-        updates = [{'range': f'C{cell.row}', 'values': [[new_fio]]}]
-        if lang in ("ru", "tj"):
-            updates.append({'range': f'I{cell.row}', 'values': [[lang]]})
-        drivers_sheet.batch_update(updates)
+        drivers_sheet.update_cell(cell.row, 10, new_fio)
         return True
     except Exception as e:
-        logging.error(f"Ошибка обновления профиля водителя {chat_id}: {e}")
+        logging.error(f"Ошибка заявки на смену ФИО водителя {chat_id}: {e}")
         return False
+
+
+def _sync_approve_name_change(telegram_id: str) -> tuple[str, str] | None:
+    """Применяет заявку на смену ФИО (J → C), очищает заявку. Returns (old_fio, new_fio) или None."""
+    if not drivers_sheet:
+        return None
+    try:
+        cell = drivers_sheet.find(str(telegram_id), in_column=4)
+        if not cell:
+            return None
+        row = _pad_row(drivers_sheet.row_values(cell.row))
+        old_fio, new_fio = row[2], row[9]
+        if not new_fio:
+            return None
+        drivers_sheet.batch_update([
+            {'range': f'C{cell.row}', 'values': [[new_fio]]},
+            {'range': f'J{cell.row}', 'values': [['']]},
+        ])
+        return old_fio, new_fio
+    except Exception as e:
+        logging.error(f"Ошибка применения смены ФИО для {telegram_id}: {e}")
+        return None
+
+
+def _sync_reject_name_change(telegram_id: str) -> str | None:
+    """Очищает заявку на смену ФИО (J), не трогая настоящее ФИО (C). Returns отклонённое ФИО или None."""
+    if not drivers_sheet:
+        return None
+    try:
+        cell = drivers_sheet.find(str(telegram_id), in_column=4)
+        if not cell:
+            return None
+        row = _pad_row(drivers_sheet.row_values(cell.row))
+        rejected_fio = row[9]
+        if not rejected_fio:
+            return None
+        drivers_sheet.update_cell(cell.row, 10, '')
+        return rejected_fio
+    except Exception as e:
+        logging.error(f"Ошибка отклонения смены ФИО для {telegram_id}: {e}")
+        return None
 
 
 def _lang_from_driver_row(row) -> str:
@@ -752,31 +805,60 @@ async def handle_webapp(message: types.Message):
 
     action = data.get("action")
 
-    # ── Обновление профиля (ФИО / язык) ──────────────────────────────────────
+    # ── Обновление профиля (язык — сразу, ФИО — заявка менеджеру) ────────────
     if action == "update_profile":
         updated_fio = data.get("fio", "").strip()
         new_lang = data.get("lang") if data.get("lang") in ("ru", "tj") else None
         if not updated_fio:
             await message.answer("❌ ФИО не может быть пустым.")
             return
-        success = await asyncio.to_thread(
-            _sync_update_driver_profile, str(message.from_user.id), updated_fio, new_lang
-        )
-        if success:
-            driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
-            lang = _lang_from_driver_row(driver_data)
-            await message.answer(
-                pick_lang(
-                    f"✅ **Маълумот навшуд!**\n• **Ном:** {updated_fio}\n"
-                    f"───────────────────────\n"
-                    f"✅ **Данные обновлены!**\n• **ФИО:** {updated_fio}",
-                    lang
-                ),
-                reply_markup=await build_driver_main_menu(message.from_user.id),
-                parse_mode="Markdown"
+
+        driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+        if not driver_data:
+            await message.answer("❌ Хатогӣ. Корбар дар база нест.\n\n❌ Ошибка обновления. Пользователь не найден.")
+            return
+        current_fio = driver_data[2] if len(driver_data) > 2 else ""
+
+        if new_lang:
+            await asyncio.to_thread(_sync_set_driver_lang, str(message.from_user.id), new_lang)
+
+        fio_changed = updated_fio != current_fio
+        if fio_changed:
+            await asyncio.to_thread(_sync_request_name_change, str(message.from_user.id), updated_fio)
+            if mgr_bot and MANAGER_CHAT_ID:
+                try:
+                    nb = InlineKeyboardBuilder()
+                    nb.button(text="✅ Одобрить", callback_data=f"napprove:{message.from_user.id}")
+                    nb.button(text="❌ Отклонить", callback_data=f"nreject:{message.from_user.id}")
+                    nb.adjust(2)
+                    await mgr_bot.send_message(
+                        chat_id=int(MANAGER_CHAT_ID),
+                        text=(
+                            f"✏️ <b>Заявка на смену ФИО курьера</b>\n"
+                            f"Было: {html.escape(current_fio)}\n"
+                            f"Стало: {html.escape(updated_fio)}\n"
+                            f"ID: <code>{message.from_user.id}</code>"
+                        ),
+                        reply_markup=nb.as_markup(),
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logging.error(f"Не удалось уведомить менеджера о смене ФИО: {e}")
+
+        driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+        lang = _lang_from_driver_row(driver_data)
+        if fio_changed:
+            msg = pick_lang(
+                "✅ **Забон нигоҳ дошта шуд.**\n"
+                "✏️ Дархости тағйири ном ба менеҷер фиристода шуд — мунтазири тасдиқ шавед.\n"
+                "───────────────────────\n"
+                "✅ **Язык сохранён.**\n"
+                "✏️ Заявка на смену ФИО отправлена менеджеру — ожидайте подтверждения.",
+                lang
             )
         else:
-            await message.answer("❌ Хатогӣ. Корбар дар база нест.\n\n❌ Ошибка обновления. Пользователь не найден.")
+            msg = pick_lang("✅ **Забон нигоҳ дошта шуд.**\n───────────────────────\n✅ **Язык сохранён.**", lang)
+        await message.answer(msg, reply_markup=await build_driver_main_menu(message.from_user.id), parse_mode="Markdown")
         return
 
     # ── Еженедельный отчёт ───────────────────────────────────────────────────

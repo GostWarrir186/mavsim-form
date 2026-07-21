@@ -34,6 +34,8 @@ from driver_bot import (
     _async_get_admin_dashboard_data,
     _sync_get_driver,
     _sync_get_driver_deliveries,
+    _sync_approve_name_change,
+    _sync_reject_name_change,
     _week_label,
     generate_excel_report,
     send_client_push,
@@ -767,5 +769,56 @@ async def reject_driver_cb(callback: types.CallbackQuery):
         )
     except Exception as e:
         logging.error(f"Не удалось уведомить курьера {telegram_id} об отклонении: {e}")
+
+
+# ─── Одобрение / отклонение смены ФИО курьера ───────────────────────────────
+
+@dp.callback_query(F.data.startswith("napprove:"))
+async def approve_name_change(callback: types.CallbackQuery):
+    await callback.answer()
+    if not _is_manager(callback.message.chat.id):
+        return
+    telegram_id = callback.data.split(":", 1)[1]
+    result = await asyncio.to_thread(_sync_approve_name_change, telegram_id)
+    if not result:
+        await callback.message.edit_text("❌ Заявка не найдена или уже обработана.", reply_markup=None)
+        return
+    old_fio, new_fio = result
+    await callback.message.edit_text(
+        f"✅ ФИО курьера изменено: <b>{html.escape(old_fio)}</b> → <b>{html.escape(new_fio)}</b>",
+        reply_markup=None, parse_mode="HTML"
+    )
+    try:
+        await driver_bot_instance.send_message(
+            chat_id=int(telegram_id),
+            text=f"✅ <b>Ваше новое ФИО одобрено:</b> {html.escape(new_fio)}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Не удалось уведомить курьера {telegram_id} об одобрении ФИО: {e}")
+
+
+@dp.callback_query(F.data.startswith("nreject:"))
+async def reject_name_change(callback: types.CallbackQuery):
+    await callback.answer()
+    if not _is_manager(callback.message.chat.id):
+        return
+    telegram_id = callback.data.split(":", 1)[1]
+    rejected_fio = await asyncio.to_thread(_sync_reject_name_change, telegram_id)
+    if not rejected_fio:
+        await callback.message.edit_text("❌ Заявка не найдена или уже обработана.", reply_markup=None)
+        return
+    await callback.message.edit_text(
+        f"❌ Заявка на ФИО «{html.escape(rejected_fio)}» отклонена.",
+        reply_markup=None, parse_mode="HTML"
+    )
+    try:
+        await driver_bot_instance.send_message(
+            chat_id=int(telegram_id),
+            text="❌ <b>Заявка на смену ФИО отклонена менеджером.</b>",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logging.error(f"Не удалось уведомить курьера {telegram_id} об отклонении ФИО: {e}")
 
 

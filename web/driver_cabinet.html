@@ -393,7 +393,8 @@
         <div class="section" style="${profileOpen ? '' : 'display:none;'}">
             <div class="week-card">
                 <input id="profFioInput" type="text" value="${profileFioDraft}" oninput="profileFioDraft=this.value"
-                    style="width:100%;padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.1);background:var(--sec-bg);color:var(--text);font-size:14px;margin-bottom:8px;">
+                    style="width:100%;padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.1);background:var(--sec-bg);color:var(--text);font-size:14px;margin-bottom:6px;">
+                <div style="font-size:11px;color:var(--hint);margin-bottom:8px;">Смена ФИО требует подтверждения менеджера</div>
                 <div class="chips" style="margin-bottom:8px;">
                     <div class="chip ${profileLang==='ru'?'active':''}" onclick="setProfileLang('ru')">RU</div>
                     <div class="chip ${profileLang==='tj'?'active':''}" onclick="setProfileLang('tj')">TJ</div>

@@ -68,14 +68,16 @@ try:
     try:
         drivers_sheet = spreadsheet.worksheet("Водители")
         existing_headers = drivers_sheet.row_values(1)
-        if "Язык" not in existing_headers:
-            drivers_sheet.update_cell(1, len(existing_headers) + 1, "Язык")
-            logging.info("✅ Добавлена колонка 'Язык' в лист 'Водители'")
+        for col_name in ("Язык", "Заявка ФИО"):
+            if col_name not in existing_headers:
+                existing_headers.append(col_name)
+                drivers_sheet.update_cell(1, len(existing_headers), col_name)
+                logging.info(f"✅ Добавлена колонка '{col_name}' в лист 'Водители'")
     except gspread.WorksheetNotFound:
-        drivers_sheet = spreadsheet.add_worksheet(title="Водители", rows=1000, cols=9)
+        drivers_sheet = spreadsheet.add_worksheet(title="Водители", rows=1000, cols=10)
         drivers_sheet.append_row([
             "Статус", "Дата рег.", "ФИО", "Telegram ID",
-            "Ставка (TJS)", "Дата оферты", "Topic ID", "Телефон", "Язык"
+            "Ставка (TJS)", "Дата оферты", "Topic ID", "Телефон", "Язык", "Заявка ФИО"
         ])
         logging.info("✅ Создан лист 'Водители'")
 
