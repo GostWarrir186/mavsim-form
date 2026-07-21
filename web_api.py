@@ -80,6 +80,7 @@ app.add_middleware(
 
 def _auth_dependency(bot_token: str | None, require_manager: bool = False):
     async def dependency(x_telegram_init_data: str = Header(..., alias="X-Telegram-Init-Data")) -> int:
+        logging.warning(f"[DEBUG initData] RAW len={len(x_telegram_init_data)} value={x_telegram_init_data!r}")
         verified = verify_init_data(bot_token, x_telegram_init_data)
         if not verified:
             raise HTTPException(status_code=401, detail="invalid initData")
