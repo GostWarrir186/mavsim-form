@@ -219,11 +219,37 @@
             </div>`;
     } else {
 
+    // ─── Локализация ────────────────────────────────────────────────────────
+    const T = {
+        ru: {
+            cabinet_title: 'Кабинет курьера', stat_deliveries: 'Доставок', stat_earn: 'TJS заработок',
+            stat_week: 'За неделю', week_title: 'Неделя', report_btn: 'Скачать отчёт за',
+            all_deliveries: 'Все доставки', reset: 'Сбросить', all_label: 'Все',
+            empty_month: 'Нет доставок за месяц', empty_day: l => `Нет доставок за ${l}`,
+            status_delivered: '✓ Доставлен', status_transit: 'В пути', status_loading: 'Погрузка',
+            status_taken: 'Взят', status_arrived: 'На месте', status_new: 'Новый',
+            pvz: '🏢 ПВЗ', door: '🚪 До двери',
+            profile_hint: 'Смена ФИО требует подтверждения менеджера', save: 'Сохранить',
+            no_data_title: 'Нет данных', no_data_sub: 'Откройте кабинет через бота Mavsimi Rason.',
+            months_short: ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
+            days_short: ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'],
+        },
+        tj: {
+            cabinet_title: 'Кабинети курьер', stat_deliveries: 'Фармоишҳо', stat_earn: 'Даромад (TJS)',
+            stat_week: 'Дар як ҳафта', week_title: 'Ҳафта', report_btn: 'Боргирии ҳисобот барои',
+            all_deliveries: 'Ҳамаи фармоишҳо', reset: 'Бекор кардан', all_label: 'Ҳама',
+            empty_month: 'Дар ин моҳ фармоише нест', empty_day: l => `Дар ${l} фармоише нест`,
+            status_delivered: '✓ Расонида шуд', status_transit: 'Дар роҳ', status_loading: 'Боркунӣ',
+            status_taken: 'Гирифта шуд', status_arrived: 'Дар ҷой', status_new: 'Нав',
+            pvz: '🏢 ПВЗ', door: '🚪 То дар',
+            profile_hint: 'Тағйири ном тасдиқи менеҷерро талаб мекунад', save: 'Нигоҳ доштан',
+            no_data_title: 'Маълумот нест', no_data_sub: 'Кабинетро тавассути боти Mavsimi Rason кушоед.',
+            months_short: ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
+            days_short: ['Яш','Дш','Сш','Чш','Пш','Ҷм','Ша'],
+        },
+    };
+
     // ─── Утилиты ────────────────────────────────────────────────────────────
-    const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь',
-                       'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-    const MONTHS_SHORT = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'];
-    const DAYS_SHORT = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 
     function parseDate(iso) { /* "2026-06-19" → Date */
         const [y, m, d] = iso.split('-').map(Number);
@@ -250,7 +276,10 @@
     const rate       = DATA.rate || 15;
     const driverName = DATA.name || 'Курьер';
     const monthLabel = DATA.month_label || '';
-    let profileLang  = DATA.lang === 'ru' || DATA.lang === 'tj' ? DATA.lang : 'ru';
+    const savedLang = localStorage.getItem('driver_lang');
+    let profileLang = (savedLang === 'ru' || savedLang === 'tj')
+        ? savedLang
+        : (DATA.lang === 'ru' || DATA.lang === 'tj' ? DATA.lang : 'ru');
     let profileOpen  = false;
     let profileFioDraft = driverName;
 
@@ -283,8 +312,9 @@
                  TAKEN:'s-taken', ARRIVED:'s-arrived' }[s] || 's-new';
     }
     function statusLabel(s) {
-        return { DELIVERED:'✓ Доставлен', IN_TRANSIT:'В пути', LOADING:'Погрузка',
-                 TAKEN:'Взят', ARRIVED:'На месте', NEW:'Новый' }[s] || s;
+        const t = T[profileLang];
+        return { DELIVERED:t.status_delivered, IN_TRANSIT:t.status_transit, LOADING:t.status_loading,
+                 TAKEN:t.status_taken, ARRIVED:t.status_arrived, NEW:t.status_new }[s] || s;
     }
     function cardClass(s) {
         if (s === 'DELIVERED') return 'delivery-card delivered';
@@ -294,8 +324,8 @@
 
     function renderWeekLabel() {
         const end = addDays(weekStart, 6);
-        const sm = MONTHS_SHORT[weekStart.getMonth()];
-        const em = MONTHS_SHORT[end.getMonth()];
+        const sm = T[profileLang].months_short[weekStart.getMonth()];
+        const em = T[profileLang].months_short[end.getMonth()];
         if (weekStart.getMonth() === end.getMonth()) {
             return `${weekStart.getDate()} — ${end.getDate()} ${sm}`;
         }
@@ -320,7 +350,7 @@
 
             const countHtml = count > 0 ? `<span class="day-count">${count}</span>` : `<span style="height:14px"></span>`;
             html += `<div class="${cls}" onclick="selectDay('${iso}')">
-                <span class="day-name">${DAYS_SHORT[(i+1)%7]}</span>
+                <span class="day-name">${T[profileLang].days_short[(i+1)%7]}</span>
                 <span class="day-num">${d.getDate()}</span>
                 ${countHtml}
             </div>`;
@@ -345,7 +375,7 @@
                     <span class="city">${d.to}</span>
                 </div>
                 <div class="card-meta">
-                    <span class="meta-tag">${d.tp === 'PVZ' ? '🏢 ПВЗ' : '🚪 До двери'}</span>
+                    <span class="meta-tag">${d.tp === 'PVZ' ? T[profileLang].pvz : T[profileLang].door}</span>
                     <span class="meta-tag">🆔 ${d.i}</span>
                 </div>
                 <span class="status-pill ${statusClass(d.s)}">${statusLabel(d.s)}</span>
@@ -367,22 +397,29 @@
         const filtered = getFilteredDeliveries();
         filtered.sort((a, b) => b.t.localeCompare(a.t)); // Newest first
 
+        const t = T[profileLang];
         const selDateObj = selectedDate ? parseDate(selectedDate) : null;
         const selLabel = selDateObj
-            ? `${selDateObj.getDate()} ${MONTHS_SHORT[selDateObj.getMonth()]}`
-            : 'Все';
+            ? `${selDateObj.getDate()} ${t.months_short[selDateObj.getMonth()]}`
+            : t.all_label;
 
         const deliveriesHtml = filtered.length
             ? filtered.map(renderDeliveryCard).join('')
             : `<div class="empty">
                 <span class="empty-icon">📭</span>
-                <span class="empty-text">${selLabel === 'Все' ? 'Нет доставок за месяц' : `Нет доставок за ${selLabel}`}</span>
+                <span class="empty-text">${selDateObj ? t.empty_day(selLabel) : t.empty_month}</span>
                </div>`;
 
         app.innerHTML = `
+        <!-- Lang switcher -->
+        <div style="display:flex;justify-content:flex-end;gap:8px;padding:10px 14px 0;">
+            <button onclick="setLang('ru')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${profileLang==='ru'?'var(--primary)':'rgba(0,0,0,.15)'};background:${profileLang==='ru'?'var(--primary-light)':'var(--bg)'};color:${profileLang==='ru'?'var(--primary)':'var(--hint)'};">🇷🇺 RU</button>
+            <button onclick="setLang('tj')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${profileLang==='tj'?'var(--primary)':'rgba(0,0,0,.15)'};background:${profileLang==='tj'?'var(--primary-light)':'var(--bg)'};color:${profileLang==='tj'?'var(--primary)':'var(--hint)'};">🇹🇯 TJ</button>
+        </div>
+
         <!-- Header -->
         <div class="header">
-            <div class="header-title">Кабинет курьера
+            <div class="header-title">${t.cabinet_title}
                 <span onclick="toggleProfile()" style="float:right;cursor:pointer;opacity:.85;">✏️</span>
             </div>
             <div class="header-name">${driverName}</div>
@@ -394,12 +431,8 @@
             <div class="week-card">
                 <input id="profFioInput" type="text" value="${profileFioDraft}" oninput="profileFioDraft=this.value"
                     style="width:100%;padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.1);background:var(--sec-bg);color:var(--text);font-size:14px;margin-bottom:6px;">
-                <div style="font-size:11px;color:var(--hint);margin-bottom:8px;">Смена ФИО требует подтверждения менеджера</div>
-                <div class="chips" style="margin-bottom:8px;">
-                    <div class="chip ${profileLang==='ru'?'active':''}" onclick="setProfileLang('ru')">RU</div>
-                    <div class="chip ${profileLang==='tj'?'active':''}" onclick="setProfileLang('tj')">TJ</div>
-                </div>
-                <button class="btn-report" style="margin-bottom:0;" onclick="saveDriverProfile()">Сохранить</button>
+                <div style="font-size:11px;color:var(--hint);margin-bottom:8px;">${t.profile_hint}</div>
+                <button class="btn-report" style="margin-bottom:0;" onclick="saveDriverProfile()">${t.save}</button>
             </div>
         </div>
 
@@ -407,21 +440,21 @@
         <div class="stats-row">
             <div class="stat-card">
                 <div class="stat-value">${stats.total}</div>
-                <div class="stat-label">Доставок</div>
+                <div class="stat-label">${t.stat_deliveries}</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value green">${stats.monthEarn.toFixed(0)}</div>
-                <div class="stat-label">TJS заработок</div>
+                <div class="stat-label">${t.stat_earn}</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value">${stats.weekDone}</div>
-                <div class="stat-label">За неделю</div>
+                <div class="stat-label">${t.stat_week}</div>
             </div>
         </div>
 
         <!-- Calendar -->
         <div class="section">
-            <div class="section-title">Неделя</div>
+            <div class="section-title">${t.week_title}</div>
             <div class="week-card">
                 <div class="week-nav">
                     <button class="week-btn" onclick="prevWeek()">‹</button>
@@ -435,16 +468,16 @@
         <!-- Report Button -->
         <div class="section">
             <button class="btn-report" onclick="downloadReport()">
-                📄 Скачать отчёт за ${renderWeekLabel()}
+                📄 ${t.report_btn} ${renderWeekLabel()}
             </button>
         </div>
 
         <!-- Deliveries -->
         <div class="section">
             <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
-                <span>${selectedDate ? selLabel : 'Все доставки'}</span>
+                <span>${selectedDate ? selLabel : t.all_deliveries}</span>
                 <span style="font-size:11px;color:var(--primary);cursor:pointer;" onclick="clearDay()">
-                    ${selectedDate ? 'Сбросить' : ''}
+                    ${selectedDate ? t.reset : ''}
                 </span>
             </div>
             ${deliveriesHtml}
@@ -457,13 +490,14 @@
         tg.sendData(JSON.stringify({ action: 'generate_report', week_start: ws }));
     }
 
-    // ─── Профиль ────────────────────────────────────────────────────────────
-    function toggleProfile() {
-        profileOpen = !profileOpen;
+    // ─── Язык / Профиль ─────────────────────────────────────────────────────
+    function setLang(lang) {
+        profileLang = lang;
+        localStorage.setItem('driver_lang', lang);
         render();
     }
-    function setProfileLang(lang) {
-        profileLang = lang;
+    function toggleProfile() {
+        profileOpen = !profileOpen;
         render();
     }
     function saveDriverProfile() {
