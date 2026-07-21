@@ -377,7 +377,13 @@ async def handle_webapp_data(message: types.Message):
             await message.answer(f"❌ Ошибка в данных формы: {error_msg}. Попробуйте снова.")
             return
 
-        lang = data.get('lang', 'ru') if data.get('lang') in VALID_LANGS else 'ru'
+        # Сохранённое предпочтение языка — приоритетнее переключателя внутри формы
+        stored_user = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
+        stored_lang = _lang_from_row(stored_user)
+        if stored_lang in VALID_LANGS:
+            lang = stored_lang
+        else:
+            lang = data.get('lang', 'ru') if data.get('lang') in VALID_LANGS else 'ru'
 
         dtype_readable = "Ба ПВЗ 🏢" if data['delivery_type'] == "pvz" else "То дар 🚪"
         if lang == "ru":
@@ -496,11 +502,17 @@ async def support_start(message: types.Message, state: FSMContext):
     if not SUPPORT_CHAT_ID:
         await message.answer("⚙️ Поддержка временно недоступна.")
         return
+    user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
+    lang = _lang_from_row(user_data)
     await message.answer(
-        "📞 <b>Саволи худро нависед:</b>\n"
-        "Мо ҳарчи зудтар ҷавоб хоҳем дод.\n\n"
-        "📞 <b>Напишите ваш вопрос или проблему:</b>\n"
-        "Мы ответим в ближайшее время.",
+        pick_lang(
+            "📞 <b>Саволи худро нависед:</b>\n"
+            "Мо ҳарчи зудтар ҷавоб хоҳем дод.\n"
+            "───────────────────────\n"
+            "📞 <b>Напишите ваш вопрос или проблему:</b>\n"
+            "Мы ответим в ближайшее время.",
+            lang
+        ),
         reply_markup=types.ReplyKeyboardRemove(),
         parse_mode="HTML"
     )
@@ -538,8 +550,12 @@ async def support_send(message: types.Message, state: FSMContext):
         await state.update_data(fio=fio, phone=phone, topic_id=topic_id)
         await state.set_state(Support.chatting)
         await message.answer(
-            "✅ Фиристода шуд! Менеҷер ин ҷо ҷавоб хоҳад дод.\n\n"
-            "✅ Отправлено! Менеджер ответит здесь.",
+            pick_lang(
+                "✅ Фиристода шуд! Менеҷер ин ҷо ҷавоб хоҳад дод.\n"
+                "───────────────────────\n"
+                "✅ Отправлено! Менеджер ответит здесь.",
+                _lang_from_row(user_data)
+            ),
             reply_markup=back_kb.as_markup(resize_keyboard=True),
         )
     except Exception as e:

@@ -1115,7 +1115,8 @@ async def reject_reason_text(message: types.Message, state: FSMContext):
 @dp.callback_query(F.data.startswith("load:"))
 async def load_order(callback: types.CallbackQuery):
     await callback.answer()
-    if not await _get_active_driver(callback.from_user.id):
+    driver_data = await _get_active_driver(callback.from_user.id)
+    if not driver_data:
         await callback.message.answer("⛔ Доступ запрещён.")
         return
     try:
@@ -1131,8 +1132,12 @@ async def load_order(callback: types.CallbackQuery):
         b = InlineKeyboardBuilder()
         b.button(text="🚀 Мол бор шуд — роҳ афтодам / Товар погружен — выехать", callback_data=f"transit:{row_num}")
         await callback.message.edit_text(
-            f"📦 **Фармоиш {order_id}: Боркунӣ**\n\nСтатус: **[Боркунӣ]**.\n\n"
-            f"📦 **Заказ {order_id}: Погрузка**\n\nПосле укомплектовки нажмите кнопку выезда.",
+            pick_lang(
+                f"📦 **Фармоиш {order_id}: Боркунӣ**\n\nСтатус: **[Боркунӣ]**.\n"
+                f"───────────────────────\n"
+                f"📦 **Заказ {order_id}: Погрузка**\n\nПосле укомплектовки нажмите кнопку выезда.",
+                _lang_from_driver_row(driver_data)
+            ),
             reply_markup=b.as_markup(), parse_mode="Markdown"
         )
         if client_chat_id:
@@ -1147,7 +1152,8 @@ async def load_order(callback: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("transit:"))
 async def transit_order(callback: types.CallbackQuery):
     await callback.answer()
-    if not await _get_active_driver(callback.from_user.id):
+    driver_data = await _get_active_driver(callback.from_user.id)
+    if not driver_data:
         await callback.message.answer("⛔ Доступ запрещён.")
         return
     try:
@@ -1162,8 +1168,12 @@ async def transit_order(callback: types.CallbackQuery):
         b = InlineKeyboardBuilder()
         b.button(text="📍 Ман дар ҷой ҳастам / Я на месте (прибыл)", callback_data=f"arrived:{row_num}")
         await callback.message.edit_text(
-            f"🚚 **Фармоиш {order_id}: Дар роҳ**\n\nСтатус: **[Дар роҳ]**.\n\n"
-            f"🚚 **Заказ {order_id}: В пути**\n\nКак будете у получателя — нажмите «На месте».",
+            pick_lang(
+                f"🚚 **Фармоиш {order_id}: Дар роҳ**\n\nСтатус: **[Дар роҳ]**.\n"
+                f"───────────────────────\n"
+                f"🚚 **Заказ {order_id}: В пути**\n\nКак будете у получателя — нажмите «На месте».",
+                _lang_from_driver_row(driver_data)
+            ),
             reply_markup=b.as_markup(), parse_mode="Markdown"
         )
         if client_chat_id:
@@ -1178,7 +1188,8 @@ async def transit_order(callback: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("arrived:"))
 async def arrived_order(callback: types.CallbackQuery):
     await callback.answer()
-    if not await _get_active_driver(callback.from_user.id):
+    driver_data = await _get_active_driver(callback.from_user.id)
+    if not driver_data:
         await callback.message.answer("⛔ Доступ запрещён.")
         return
     try:
@@ -1193,8 +1204,12 @@ async def arrived_order(callback: types.CallbackQuery):
         b = InlineKeyboardBuilder()
         b.button(text="🏁 Фармоиш расонида шуд / Заказ доставлен", callback_data=f"done:{row_num}")
         await callback.message.edit_text(
-            f"📍 **Фармоиш {order_id}: Дар ҷой**\n\nМолро диҳед, пардохтро санҷед.\n\n"
-            f"📍 **Заказ {order_id}: На месте**\n\nПередайте посылку, проверьте оплату.",
+            pick_lang(
+                f"📍 **Фармоиш {order_id}: Дар ҷой**\n\nМолро диҳед, пардохтро санҷед.\n"
+                f"───────────────────────\n"
+                f"📍 **Заказ {order_id}: На месте**\n\nПередайте посылку, проверьте оплату.",
+                _lang_from_driver_row(driver_data)
+            ),
             reply_markup=b.as_markup(), parse_mode="Markdown"
         )
         if client_chat_id:
@@ -1209,7 +1224,8 @@ async def arrived_order(callback: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("done:"))
 async def finish_order(callback: types.CallbackQuery):
     await callback.answer()
-    if not await _get_active_driver(callback.from_user.id):
+    driver_data = await _get_active_driver(callback.from_user.id)
+    if not driver_data:
         await callback.message.answer("⛔ Доступ запрещён.")
         return
     try:
@@ -1222,8 +1238,12 @@ async def finish_order(callback: types.CallbackQuery):
         client_chat_id = row_vals[18]
         await asyncio.to_thread(_sync_update_status, row_num, "DELIVERED")
         await callback.message.edit_text(
-            f"🏁 **Фармоиш {order_id} баста шуд!**\n\nСтатус: **[Расонида шуд]**. Корхонаи хуб!\n\n"
-            f"🏁 **Заказ {order_id} закрыт!**\n\nОтличная работа!",
+            pick_lang(
+                f"🏁 **Фармоиш {order_id} баста шуд!**\n\nСтатус: **[Расонида шуд]**. Корхонаи хуб!\n"
+                f"───────────────────────\n"
+                f"🏁 **Заказ {order_id} закрыт!**\n\nОтличная работа!",
+                _lang_from_driver_row(driver_data)
+            ),
             reply_markup=None, parse_mode="Markdown"
         )
         if client_chat_id:
@@ -1238,17 +1258,22 @@ async def finish_order(callback: types.CallbackQuery):
 # ─── Поддержка курьеров (Topics) ─────────────────────────────────────────────
 @dp.message(F.text == "📞 Дастгирӣ / Поддержка")
 async def driver_support_start(message: types.Message, state: FSMContext):
-    if not await _get_active_driver(message.from_user.id):
+    driver_data = await _get_active_driver(message.from_user.id)
+    if not driver_data:
         await message.answer("⛔ Дастрасӣ манъ аст. /start-ро пахш кунед.\n\n⛔ Доступ запрещён. Нажмите /start.")
         return
     if not SUPPORT_CHAT_ID:
         await message.answer("⚙️ Дастгирӣ муваққатан дастнорас аст.\n\n⚙️ Поддержка временно недоступна.")
         return
     await message.answer(
-        "📞 <b>Саволи худро нависед:</b>\n"
-        "Мо ҳарчи зудтар ҷавоб хоҳем дод.\n\n"
-        "📞 <b>Напишите ваш вопрос или проблему:</b>\n"
-        "Мы ответим в ближайшее время.",
+        pick_lang(
+            "📞 <b>Саволи худро нависед:</b>\n"
+            "Мо ҳарчи зудтар ҷавоб хоҳем дод.\n"
+            "───────────────────────\n"
+            "📞 <b>Напишите ваш вопрос или проблему:</b>\n"
+            "Мы ответим в ближайшее время.",
+            _lang_from_driver_row(driver_data)
+        ),
         reply_markup=types.ReplyKeyboardRemove(),
         parse_mode="HTML"
     )
@@ -1283,8 +1308,12 @@ async def driver_support_send(message: types.Message, state: FSMContext):
         await state.update_data(fio=fio, topic_id=topic_id)
         await state.set_state(DriverSupport.chatting)
         await message.answer(
-            "✅ Фиристода шуд! Менеҷер ин ҷо ҷавоб хоҳад дод.\n\n"
-            "✅ Отправлено! Менеджер ответит здесь.",
+            pick_lang(
+                "✅ Фиристода шуд! Менеҷер ин ҷо ҷавоб хоҳад дод.\n"
+                "───────────────────────\n"
+                "✅ Отправлено! Менеджер ответит здесь.",
+                _lang_from_driver_row(driver_data)
+            ),
             reply_markup=back_kb.as_markup(resize_keyboard=True),
         )
     except Exception as e:
