@@ -15,7 +15,7 @@ import os
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 from aiogram import types
@@ -25,26 +25,46 @@ from config import (
     CLIENT_TOKEN,
     DRIVER_TOKEN,
     MANAGER_TOKEN,
+    client_bot as client_bot_instance,
     driver_bot as driver_bot_instance,
+    manager_bot as manager_bot_instance,
     sheet,
     verify_init_data,
     extract_user_id,
 )
-from client_bot import _sync_check_user_by_chat_id, _sync_update_profile
+from client_bot import (
+    _sync_check_user_by_chat_id,
+    _sync_update_profile,
+    _sync_append_row,
+    validate_order_data,
+    generate_order_id,
+    sanitize_for_sheet,
+    RECEIPTS,
+    VALID_LANGS,
+    orders_info_sheet,
+)
 from driver_bot import (
     _pad_row,
     _sync_get_driver,
     _sync_get_driver_deliveries,
     _sync_reassign_order,
+    _sync_get_all_active_drivers,
     _async_get_admin_dashboard_data,
     _month_range,
     _current_week_range,
     _week_label,
+    generate_excel_report,
     DEFAULT_DRIVER_RATE,
     DUSHANBE_TZ,
     send_client_push,
 )
-from manager_bot import _sync_set_order_ready, _sync_change_order_status
+from manager_bot import (
+    _sync_set_order_ready,
+    _sync_change_order_status,
+    _sync_get_all_couriers_deliveries,
+    _sync_get_all_drivers_rates,
+    generate_summary_excel,
+)
 
 MANAGER_CHAT_ID = os.getenv("MANAGER_CHAT_ID", "")
 CORS_ORIGIN = os.getenv("WEBAPP_CORS_ORIGIN", "https://gostwarrir186.github.io")
@@ -113,6 +133,88 @@ async def client_update_profile(body: ProfileBody, user_id: int = Depends(client
     }
 
 
+@app.post("/v1/client/orders")
+async def client_create_order(body: dict, user_id: int = Depends(client_auth)):
+    error_msg = validate_order_data(body)
+    if error_msg:
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    lang = body.get('lang', 'ru') if body.get('lang') in VALID_LANGS else 'ru'
+    dtype_readable = "Ба ПВЗ 🏢" if body['delivery_type'] == "pvz" else "То дар 🚪"
+    if lang == "ru":
+        dtype_readable = "До ПВЗ 🏢" if body['delivery_type'] == "pvz" else "До двери 🚪"
+
+    dushanbe_time = datetime.now(DUSHANBE_TZ).strftime("%d.%m.%Y %H:%M")
+    order_id = generate_order_id()
+    s = sanitize_for_sheet
+
+    row = [
+        "NEW", order_id, dushanbe_time, s(body['price']),
+        s(body['city_pickup']), s(body['address_pickup']),
+        s(body['city_delivery']), s(body['address_delivery']),
+        s(body['driver_comment']), body['delivery_type'].upper(),
+        s(body['weight']), s(body['sizes']),
+        s(body['s_name']), s(body['s_phone']),
+        s(body['r_name']), s(body['r_phone']),
+        "bot_webapp", "", str(user_id), "",
+    ]
+    await asyncio.to_thread(_sync_append_row, row)
+
+    if orders_info_sheet:
+        def _append_order_info():
+            dtype_plain = "До ПВЗ" if body['delivery_type'] == "pvz" else "До двери"
+            orders_info_sheet.append_row([
+                order_id, dushanbe_time, "NEW", s(body['price']), dtype_plain,
+                s(body['weight']), s(body['sizes']), s(body['s_name']), s(body['s_phone']),
+                s(body['city_pickup']), s(body['address_pickup']),
+                s(body['r_name']), s(body['r_phone']),
+                s(body['city_delivery']), s(body['address_delivery']), s(body['driver_comment']),
+            ], table_range="A1")
+        try:
+            await asyncio.to_thread(_append_order_info)
+        except Exception as e:
+            logging.error(f"Ошибка записи в лист Заказы: {e}")
+
+    if MANAGER_CHAT_ID:
+        try:
+            dtype_mgr = "До ПВЗ 🏢" if body['delivery_type'] == "pvz" else "До двери 🚪"
+            mgr_text = (
+                f"🆕 <b>Новый заказ</b> <code>{order_id}</code>\n\n"
+                f"📍 <b>{body['city_pickup']}</b> → <b>{body['city_delivery']}</b> · {dtype_mgr}\n"
+                f"👤 Отправитель: {body['s_name']} · <code>{body['s_phone']}</code>\n"
+                f"👤 Получатель: {body['r_name']} · <code>{body['r_phone']}</code>\n"
+                f"📦 {body['weight']} кг · {body['sizes']} см\n"
+                f"💰 {body['price']} TJS\n"
+                f"📅 {dushanbe_time}"
+            )
+            kb = InlineKeyboardBuilder()
+            kb.button(text="✅ Принять", callback_data=f"oa:{order_id}")
+            kb.button(text="❌ Отменить", callback_data=f"oc:{order_id}")
+            kb.adjust(2)
+            await manager_bot_instance.send_message(
+                chat_id=int(MANAGER_CHAT_ID), text=mgr_text,
+                reply_markup=kb.as_markup(), parse_mode="HTML"
+            )
+        except Exception as e:
+            logging.error(f"Не удалось уведомить менеджера о заказе {order_id}: {e}")
+
+    receipt = RECEIPTS[lang].format(
+        date=dushanbe_time, order_id=order_id,
+        s_name=body['s_name'], s_phone=body['s_phone'],
+        city_pickup=body['city_pickup'], address_pickup=body['address_pickup'],
+        city_delivery=body['city_delivery'], address_delivery=body['address_delivery'],
+        delivery_type=dtype_readable,
+        r_name=body['r_name'], r_phone=body['r_phone'],
+        price=body['price']
+    )
+    try:
+        await client_bot_instance.send_message(chat_id=user_id, text=receipt, parse_mode="Markdown")
+    except Exception as e:
+        logging.error(f"Не удалось отправить чек клиенту {user_id}: {e}")
+
+    return {"order_id": order_id, "receipt": receipt}
+
+
 # ─── Курьер ──────────────────────────────────────────────────────────────────
 
 @app.get("/v1/driver/cabinet")
@@ -133,6 +235,47 @@ async def driver_cabinet(user_id: int = Depends(driver_auth)):
         "month_label": _week_label(week_start_dt, week_end_dt),
         "deliveries": deliveries,
     }
+
+
+class ReportBody(BaseModel):
+    week_start: str
+
+
+@app.post("/v1/driver/report")
+async def driver_report(body: ReportBody, user_id: int = Depends(driver_auth)):
+    try:
+        week_start = datetime.strptime(body.week_start, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="некорректный формат даты")
+    week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+    period_label = _week_label(week_start, week_end)
+
+    driver_data = await asyncio.to_thread(_sync_get_driver, str(user_id))
+    if not driver_data or driver_data[0].upper() != "ACTIVE":
+        raise HTTPException(status_code=403, detail="driver not active")
+    fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
+    try:
+        rate = float(driver_data[4]) if len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
+    except (ValueError, TypeError):
+        rate = DEFAULT_DRIVER_RATE
+
+    deliveries = await asyncio.to_thread(_sync_get_driver_deliveries, str(user_id), week_start, week_end)
+    if not deliveries:
+        raise HTTPException(status_code=404, detail=f"За {period_label} доставок не найдено")
+
+    excel_buf = await asyncio.to_thread(generate_excel_report, fio, rate, deliveries, period_label)
+    delivered_count = sum(1 for d in deliveries if d["s"] == "DELIVERED")
+    await driver_bot_instance.send_document(
+        chat_id=user_id,
+        document=types.BufferedInputFile(excel_buf.read(), filename=f"report_{body.week_start}_{user_id}.xlsx"),
+        caption=(
+            f"📄 Отчёт: {period_label}\n"
+            f"👤 {fio}\n"
+            f"✅ Доставлено: {delivered_count}\n"
+            f"💰 К выплате: {delivered_count * rate:.2f} TJS"
+        ),
+    )
+    return {"ok": True}
 
 
 # ─── Менеджер ────────────────────────────────────────────────────────────────
@@ -264,3 +407,92 @@ async def manager_reassign(order_id: str, body: ReassignBody, _: int = Depends(m
             f"🔄 Ваш заказ *{confirmed_order_id}* передан новому курьеру: *{body.courier_name}*."
         )
     return await _async_get_admin_dashboard_data()
+
+
+class CourierReportBody(BaseModel):
+    courier_tid: str
+    courier_name: str = "Курьер"
+    week_start: str
+
+
+@app.post("/v1/manager/report")
+async def manager_report(body: CourierReportBody, _: int = Depends(manager_auth)):
+    try:
+        week_start = datetime.strptime(body.week_start, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="некорректный формат даты")
+    week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+    period_label = _week_label(week_start, week_end)
+
+    driver_data = await asyncio.to_thread(_sync_get_driver, body.courier_tid)
+    try:
+        rate = float(driver_data[4]) if driver_data and len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
+    except (ValueError, TypeError):
+        rate = DEFAULT_DRIVER_RATE
+
+    deliveries = await asyncio.to_thread(_sync_get_driver_deliveries, body.courier_tid, week_start, week_end)
+    if not deliveries:
+        raise HTTPException(status_code=404, detail=f"За {period_label} у курьера {body.courier_name} доставок не найдено")
+
+    excel_buf = await asyncio.to_thread(generate_excel_report, body.courier_name, rate, deliveries, period_label)
+    delivered_count = sum(1 for d in deliveries if d["s"] == "DELIVERED")
+    await manager_bot_instance.send_document(
+        chat_id=MANAGER_CHAT_ID,
+        document=types.BufferedInputFile(excel_buf.read(), filename=f"report_{body.courier_tid}_{body.week_start}.xlsx"),
+        caption=(
+            f"📄 <b>Отчёт: {period_label}</b>\n"
+            f"👤 {body.courier_name}\n"
+            f"✅ Доставлено: {delivered_count}\n"
+            f"💰 К выплате: {delivered_count * rate:.2f} TJS"
+        ),
+        parse_mode="HTML",
+    )
+    return {"ok": True}
+
+
+class ReportAllBody(BaseModel):
+    week_start: str
+
+
+@app.post("/v1/manager/report-all")
+async def manager_report_all(body: ReportAllBody, _: int = Depends(manager_auth)):
+    try:
+        week_start = datetime.strptime(body.week_start, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="некорректный формат даты")
+    week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+    period_label = _week_label(week_start, week_end)
+
+    active_couriers = await asyncio.to_thread(_sync_get_all_active_drivers)
+    if not active_couriers:
+        raise HTTPException(status_code=404, detail="Нет активных курьеров")
+
+    deliveries_map, rates_map = await asyncio.gather(
+        asyncio.to_thread(_sync_get_all_couriers_deliveries, week_start, week_end),
+        asyncio.to_thread(_sync_get_all_drivers_rates),
+    )
+
+    couriers_stats = []
+    for c in active_couriers:
+        rate = rates_map.get(c["telegram_id"], DEFAULT_DRIVER_RATE)
+        stats = deliveries_map.get(c["telegram_id"], {"total": 0, "delivered": 0})
+        couriers_stats.append({
+            "fio": c["fio"], "rate": rate,
+            "total": stats["total"], "delivered": stats["delivered"],
+        })
+
+    excel_buf = await asyncio.to_thread(generate_summary_excel, couriers_stats, period_label)
+    total_earn = sum(c["delivered"] * c["rate"] for c in couriers_stats)
+    total_deliv = sum(c["delivered"] for c in couriers_stats)
+    await manager_bot_instance.send_document(
+        chat_id=MANAGER_CHAT_ID,
+        document=types.BufferedInputFile(excel_buf.read(), filename=f"summary_{body.week_start}.xlsx"),
+        caption=(
+            f"📊 <b>Сводный отчёт: {period_label}</b>\n"
+            f"👥 Курьеров: {len(couriers_stats)}\n"
+            f"✅ Доставлено: {total_deliv}\n"
+            f"💰 Итого к выплате: {total_earn:.2f} TJS"
+        ),
+        parse_mode="HTML",
+    )
+    return {"ok": True}

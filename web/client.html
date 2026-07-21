@@ -606,7 +606,7 @@
         tg.showConfirm(msg, ok => { if (ok) sendDataToBot(res); });
     }
 
-    function sendDataToBot(res) {
+    async function sendDataToBot(res) {
         const dtype = document.querySelector('input[name="dtype"]:checked').value;
         const now = new Date();
         const dd = String(now.getDate()).padStart(2, '0');
@@ -630,16 +630,37 @@
             price: res.price.toFixed(2)
         };
 
-        const history = JSON.parse(localStorage.getItem('user_orders') || '[]');
-        history.push({
-            id: localId, timestamp: Date.now(), date_str: dateStr, status: 'NEW',
-            city_pickup: data.city_pickup, city_delivery: data.city_delivery,
-            type: dtype, r_name: data.r_name, price: data.price
-        });
-        localStorage.setItem('user_orders', JSON.stringify(history));
+        const submitBtn = document.getElementById('submit-btn');
+        submitBtn.disabled = true;
+        try {
+            const resp = await fetch(`${API_BASE}/client/orders`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': tg.initData || '',
+                },
+                body: JSON.stringify(data),
+            });
+            if (!resp.ok) {
+                let detail = '';
+                try { detail = (await resp.json()).detail || ''; } catch (e) {}
+                throw new Error(detail || `http ${resp.status}`);
+            }
 
-        tg.sendData(JSON.stringify(data));
-        tg.close();
+            const history = JSON.parse(localStorage.getItem('user_orders') || '[]');
+            history.push({
+                id: localId, timestamp: Date.now(), date_str: dateStr, status: 'NEW',
+                city_pickup: data.city_pickup, city_delivery: data.city_delivery,
+                type: dtype, r_name: data.r_name, price: data.price
+            });
+            localStorage.setItem('user_orders', JSON.stringify(history));
+
+            tg.close();
+        } catch (e) {
+            console.error('Ошибка оформления заказа:', e);
+            alert(currentLang === 'tj' ? 'Хатогӣ! Аз нав кӯшиш кунед.' : 'Ошибка оформления заказа. Попробуйте ещё раз.');
+            submitBtn.disabled = false;
+        }
     }
 
     const STATUS_CLASS = {

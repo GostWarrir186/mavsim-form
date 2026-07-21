@@ -517,22 +517,28 @@
         doCancelActive(reason);
     }
 
-    function reportCourier(tid, name) {
+    async function reportCourier(tid, name) {
         const { start } = getWeekDates(weekOffset);
-        tg.sendData(JSON.stringify({
-            action: 'manager_report',
-            courier_tid: tid,
-            courier_name: name,
-            week_start: fmtDate(start)
-        }));
+        try {
+            await postAction('/manager/report', {
+                courier_tid: tid,
+                courier_name: name,
+                week_start: fmtDate(start),
+            });
+            alert('✅ Отчёт отправлен вам в чат.');
+        } catch (e) {
+            alert('❌ ' + e.message);
+        }
     }
 
-    function reportAll() {
+    async function reportAll() {
         const { start } = getWeekDates(weekOffset);
-        tg.sendData(JSON.stringify({
-            action: 'manager_report_all',
-            week_start: fmtDate(start)
-        }));
+        try {
+            await postAction('/manager/report-all', { week_start: fmtDate(start) });
+            alert('✅ Сводный отчёт отправлен вам в чат.');
+        } catch (e) {
+            alert('❌ ' + e.message);
+        }
     }
 
     // ─── Рендер карточек ──────────────────────────────────────────────────────

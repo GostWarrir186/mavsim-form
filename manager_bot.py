@@ -1,5 +1,4 @@
 import asyncio
-import json
 import logging
 import os
 from datetime import datetime, timedelta
@@ -322,20 +321,16 @@ async def cmd_start_manager(message: types.Message):
 async def _send_panel(chat_id: int, bot_instance):
     data = await _async_get_admin_dashboard_data()
     text, webapp_url = _build_panel_message(data)
-    if webapp_url:
-        reply_kb = ReplyKeyboardMarkup(
-            keyboard=[
-                [KeyboardButton(text="🎛 Открыть панель", web_app=types.WebAppInfo(url=webapp_url))],
-                [KeyboardButton(text="🔄 Обновить")],
-            ],
-            resize_keyboard=True
-        )
-    else:
-        reply_kb = ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="🔄 Обновить")]],
-            resize_keyboard=True
-        )
+    reply_kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🔄 Обновить")]],
+        resize_keyboard=True
+    )
     await bot_instance.send_message(chat_id, text, reply_markup=reply_kb, parse_mode="HTML")
+    if webapp_url:
+        # Только inline-кнопка передаёт Telegram подписанный initData для web_api.py
+        b = InlineKeyboardBuilder()
+        b.button(text="🎛 Открыть панель", web_app=types.WebAppInfo(url=webapp_url))
+        await bot_instance.send_message(chat_id, "👇 Панель управления:", reply_markup=b.as_markup())
 
 
 
@@ -445,118 +440,6 @@ async def order_cancel_custom_reason(message: types.Message, state: FSMContext):
             client_chat_id,
             f"❌ К сожалению, ваш заказ *{order_id}* был отменён.\n📝 Причина: {reason}\n\nПожалуйста, свяжитесь с поддержкой если возникли вопросы."
         )
-
-
-# ─── WebApp от панели менеджера ──────────────────────────────────────────────
-
-@dp.message(F.web_app_data)
-async def handle_webapp(message: types.Message):
-    try:
-        data = json.loads(message.web_app_data.data)
-    except Exception:
-        return
-
-    action = data.get("action")
-
-    # change_status / cancel_active / set_ready / reassign_confirm мигрировали
-    # на REST (POST /api/v1/manager/orders/{order_id}/...) в web_api.py —
-    # это не закрывает WebApp менеджера при действии.
-
-    # ── Отчёт на одного курьера ──────────────────────────────────────────────
-    if action == "manager_report":
-        courier_tid    = str(data.get("courier_tid", ""))
-        courier_name   = data.get("courier_name", "Курьер")
-        week_start_str = data.get("week_start", "")
-        if not courier_tid or not week_start_str:
-            return
-        try:
-            week_start = datetime.strptime(week_start_str, "%Y-%m-%d")
-        except ValueError:
-            await message.answer("❌ Некорректный формат даты.")
-            return
-        week_end     = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
-        period_label = _week_label(week_start, week_end)
-
-        driver_data = await asyncio.to_thread(_sync_get_driver, courier_tid)
-        try:
-            rate = float(driver_data[4]) if driver_data and len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
-        except (ValueError, TypeError):
-            rate = DEFAULT_DRIVER_RATE
-
-        wait = await message.answer(f"⏳ Формирую отчёт для {courier_name}...")
-        deliveries = await asyncio.to_thread(_sync_get_driver_deliveries, courier_tid, week_start, week_end)
-
-        if not deliveries:
-            await wait.delete()
-            await message.answer(f"📭 За {period_label} у курьера <b>{courier_name}</b> доставок не найдено.", parse_mode="HTML")
-            return
-
-        excel_buf = await asyncio.to_thread(generate_excel_report, courier_name, rate, deliveries, period_label)
-        delivered_count = sum(1 for d in deliveries if d["s"] == "DELIVERED")
-        await wait.delete()
-        await message.answer_document(
-            types.BufferedInputFile(excel_buf.read(), filename=f"report_{courier_tid}_{week_start_str}.xlsx"),
-            caption=(
-                f"📄 <b>Отчёт: {period_label}</b>\n"
-                f"👤 {courier_name}\n"
-                f"✅ Доставлено: {delivered_count}\n"
-                f"💰 К выплате: {delivered_count * rate:.2f} TJS"
-            ),
-            parse_mode="HTML"
-        )
-        return
-
-    # ── Сводный отчёт на всех курьеров ───────────────────────────────────────
-    if action == "manager_report_all":
-        week_start_str = data.get("week_start", "")
-        if not week_start_str:
-            return
-        try:
-            week_start = datetime.strptime(week_start_str, "%Y-%m-%d")
-        except ValueError:
-            await message.answer("❌ Некорректный формат даты.")
-            return
-        week_end     = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
-        period_label = _week_label(week_start, week_end)
-
-        active_couriers = await asyncio.to_thread(_sync_get_all_active_drivers)
-        if not active_couriers:
-            await message.answer("❌ Нет активных курьеров.")
-            return
-
-        wait = await message.answer(f"⏳ Формирую сводный отчёт за {period_label}...")
-
-        deliveries_map, rates_map = await asyncio.gather(
-            asyncio.to_thread(_sync_get_all_couriers_deliveries, week_start, week_end),
-            asyncio.to_thread(_sync_get_all_drivers_rates),
-        )
-
-        couriers_stats = []
-        for c in active_couriers:
-            rate  = rates_map.get(c["telegram_id"], DEFAULT_DRIVER_RATE)
-            stats = deliveries_map.get(c["telegram_id"], {"total": 0, "delivered": 0})
-            couriers_stats.append({
-                "fio":       c["fio"],
-                "rate":      rate,
-                "total":     stats["total"],
-                "delivered": stats["delivered"],
-            })
-
-        excel_buf   = await asyncio.to_thread(generate_summary_excel, couriers_stats, period_label)
-        total_earn  = sum(c["delivered"] * c["rate"] for c in couriers_stats)
-        total_deliv = sum(c["delivered"] for c in couriers_stats)
-        await wait.delete()
-        await message.answer_document(
-            types.BufferedInputFile(excel_buf.read(), filename=f"summary_{week_start_str}.xlsx"),
-            caption=(
-                f"📊 <b>Сводный отчёт: {period_label}</b>\n"
-                f"👥 Курьеров: {len(couriers_stats)}\n"
-                f"✅ Доставлено: {total_deliv}\n"
-                f"💰 Итого к выплате: {total_earn:.2f} TJS"
-            ),
-            parse_mode="HTML"
-        )
-        return
 
 
 # ─── Одобрение / отклонение курьеров ────────────────────────────────────────

@@ -421,9 +421,27 @@
     }
 
     // ─── Отчёт ──────────────────────────────────────────────────────────────
-    function downloadReport() {
+    async function downloadReport() {
         const ws = isoFromDate(weekStart);
-        tg.sendData(JSON.stringify({ action: 'generate_report', week_start: ws }));
+        try {
+            const resp = await fetch(`${API_BASE}/driver/report`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Telegram-Init-Data': tg.initData || '',
+                },
+                body: JSON.stringify({ week_start: ws }),
+            });
+            if (!resp.ok) {
+                let detail = '';
+                try { detail = (await resp.json()).detail || ''; } catch (e) {}
+                throw new Error(detail || `http ${resp.status}`);
+            }
+            alert('✅ Отчёт отправлен вам в чат.');
+        } catch (e) {
+            console.error('Ошибка формирования отчёта:', e);
+            alert('❌ ' + (e.message || 'Не удалось сформировать отчёт'));
+        }
     }
 
     // ─── Действия ───────────────────────────────────────────────────────────
