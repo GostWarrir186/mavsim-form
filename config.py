@@ -132,10 +132,16 @@ def verify_init_data(bot_token: str, init_data: str) -> Optional[dict]:
         secret_key = hmac.new(b'WebAppData', bot_token.encode(), hashlib.sha256).digest()
         computed_hash = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(computed_hash, received_hash):
+            logging.warning(
+                f"[DEBUG initData] MISMATCH check_string={check_string!r} "
+                f"computed={computed_hash} received={received_hash} "
+                f"token_tail=...{bot_token[-6:]}"
+            )
             return None
 
         auth_date = int(decoded.get('auth_date', 0))
         if auth_date <= 0 or (time.time() - auth_date) > AUTH_MAX_AGE_SECONDS:
+            logging.warning(f"[DEBUG initData] STALE auth_date={auth_date} now={time.time()}")
             return None
 
         decoded['auth_date'] = auth_date
