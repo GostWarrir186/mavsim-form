@@ -65,14 +65,24 @@ try:
         sheet.append_row(LIST1_HEADERS)
         logging.info("✅ Создан лист 'Лист1'")
 
+    def _ensure_columns(ws, col_names: tuple[str, ...]) -> None:
+        """Дописывает недостающие заголовки в конец листа, расширяя сетку при нехватке столбцов."""
+        existing_headers = ws.row_values(1)
+        col_count = ws.col_count  # кэш до наших изменений, дальше отслеживаем сами
+        for col_name in col_names:
+            if col_name in existing_headers:
+                continue
+            existing_headers.append(col_name)
+            needed = len(existing_headers)
+            if col_count < needed:
+                ws.add_cols(needed - col_count)
+                col_count = needed
+            ws.update_cell(1, needed, col_name)
+            logging.info(f"✅ Добавлена колонка '{col_name}' в лист '{ws.title}'")
+
     try:
         drivers_sheet = spreadsheet.worksheet("Водители")
-        existing_headers = drivers_sheet.row_values(1)
-        for col_name in ("Язык", "Заявка ФИО"):
-            if col_name not in existing_headers:
-                existing_headers.append(col_name)
-                drivers_sheet.update_cell(1, len(existing_headers), col_name)
-                logging.info(f"✅ Добавлена колонка '{col_name}' в лист 'Водители'")
+        _ensure_columns(drivers_sheet, ("Язык", "Заявка ФИО"))
     except gspread.WorksheetNotFound:
         drivers_sheet = spreadsheet.add_worksheet(title="Водители", rows=1000, cols=10)
         drivers_sheet.append_row([
@@ -83,10 +93,7 @@ try:
 
     try:
         clients_sheet = spreadsheet.worksheet("Клиенты")
-        existing_headers = clients_sheet.row_values(1)
-        if "Язык" not in existing_headers:
-            clients_sheet.update_cell(1, len(existing_headers) + 1, "Язык")
-            logging.info("✅ Добавлена колонка 'Язык' в лист 'Клиенты'")
+        _ensure_columns(clients_sheet, ("Язык",))
     except gspread.WorksheetNotFound:
         clients_sheet = spreadsheet.add_worksheet(title="Клиенты", rows=5000, cols=8)
         clients_sheet.append_row([
