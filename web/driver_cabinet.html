@@ -411,18 +411,14 @@
                </div>`;
 
         app.innerHTML = `
-        <!-- Lang switcher -->
-        <div style="display:flex;justify-content:flex-end;gap:8px;padding:10px 14px 0;">
-            <button onclick="setLang('ru')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${profileLang==='ru'?'var(--primary)':'rgba(0,0,0,.15)'};background:${profileLang==='ru'?'var(--primary-light)':'var(--bg)'};color:${profileLang==='ru'?'var(--primary)':'var(--hint)'};">🇷🇺 RU</button>
-            <button onclick="setLang('tj')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${profileLang==='tj'?'var(--primary)':'rgba(0,0,0,.15)'};background:${profileLang==='tj'?'var(--primary-light)':'var(--bg)'};color:${profileLang==='tj'?'var(--primary)':'var(--hint)'};">🇹🇯 TJ</button>
-        </div>
-
         <!-- Header -->
         <div class="header">
-            <div class="header-title">${t.cabinet_title}
-                <span onclick="toggleProfile()" style="float:right;cursor:pointer;opacity:.85;">✏️</span>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;">
+                <button onclick="setLang('ru')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${profileLang==='ru'?'#fff':'rgba(255,255,255,.35)'};background:${profileLang==='ru'?'rgba(255,255,255,.2)':'transparent'};color:#fff;">🇷🇺 RU</button>
+                <button onclick="setLang('tj')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${profileLang==='tj'?'#fff':'rgba(255,255,255,.35)'};background:${profileLang==='tj'?'rgba(255,255,255,.2)':'transparent'};color:#fff;">🇹🇯 TJ</button>
             </div>
-            <div class="header-name">${driverName}</div>
+            <div class="header-title">${t.cabinet_title}</div>
+            <div class="header-name" onclick="toggleProfile()" style="cursor:pointer;">${driverName}</div>
             <div class="header-month">${monthLabel}</div>
         </div>
 
