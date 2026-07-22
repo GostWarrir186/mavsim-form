@@ -19,7 +19,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
-from config import driver_bot as bot, client_bot, manager_bot as mgr_bot, driver_dp as dp, sheet, drivers_sheet, pick_lang
+from config import driver_bot as bot, client_bot, manager_bot as mgr_bot, driver_dp as dp, sheet, drivers_sheet, get_manager_chat_ids, sync_update_order_info_status
 
 # ─── Конфигурация ───────────────────────────────────────────────────────────
 DRIVER_WEBAPP_URL   = os.getenv("DRIVER_WEBAPP_URL", "")
@@ -27,7 +27,6 @@ REPORT_PICKER_URL   = os.getenv("REPORT_PICKER_URL", "")
 DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "18.0"))
 LINK_TO_DRIVER_OFFER = os.getenv("DRIVER_OFFER_URL", "https://www.google.com")
 SUPPORT_CHAT_ID     = os.getenv("SUPPORT_CHAT_ID", "")
-MANAGER_CHAT_ID     = os.getenv("MANAGER_CHAT_ID", "")
 NEW_ORDERS_POLL_SECONDS = int(os.getenv("NEW_ORDERS_POLL_SECONDS", "15"))
 
 DUSHANBE_TZ = timezone(timedelta(hours=5))
@@ -44,8 +43,259 @@ RU_MONTHS_GEN = {
 # Блокировка для атомарных операций с заказами
 _order_take_lock = threading.Lock()
 
+# Карточки заказа на бирже, разосланные курьерам — чтоб убрать "мёртвые" после захвата заказа
+_job_message_refs: dict[str, list[tuple[int, int]]] = {}
+
+# Последний показ биржи каждому курьеру — чтоб не плодить дубли при повторном нажатии
+_last_jobs_msgs: dict[int, list[int]] = {}
+
+
+async def _clear_previous_jobs_view(chat_id: int):
+    old_ids = _last_jobs_msgs.pop(chat_id, [])
+    if not old_ids:
+        return
+    old_id_set = set(old_ids)
+    for order_id, refs in list(_job_message_refs.items()):
+        remaining = [r for r in refs if not (r[0] == chat_id and r[1] in old_id_set)]
+        if remaining:
+            _job_message_refs[order_id] = remaining
+        else:
+            _job_message_refs.pop(order_id, None)
+    for mid in old_ids:
+        try:
+            await bot.delete_message(chat_id, mid)
+        except Exception:
+            pass
+
+
+# Последнее сообщение о статусе заявки (PENDING/"заявка отправлена") — чтоб не плодить
+# при повторных /start, и стереть его как только менеджер одобрит/отклонит курьера
+_status_msgs: dict[int, int] = {}
+
+
+async def _replace_status_message(chat_id: int, text: str, **kwargs):
+    old_id = _status_msgs.pop(chat_id, None)
+    if old_id:
+        try:
+            await bot.delete_message(chat_id, old_id)
+        except Exception:
+            pass
+    sent = await bot.send_message(chat_id, text, **kwargs)
+    _status_msgs[chat_id] = sent.message_id
+    return sent
+
+
+async def _clear_status_message(chat_id: int):
+    old_id = _status_msgs.pop(chat_id, None)
+    if old_id:
+        try:
+            await bot.delete_message(chat_id, old_id)
+        except Exception:
+            pass
+
+
+async def _try_delete(message: types.Message):
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+async def _clear_stale_job_cards(order_id: str, keep: tuple[int, int] | None = None):
+    """Стирает клавиатуру и меняет текст у всех разосланных карточек заказа, кроме той что взяли."""
+    refs = _job_message_refs.pop(order_id, [])
+    for chat_id, msg_id in refs:
+        if keep and (chat_id, msg_id) == keep:
+            continue
+        try:
+            driver_data = await asyncio.to_thread(_sync_get_driver, str(chat_id))
+            lang = _lang_from_driver_row(driver_data)
+            await bot.edit_message_text(L[lang]["job_taken_by_other"], chat_id=chat_id, message_id=msg_id)
+        except Exception:
+            pass
+
+
+# ─── Локализация (курьерский бот — только один язык за раз) ─────────────────
+JOBS_BTN     = {"ru": "🔍 Свободные заказы",              "tj": "🔍 Фармоишҳои озод"}
+CABINET_BTN  = {"ru": "📊 Мой кабинет",                    "tj": "📊 Кабинети ман"}
+SUPPORT_BTN  = {"ru": "📞 Поддержка",                      "tj": "📞 Дастгирӣ"}
+BACK_BTN     = {"ru": "🔙 Главное меню",                   "tj": "🔙 Ба меню асосӣ"}
+ACCEPT_OFFER_BTN = {"ru": "📝 Принять оферту и зарегистрироваться", "tj": "📝 Офертаро қабул кунед"}
+SHARE_PHONE_BTN  = {"ru": "📱 Поделиться номером",          "tj": "📱 Рақами телефонро мубодила кунед"}
+SKIP_BTN     = {"ru": "Пропустить",                        "tj": "Гузаштан"}
+TAKE_JOB_BTN = {"ru": "✅ Взять заказ",                     "tj": "✅ Фармоишро гиред"}
+TRANSIT_BTN  = {"ru": "🚚 В пути",                          "tj": "🚚 Дар роҳ"}
+REJECT_BTN   = {"ru": "❌ Отказаться от заказа",            "tj": "❌ Аз фармоиш даст кашидан"}
+DELIVERED_BTN = {"ru": "🏁 Заказ доставлен",                "tj": "🏁 Фармоиш расонида шуд"}
+
+L = {
+    "ru": {
+        "lang_saved": "✅ Язык сохранён.",
+        "approved": "🎉 **Поздравляем, {fio}!**\n\nВаш аккаунт курьера активирован.\nНажмите /start чтобы начать работу.",
+        "rejected": (
+            "❌ **Ваша заявка отклонена.**\n\n"
+            "К сожалению, мы не можем принять вас на данный момент.\n"
+            "По вопросам обратитесь к администрации."
+        ),
+        "welcome": (
+            "💼 **Добро пожаловать в Mavsimi Rason!**\n\n"
+            "Для работы курьером необходимо принять условия сотрудничества.\n\n"
+            "📋 [Оферта для курьеров]({url})\n\n"
+            "Ознакомьтесь и нажмите кнопку ниже:"
+        ),
+        "pending": (
+            "⏳ **Заявка на рассмотрении.**\n\n"
+            "Менеджер проверит ваши данные и активирует аккаунт.\n"
+            "Попробуйте позже — нажмите /start чтобы проверить статус."
+        ),
+        "welcome_back": "👋 **С возвращением, {fio}!**\n\nВыберите действие:",
+        "blocked": "⛔ Аккаунт заблокирован. Обратитесь к администратору.",
+        "menu_prompt": "Выберите действие:",
+        "offer_accepted_ask_fio": "✅ Отлично! Вы принимаете условия оферты.\n\nВведите ваше **ФИО** (Фамилия Имя Отчество):",
+        "fio_too_short": "❌ Пожалуйста, введите полное ФИО (минимум 3 символа).",
+        "fio_saved_ask_phone": "✅ Имя принято: *{fio}*\n\nТеперь введите ваш номер телефона или нажмите кнопку ниже:",
+        "phone_missing": "❌ Пожалуйста, отправьте номер телефона.",
+        "registered": (
+            "✅ **Заявка отправлена, {fio}!**\n\n"
+            "Менеджер проверит данные и активирует ваш аккаунт.\n"
+            "Нажмите /start чтобы проверить статус."
+        ),
+        "register_error": "❌ Ошибка при регистрации. Попробуйте позже (/start).",
+        "fio_empty": "❌ ФИО не может быть пустым.",
+        "profile_user_not_found": "❌ Ошибка обновления. Пользователь не найден.",
+        "lang_saved_fio_pending": "✅ Язык сохранён.\n✏️ Заявка на смену ФИО отправлена менеджеру — ожидайте подтверждения.",
+        "bad_date": "❌ Некорректный формат даты.",
+        "not_registered": "❌ Вы не зарегистрированы. Нажмите /start.",
+        "generating_report": "⏳ Формирую отчёт...",
+        "no_deliveries_period": "📭 За {period} доставок не найдено.",
+        "report_caption": "📄 **Отчёт: {period}**\n👤 {fio}\n✅ Доставлено: {n}",
+        "access_denied": "⛔ Доступ запрещён. Нажмите /start.",
+        "access_denied_short": "⛔ Доступ запрещён.",
+        "db_unavailable": "❌ База данных недоступна.",
+        "no_free_jobs": "🕳️ На бирже сейчас нет свободных заказов.",
+        "jobs_header": "📦 **Свободные заказы ({n}):**",
+        "job_card": (
+            "🆔 **Заказ №:** `{id}`\n"
+            "• **Получатель:** {phone}\n"
+            "• **Тип:** {dtype}\n"
+            "• **Комментарий курьеру:** {comment}\n"
+            "────────────────────\n"
+            "📍 **Откуда:** {cf}, {af}\n"
+            "🌆 **Куда:** {ct}, {at}\n"
+            "👤 **Отправитель:** {sname}"
+        ),
+        "dtype_pvz": "ПВЗ 🏢", "dtype_door": "До двери 🚪",
+        "new_job_header": "🆕 **Новый заказ!**\n\n",
+        "job_taken_by_other": "❌ Этот заказ уже забрал другой водитель!",
+        "bad_order_number": "❌ Некорректный номер заказа.",
+        "order_taken": "🎉 **Вы взяли заказ {id}!**\n\nОтправляйтесь на точку забора и нажмите кнопку, когда выедете в путь.",
+        "server_error": "❌ Ошибка на сервере. Попробуйте позже.",
+        "reject_prompt": (
+            "↩️ Отказ от заказа <b>{id}</b>\n\n"
+            "Укажите причину отказа (текст или фото с подписью).\n"
+            "Или нажмите «Пропустить»."
+        ),
+        "reject_processing": "↩️ Обрабатываю отказ...",
+        "reject_failed": "❌ Не удалось отказаться — статус заказа уже изменился.",
+        "reject_done": "↩️ Вы отказались от заказа <b>{id}</b>.\nЗаказ возвращён на биржу.",
+        "transit_msg": "🚚 **Заказ {id}: В пути**\n\nКак доставите заказ — нажмите «Доставлен».",
+        "transit_error": "❌ Ошибка при выезде. Попробуйте позже.",
+        "delivered_msg": "🏁 **Заказ {id} закрыт!**\n\nОтличная работа!",
+        "delivered_error": "❌ Ошибка при завершении. Попробуйте позже.",
+        "support_unavailable": "⚙️ Поддержка временно недоступна.",
+        "support_prompt": "📞 <b>Напишите ваш вопрос или проблему:</b>\nМы ответим в ближайшее время.",
+        "support_sent": "✅ Отправлено! Менеджер ответит здесь.",
+        "support_error": "❌ Ошибка. Попробуйте позже.",
+        "support_session_expired": "❌ Сессия истекла. Нажмите кнопку поддержки снова.",
+        "support_send_failed": "❌ Не удалось отправить. Попробуйте позже.",
+        "support_reply_header": "💬 <b>Ответ от поддержки:</b>\n\n{text}",
+    },
+    "tj": {
+        "lang_saved": "✅ Забон нигоҳ дошта шуд.",
+        "approved": "🎉 **Табрик, {fio}!**\n\nАккаунти курьери шумо фаъол шуд.\n/start-ро пахш кунед то кор оғоз кунед.",
+        "rejected": (
+            "❌ **Дархости шумо рад шуд.**\n\n"
+            "Мутаассифона, мо дар айни ҳол шуморо қабул карда наметавонем.\n"
+            "Барои саволҳо ба маъмурият муроҷиат кунед."
+        ),
+        "welcome": (
+            "💼 **Ба Mavsimi Rason хуш омадед!**\n\n"
+            "Барои кор ҳамчун курьер шартҳои ҳамкориро қабул кунед.\n\n"
+            "📋 [Оферта барои курьерҳо]({url})\n\n"
+            "Шартҳоро хонда, тугмаи зерро пахш кунед:"
+        ),
+        "pending": (
+            "⏳ **Дархост дар баррасӣ.**\n\n"
+            "Менеҷер маълумоти шуморо баррасӣ мекунад.\n"
+            "Баъдтар /start-ро пахш кунед."
+        ),
+        "welcome_back": "👋 **Хуш омадед, {fio}!**\n\nАмалро интихоб кунед:",
+        "blocked": "⛔ Аккаунти шумо баста шудааст.",
+        "menu_prompt": "Амалро интихоб кунед:",
+        "offer_accepted_ask_fio": "✅ Офертаро қабул кардед!\n\nНоми пурраи худро ворид кунед (Фамилия Ном Насаб):",
+        "fio_too_short": "❌ Номи пурраи худро ворид кунед (ҳадди ақал 3 аломат).",
+        "fio_saved_ask_phone": "✅ Ном қабул шуд: *{fio}*\n\nРақами телефони худро ворид кунед ё тугмаи зерро пахш кунед:",
+        "phone_missing": "❌ Лутфан, рақами телефони худро фиристед.",
+        "registered": (
+            "✅ **Дархост фиристода шуд, {fio}!**\n\n"
+            "Менеҷер маълумотро баррасӣ мекунад.\n"
+            "/start-ро пахш кунед то ҳолатро тафтиш кунед."
+        ),
+        "register_error": "❌ Хатогӣ ҳангоми бақайдгирӣ. Баъдтар кӯшиш кунед (/start).",
+        "fio_empty": "❌ Ном холӣ буда наметавонад.",
+        "profile_user_not_found": "❌ Хатогӣ. Корбар дар база нест.",
+        "lang_saved_fio_pending": "✅ Забон нигоҳ дошта шуд.\n✏️ Дархости тағйири ном ба менеҷер фиристода шуд — мунтазири тасдиқ шавед.",
+        "bad_date": "❌ Формати сана нодуруст аст.",
+        "not_registered": "❌ Шумо сабти ном нашудаед. /start-ро пахш кунед.",
+        "generating_report": "⏳ Ҳисобот тайёр карда истодааст...",
+        "no_deliveries_period": "📭 Дар {period} фармоише ёфт нашуд.",
+        "report_caption": "📄 **Ҳисобот: {period}**\n👤 {fio}\n✅ Расонида шуд: {n}",
+        "access_denied": "⛔ Дастрасӣ манъ аст. /start-ро пахш кунед.",
+        "access_denied_short": "⛔ Дастрасӣ манъ аст.",
+        "db_unavailable": "❌ Пойгоҳи маълумот дастнорас аст.",
+        "no_free_jobs": "🕳️ Ҳоло дар бирже фармоишҳои озод нест.",
+        "jobs_header": "📦 **Фармоишҳои озод ({n}):**",
+        "job_card": (
+            "🆔 **Фармоиш №:** `{id}`\n"
+            "• **Қабулкунанда:** {phone}\n"
+            "• **Намуд:** {dtype}\n"
+            "• **Шарҳ барои курьер:** {comment}\n"
+            "────────────────────\n"
+            "📍 **Аз куҷо:** {cf}, {af}\n"
+            "🌆 **Ба куҷо:** {ct}, {at}\n"
+            "👤 **Фиристанда:** {sname}"
+        ),
+        "dtype_pvz": "ПВЗ 🏢", "dtype_door": "Ба дар 🚪",
+        "new_job_header": "🆕 **Фармоиши нав!**\n\n",
+        "job_taken_by_other": "❌ Ин фармоишро курьери дигар гирифт!",
+        "bad_order_number": "❌ Рақами фармоиш нодуруст аст.",
+        "order_taken": "🎉 **Шумо фармоиш {id} гирифтед!**\n\nБа нуқтаи забт равед ва ҳангоми баромадан ба роҳ тугмаро пахш кунед.",
+        "server_error": "❌ Хатогии сервер. Баъдтар кӯшиш кунед.",
+        "reject_prompt": (
+            "↩️ Аз фармоиш даст кашидан <b>{id}</b>\n\n"
+            "Сабаби рад карданро нависед (матн ё акс бо тавзеҳот).\n"
+            "Ё «Гузаштан»-ро пахш кунед."
+        ),
+        "reject_processing": "↩️ Радшавӣ коркард шуда истодааст...",
+        "reject_failed": "❌ Радшавӣ муяссар нашуд — статуси фармоиш тағйир ёфт.",
+        "reject_done": "↩️ Шумо аз фармоиш <b>{id}</b> даст кашидед.\nФармоиш ба бирже баргашт.",
+        "transit_msg": "🚚 **Фармоиш {id}: Дар роҳ**\n\nҲангоми расонидан тугмаи «Расонида шуд»-ро пахш кунед.",
+        "transit_error": "❌ Хатогӣ ҳангоми баромадан ба роҳ. Баъдтар кӯшиш кунед.",
+        "delivered_msg": "🏁 **Фармоиш {id} баста шуд!**\n\nКорхонаи хуб!",
+        "delivered_error": "❌ Хатогӣ ҳангоми анҷом додан. Баъдтар кӯшиш кунед.",
+        "support_unavailable": "⚙️ Дастгирӣ муваққатан дастнорас аст.",
+        "support_prompt": "📞 <b>Саволи худро нависед:</b>\nМо ҳарчи зудтар ҷавоб хоҳем дод.",
+        "support_sent": "✅ Фиристода шуд! Менеҷер ин ҷо ҷавоб хоҳад дод.",
+        "support_error": "❌ Хатогӣ. Баъдтар кӯшиш кунед.",
+        "support_session_expired": "❌ Мӯҳлати сессия гузашт. Тугмаи дастгириро аз нав пахш кунед.",
+        "support_send_failed": "❌ Фиристода нашуд. Баъдтар кӯшиш кунед.",
+        "support_reply_header": "💬 <b>Ҷавоб аз дастгирӣ:</b>\n\n{text}",
+    },
+}
+
 
 class DriverRegistration(StatesGroup):
+    waiting_for_lang  = State()
     waiting_for_fio   = State()
     waiting_for_phone = State()
 
@@ -155,14 +405,14 @@ def _sync_get_driver_by_topic(topic_id: str) -> str | None:
         return None
 
 
-def _sync_register_driver(chat_id: str, fio: str, phone: str = "") -> bool:
+def _sync_register_driver(chat_id: str, fio: str, phone: str = "", lang: str = "ru") -> bool:
     if not drivers_sheet:
         return False
     try:
         now = _now_dushanbe()
         drivers_sheet.append_row([
             "PENDING", now, fio, str(chat_id),
-            str(DEFAULT_DRIVER_RATE), now, "", phone
+            str(DEFAULT_DRIVER_RATE), now, "", phone, lang
         ], table_range="A1")
         return True
     except Exception as e:
@@ -242,10 +492,10 @@ def _sync_reject_name_change(telegram_id: str) -> str | None:
 
 
 def _lang_from_driver_row(row) -> str:
-    """Достаёт сохранённое предпочтение языка из строки листа Водители (I = 9)."""
+    """Достаёт сохранённое предпочтение языка из строки листа Водители (I = 9). По умолчанию — русский."""
     if row and len(row) > 8 and row[8] in ("ru", "tj"):
         return row[8]
-    return "both"
+    return "ru"
 
 
 def _sync_get_all_active_drivers() -> list[dict]:
@@ -259,7 +509,7 @@ def _sync_get_all_active_drivers() -> list[dict]:
                 continue
             if row[0].upper().strip() != "ACTIVE":
                 continue
-            result.append({"row_num": idx + 1, "fio": row[2], "telegram_id": row[3]})
+            result.append({"row_num": idx + 1, "fio": row[2], "telegram_id": row[3], "lang": _lang_from_driver_row(row)})
         return result
     except Exception as e:
         logging.error(f"Ошибка получения активных курьеров: {e}")
@@ -397,14 +647,14 @@ def _sync_find_order_by_id(order_id: str) -> tuple[int, list] | None:
 
 
 def _sync_reassign_order(row_num: int, new_courier_name: str, new_courier_id: str) -> tuple[bool, str, str]:
-    """Переназначает заказ. Разрешено для TAKEN/LOADING/IN_TRANSIT/ARRIVED → сбрасывает в TAKEN."""
+    """Переназначает заказ. Разрешено для TAKEN/IN_TRANSIT → сбрасывает в TAKEN."""
     if not sheet:
         return False, "", ""
     with _order_take_lock:
         try:
             row = _pad_row(sheet.row_values(row_num))
             status = row[0].upper().strip()
-            if status not in ("TAKEN", "LOADING", "IN_TRANSIT", "ARRIVED"):
+            if status not in ("TAKEN", "IN_TRANSIT"):
                 return False, "", ""
             old_courier_id = row[19]
             order_id = row[1]
@@ -413,6 +663,7 @@ def _sync_reassign_order(row_num: int, new_courier_name: str, new_courier_id: st
                 {"range": f"R{row_num}", "values": [[new_courier_name]]},
                 {"range": f"T{row_num}", "values": [[str(new_courier_id)]]},
             ])
+            sync_update_order_info_status(order_id, "TAKEN")
             return True, old_courier_id, order_id
         except Exception as e:
             logging.error(f"Ошибка переназначения заказа (строка {row_num}): {e}")
@@ -430,7 +681,7 @@ def _sync_get_orders_for_dashboard() -> tuple[list, list, list]:
                 continue
             row = _pad_row(row)
             status = row[0].upper().strip()
-            if status in ("TAKEN", "LOADING", "IN_TRANSIT", "ARRIVED"):
+            if status in ("TAKEN", "IN_TRANSIT"):
                 active.append({
                     "row":        idx + 1,
                     "id":         row[1],
@@ -498,10 +749,14 @@ async def _async_get_admin_dashboard_data() -> dict:
 
 
 # ─── Excel-отчёт ─────────────────────────────────────────────────────────────
-def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict], period_label: str) -> BytesIO:
+def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict], period_label: str,
+                           show_earnings: bool = True) -> BytesIO:
+    """show_earnings=False скрывает ставку/заработок — используется для отчёта, который скачивает сам курьер."""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Отчёт"
+
+    n_cols = 8 if show_earnings else 7
 
     BLUE   = "FF2481CC"
     L_BLUE = "FFD6EAF8"
@@ -521,15 +776,19 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
         c.border = border
         return c
 
-    ws.merge_cells("A1:H1")
+    last_col_letter = get_column_letter(n_cols)
+
+    ws.merge_cells(f"A1:{last_col_letter}1")
     c = ws.cell(row=1, column=1, value="MAVSIMI RASON — Отчёт курьера")
     c.font = Font(bold=True, color=WHITE, size=14, name="Calibri")
     c.fill = PatternFill("solid", fgColor=BLUE)
     c.alignment = Alignment(horizontal="center", vertical="center")
 
-    ws.merge_cells("A2:H2")
-    c2 = ws.cell(row=2, column=1,
-                 value=f"Курьер: {driver_name}   |   Период: {period_label}   |   Ставка: {rate:.2f} TJS / доставка")
+    ws.merge_cells(f"A2:{last_col_letter}2")
+    info_line = f"Курьер: {driver_name}   |   Период: {period_label}"
+    if show_earnings:
+        info_line += f"   |   Ставка: {rate:.2f} TJS / доставка"
+    c2 = ws.cell(row=2, column=1, value=info_line)
     c2.font = Font(bold=False, color="FF555555", size=11, name="Calibri")
     c2.fill = PatternFill("solid", fgColor=GRAY)
     c2.alignment = Alignment(horizontal="center", vertical="center")
@@ -538,22 +797,28 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
     total_count = len(delivered)
     total_earn  = total_count * rate
 
-    ws.merge_cells("A3:D3")
-    ws.merge_cells("E3:H3")
+    if show_earnings:
+        ws.merge_cells("A3:D3")
+        ws.merge_cells("E3:H3")
+    else:
+        ws.merge_cells(f"A3:{last_col_letter}3")
     c3a = ws.cell(row=3, column=1, value=f"Итого доставок: {total_count}")
     c3a.font = Font(bold=True, color=WHITE, size=12, name="Calibri")
     c3a.fill = PatternFill("solid", fgColor=BLUE)
     c3a.alignment = Alignment(horizontal="center", vertical="center")
-    c3b = ws.cell(row=3, column=5, value=f"Итого к выплате: {total_earn:.2f} TJS")
-    c3b.font = Font(bold=True, color=WHITE, size=12, name="Calibri")
-    c3b.fill = PatternFill("solid", fgColor="FF22A368")
-    c3b.alignment = Alignment(horizontal="center", vertical="center")
+    if show_earnings:
+        c3b = ws.cell(row=3, column=5, value=f"Итого к выплате: {total_earn:.2f} TJS")
+        c3b.font = Font(bold=True, color=WHITE, size=12, name="Calibri")
+        c3b.fill = PatternFill("solid", fgColor="FF22A368")
+        c3b.alignment = Alignment(horizontal="center", vertical="center")
 
-    headers = ["№", "Дата", "Время", "Откуда", "Куда", "Тип", "Статус", "Заработок (TJS)"]
+    headers = ["№", "Дата", "Время", "Откуда", "Куда", "Тип", "Статус"]
+    if show_earnings:
+        headers.append("Заработок (TJS)")
     for col, h in enumerate(headers, 1):
         cell_style(ws, 4, col, h, bold=True, bg=BLUE, color=WHITE, align="center", size=11)
 
-    col_widths = [5, 13, 9, 18, 18, 12, 14, 16]
+    col_widths = [5, 13, 9, 18, 18, 12, 14] + ([16] if show_earnings else [])
     for i, w in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.row_dimensions[1].height = 28
@@ -567,8 +832,7 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
         is_done = d["s"] == "DELIVERED"
         earn = rate if is_done else 0.0
         status_label = {
-            "DELIVERED": "✓ Доставлен", "IN_TRANSIT": "В пути",
-            "LOADING": "Погрузка", "TAKEN": "Взят", "ARRIVED": "На месте",
+            "DELIVERED": "✓ Доставлен", "IN_TRANSIT": "В пути", "TAKEN": "Принял",
         }.get(d["s"], d["s"])
         cell_style(ws, r, 1, i,            bg=bg, align="center")
         cell_style(ws, r, 2, d["d"],       bg=bg, align="center")
@@ -578,21 +842,23 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
         cell_style(ws, r, 6, "ПВЗ" if d["tp"] == "PVZ" else "До двери", bg=bg, align="center")
         cell_style(ws, r, 7, status_label, bg=bg, align="center",
                    color="FF2BCA80" if is_done else "FF555555", bold=is_done)
-        earn_cell = cell_style(ws, r, 8, earn, bg=bg, align="center",
-                               bold=is_done, color="FF2481CC" if is_done else "FF999999")
-        earn_cell.number_format = '0.00 "TJS"'
+        if show_earnings:
+            earn_cell = cell_style(ws, r, 8, earn, bg=bg, align="center",
+                                   bold=is_done, color="FF2481CC" if is_done else "FF999999")
+            earn_cell.number_format = '0.00 "TJS"'
         ws.row_dimensions[r].height = 18
 
     last = len(deliveries) + 5
-    ws.merge_cells(f"A{last}:G{last}")
-    cell_style(ws, last, 1, "ИТОГО К ВЫПЛАТЕ:", bold=True, bg=GRAY, align="right", size=12)
-    earn_total = ws.cell(row=last, column=8, value=total_earn)
-    earn_total.font = Font(bold=True, color="FF22A368", size=13, name="Calibri")
-    earn_total.fill = PatternFill("solid", fgColor=GRAY)
-    earn_total.alignment = Alignment(horizontal="center", vertical="center")
-    earn_total.number_format = '0.00 "TJS"'
-    earn_total.border = border
-    ws.row_dimensions[last].height = 22
+    if show_earnings:
+        ws.merge_cells(f"A{last}:G{last}")
+        cell_style(ws, last, 1, "ИТОГО К ВЫПЛАТЕ:", bold=True, bg=GRAY, align="right", size=12)
+        earn_total = ws.cell(row=last, column=8, value=total_earn)
+        earn_total.font = Font(bold=True, color="FF22A368", size=13, name="Calibri")
+        earn_total.fill = PatternFill("solid", fgColor=GRAY)
+        earn_total.alignment = Alignment(horizontal="center", vertical="center")
+        earn_total.number_format = '0.00 "TJS"'
+        earn_total.border = border
+        ws.row_dimensions[last].height = 22
     ws.freeze_panes = "A5"
 
     buf = BytesIO()
@@ -603,11 +869,12 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
 
 # ─── Клавиатура главного меню водителя ──────────────────────────────────────
 async def build_driver_main_menu(driver_id: int):
+    driver_data = await asyncio.to_thread(_sync_get_driver, str(driver_id))
+    lang = _lang_from_driver_row(driver_data)
     b = ReplyKeyboardBuilder()
-    b.button(text="🔍 Фармоишҳои озод / Свободные заказы")
+    b.button(text=JOBS_BTN[lang])
     if DRIVER_WEBAPP_URL:
         try:
-            driver_data = await asyncio.to_thread(_sync_get_driver, str(driver_id))
             if driver_data and driver_data[0].upper() == "ACTIVE":
                 fio  = driver_data[2] if len(driver_data) > 2 else "Курьер"
                 rate = float(driver_data[4]) if len(driver_data) > 4 and driver_data[4] else DEFAULT_DRIVER_RATE
@@ -622,20 +889,19 @@ async def build_driver_main_menu(driver_id: int):
                     "month": now.strftime("%m.%Y"),
                     "month_label": _week_label(week_start_dt, week_end_dt),
                     "deliveries": deliveries,
-                    "lang": _lang_from_driver_row(driver_data),
+                    "lang": lang,
                 }
                 b64 = base64.urlsafe_b64encode(
                     json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
                 ).decode().rstrip("=")
-                b.button(text="📊 Кабинети ман / Мой кабинет",
-                         web_app=types.WebAppInfo(url=f"{DRIVER_WEBAPP_URL}?d={b64}"))
+                b.button(text=CABINET_BTN[lang], web_app=types.WebAppInfo(url=f"{DRIVER_WEBAPP_URL}?d={b64}"))
             else:
-                b.button(text="📊 Кабинети ман / Мой кабинет")
+                b.button(text=CABINET_BTN[lang])
         except Exception:
-            b.button(text="📊 Кабинети ман / Мой кабинет")
+            b.button(text=CABINET_BTN[lang])
     else:
-        b.button(text="📊 Кабинети ман / Мой кабинет")
-    b.button(text="📞 Дастгирӣ / Поддержка")
+        b.button(text=CABINET_BTN[lang])
+    b.button(text=SUPPORT_BTN[lang])
     b.adjust(1)
     return b.as_markup(resize_keyboard=True)
 
@@ -649,96 +915,97 @@ async def send_client_push(chat_id: str, text: str):
 
 
 # ─── Глобальная навигация ────────────────────────────────────────────────────
-@dp.message(F.text == "🔙 Главное меню")
+@dp.message(F.text.in_({BACK_BTN["ru"], BACK_BTN["tj"]}))
 async def driver_go_main_menu(message: types.Message, state: FSMContext):
     await state.clear()
+    await _try_delete(message)
     driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
     lang = _lang_from_driver_row(driver_data)
-    menu_label = pick_lang("Амалро интихоб кунед:\n───────────────────────\nВыберите действие:", lang)
-    await message.answer(menu_label, reply_markup=await build_driver_main_menu(message.from_user.id))
+    await message.answer(L[lang]["menu_prompt"], reply_markup=await build_driver_main_menu(message.from_user.id))
 
 
 # ─── Регистрация ─────────────────────────────────────────────────────────────
 @dp.message(CommandStart())
 async def cmd_start_driver(message: types.Message, state: FSMContext):
     await state.clear()
+    await _try_delete(message)
     driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
 
     if not driver_data:
-        b = ReplyKeyboardBuilder()
-        b.button(text="📝 Офертаро қабул кунед / Принять оферту и зарегистрироваться")
-        await message.answer(
-            "💼 **Ба Mavsimi Rason хуш омадед!**\n\n"
-            "Барои кор ҳамчун курьер шартҳои ҳамкориро қабул кунед.\n\n"
-            f"📋 [Оферта барои курьерҳо]({LINK_TO_DRIVER_OFFER})\n\n"
-            "───────────────────────\n\n"
-            "💼 **Добро пожаловать в Mavsimi Rason!**\n\n"
-            "Для работы курьером необходимо принять условия сотрудничества.\n\n"
-            f"📋 [Оферта для курьеров]({LINK_TO_DRIVER_OFFER})\n\n"
-            "Ознакомьтесь и нажмите кнопку ниже:",
-            reply_markup=b.as_markup(resize_keyboard=True),
-            parse_mode="Markdown",
-            disable_web_page_preview=True
+        b = InlineKeyboardBuilder()
+        b.button(text="🇷🇺 Русский", callback_data="reglang:ru")
+        b.button(text="🇹🇯 Тоҷикӣ", callback_data="reglang:tj")
+        b.adjust(2)
+        await _replace_status_message(
+            message.chat.id, "🌐 Выберите язык / Забонро интихоб кунед:", reply_markup=b.as_markup()
         )
+        await state.set_state(DriverRegistration.waiting_for_lang)
     elif driver_data[0].upper() == "PENDING":
         lang = _lang_from_driver_row(driver_data)
-        await message.answer(
-            pick_lang(
-                "⏳ **Дархост дар баррасӣ.**\n\n"
-                "Менеҷер маълумоти шуморо баррасӣ мекунад.\n"
-                "Баъдтар /start-ро пахш кунед.\n\n"
-                "───────────────────────\n\n"
-                "⏳ **Заявка на рассмотрении.**\n\n"
-                "Менеджер проверит ваши данные и активирует аккаунт.\n"
-                "Попробуйте позже — нажмите /start чтобы проверить статус.",
-                lang
-            ),
-            parse_mode="Markdown"
-        )
+        await _replace_status_message(message.chat.id, L[lang]["pending"], parse_mode="Markdown")
     elif driver_data[0].upper() == "ACTIVE":
         fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
         lang = _lang_from_driver_row(driver_data)
+        await _clear_status_message(message.chat.id)
         await message.answer(
-            pick_lang(
-                f"👋 **Хуш омадед, {fio}!**\n\nАмалро интихоб кунед:\n"
-                f"───────────────────────\n"
-                f"👋 **С возвращением, {fio}!**\n\nВыберите действие:",
-                lang
-            ),
+            L[lang]["welcome_back"].format(fio=fio),
             reply_markup=await build_driver_main_menu(message.from_user.id),
             parse_mode="Markdown"
         )
     else:
-        await message.answer("⛔ Аккаунти шумо баста шудааст.\n\n⛔ Аккаунт заблокирован. Обратитесь к администратору.")
+        lang = _lang_from_driver_row(driver_data)
+        await message.answer(L[lang]["blocked"])
 
 
-@dp.message(F.text == "📝 Офертаро қабул кунед / Принять оферту и зарегистрироваться")
+@dp.callback_query(F.data.startswith("reglang:"), DriverRegistration.waiting_for_lang)
+async def set_registration_lang(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    lang = callback.data.split(":")[1]
+    if lang not in ("ru", "tj"):
+        lang = "ru"
+    await state.update_data(reg_lang=lang)
+    b = ReplyKeyboardBuilder()
+    b.button(text=ACCEPT_OFFER_BTN[lang])
+    await _replace_status_message(
+        callback.message.chat.id,
+        L[lang]["welcome"].format(url=LINK_TO_DRIVER_OFFER),
+        reply_markup=b.as_markup(resize_keyboard=True),
+        parse_mode="Markdown",
+        disable_web_page_preview=True
+    )
+
+
+@dp.message(F.text.in_({ACCEPT_OFFER_BTN["ru"], ACCEPT_OFFER_BTN["tj"]}))
 async def accept_offer(message: types.Message, state: FSMContext):
-    await message.answer(
-        "✅ Офертаро қабул кардед!\n\n"
-        "**Номи пурра**-и худро ворид кунед (Фамилия Ном Насаб):\n\n"
-        "✅ Отлично! Вы принимаете условия оферты.\n\n"
-        "Введите ваше **ФИО** (Фамилия Имя Отчество):",
+    await _try_delete(message)
+    data = await state.get_data()
+    lang = data.get("reg_lang", "ru")
+    await _replace_status_message(
+        message.chat.id,
+        L[lang]["offer_accepted_ask_fio"],
         reply_markup=types.ReplyKeyboardRemove(),
         parse_mode="Markdown"
     )
+    await state.update_data(reg_lang=lang)
     await state.set_state(DriverRegistration.waiting_for_fio)
 
 
 @dp.message(DriverRegistration.waiting_for_fio)
 async def save_driver_fio(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("reg_lang", "ru")
     fio = message.text.strip() if message.text else ""
     if not fio or len(fio) < 3:
-        await message.answer("❌ Номи пурраи худро ворид кунед (ҳадди ақал 3 аломат).\n\n❌ Пожалуйста, введите полное ФИО (минимум 3 символа).")
+        await message.answer(L[lang]["fio_too_short"])
         return
+    await _try_delete(message)
     await state.update_data(fio=fio)
     await state.set_state(DriverRegistration.waiting_for_phone)
     b = ReplyKeyboardBuilder()
-    b.button(text="📱 Рақами телефонро мубодила кунед / Поделиться номером", request_contact=True)
-    await message.answer(
-        f"✅ Ном қабул шуд: *{fio}*\n\n"
-        "Рақами телефони худро ворид кунед ё тугмаи зерро пахш кунед:\n\n"
-        "Теперь введите ваш номер телефона или нажмите кнопку ниже:",
+    b.button(text=SHARE_PHONE_BTN[lang], request_contact=True)
+    await _replace_status_message(
+        message.chat.id,
+        L[lang]["fio_saved_ask_phone"].format(fio=fio),
         reply_markup=b.as_markup(resize_keyboard=True, one_time_keyboard=True),
         parse_mode="Markdown"
     )
@@ -746,6 +1013,8 @@ async def save_driver_fio(message: types.Message, state: FSMContext):
 
 @dp.message(DriverRegistration.waiting_for_phone)
 async def save_driver_phone(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("reg_lang", "ru")
     if message.contact:
         phone = message.contact.phone_number
         if not phone.startswith("+"):
@@ -753,47 +1022,47 @@ async def save_driver_phone(message: types.Message, state: FSMContext):
     elif message.text:
         phone = message.text.strip()
     else:
-        await message.answer("❌ Пожалуйста, отправьте номер телефона.")
+        await message.answer(L[lang]["phone_missing"])
         return
 
-    data = await state.get_data()
+    await _try_delete(message)
     fio = data.get("fio", "")
     await state.clear()
 
-    success = await asyncio.to_thread(_sync_register_driver, str(message.from_user.id), fio, phone)
+    success = await asyncio.to_thread(_sync_register_driver, str(message.from_user.id), fio, phone, lang)
     if success:
-        await message.answer(
-            f"✅ **Дархост фиристода шуд, {fio}!**\n\n"
-            "Менеҷер маълумотро баррасӣ мекунад.\n"
-            "/start-ро пахш кунед то ҳолатро тафтиш кунед.\n\n"
-            "✅ **Заявка отправлена!**\n\n"
-            "Менеджер проверит данные и активирует ваш аккаунт.\n"
-            "Нажмите /start чтобы проверить статус.",
+        await _replace_status_message(
+            message.chat.id,
+            L[lang]["registered"].format(fio=fio),
             reply_markup=types.ReplyKeyboardRemove(),
             parse_mode="Markdown"
         )
-        if mgr_bot and MANAGER_CHAT_ID:
-            try:
+        if mgr_bot:
+            manager_ids = await asyncio.to_thread(get_manager_chat_ids)
+            if manager_ids:
                 b = InlineKeyboardBuilder()
                 b.button(text="✅ Одобрить", callback_data=f"approve_driver:{message.from_user.id}")
                 b.button(text="❌ Отклонить", callback_data=f"reject_driver:{message.from_user.id}")
                 b.adjust(2)
-                await mgr_bot.send_message(
-                    chat_id=int(MANAGER_CHAT_ID),
-                    text=(
-                        f"👤 <b>Новый курьер</b>\n"
-                        f"ФИО: <b>{html.escape(fio)}</b>\n"
-                        f"📱 Телефон: <code>{html.escape(phone)}</code>\n"
-                        f"ID: <code>{message.from_user.id}</code>\n\n"
-                        f"Одобрить заявку?"
-                    ),
-                    reply_markup=b.as_markup(),
-                    parse_mode="HTML"
+                mgr_text = (
+                    f"👤 <b>Новый курьер</b>\n"
+                    f"ФИО: <b>{html.escape(fio)}</b>\n"
+                    f"📱 Телефон: <code>{html.escape(phone)}</code>\n"
+                    f"ID: <code>{message.from_user.id}</code>\n\n"
+                    f"Одобрить заявку?"
                 )
-            except Exception as e:
-                logging.error(f"Не удалось уведомить менеджера о новом курьере: {e}")
+                for mgr_id in manager_ids:
+                    try:
+                        await mgr_bot.send_message(
+                            chat_id=int(mgr_id),
+                            text=mgr_text,
+                            reply_markup=b.as_markup(),
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        logging.error(f"Не удалось уведомить менеджера {mgr_id} о новом курьере: {e}")
     else:
-        await message.answer("❌ Ошибка при регистрации. Попробуйте позже (/start).")
+        await message.answer(L[lang]["register_error"])
 
 
 @dp.message(F.web_app_data)
@@ -809,13 +1078,14 @@ async def handle_webapp(message: types.Message):
     if action == "update_profile":
         updated_fio = data.get("fio", "").strip()
         new_lang = data.get("lang") if data.get("lang") in ("ru", "tj") else None
-        if not updated_fio:
-            await message.answer("❌ ФИО не может быть пустым.")
-            return
 
         driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+        lang = new_lang or _lang_from_driver_row(driver_data)
+        if not updated_fio:
+            await message.answer(L[lang]["fio_empty"])
+            return
         if not driver_data:
-            await message.answer("❌ Хатогӣ. Корбар дар база нест.\n\n❌ Ошибка обновления. Пользователь не найден.")
+            await message.answer(L[lang]["profile_user_not_found"])
             return
         current_fio = driver_data[2] if len(driver_data) > 2 else ""
 
@@ -825,39 +1095,33 @@ async def handle_webapp(message: types.Message):
         fio_changed = updated_fio != current_fio
         if fio_changed:
             await asyncio.to_thread(_sync_request_name_change, str(message.from_user.id), updated_fio)
-            if mgr_bot and MANAGER_CHAT_ID:
-                try:
+            if mgr_bot:
+                manager_ids = await asyncio.to_thread(get_manager_chat_ids)
+                if manager_ids:
                     nb = InlineKeyboardBuilder()
                     nb.button(text="✅ Одобрить", callback_data=f"napprove:{message.from_user.id}")
                     nb.button(text="❌ Отклонить", callback_data=f"nreject:{message.from_user.id}")
                     nb.adjust(2)
-                    await mgr_bot.send_message(
-                        chat_id=int(MANAGER_CHAT_ID),
-                        text=(
-                            f"✏️ <b>Заявка на смену ФИО курьера</b>\n"
-                            f"Было: {html.escape(current_fio)}\n"
-                            f"Стало: {html.escape(updated_fio)}\n"
-                            f"ID: <code>{message.from_user.id}</code>"
-                        ),
-                        reply_markup=nb.as_markup(),
-                        parse_mode="HTML"
+                    nb_text = (
+                        f"✏️ <b>Заявка на смену ФИО курьера</b>\n"
+                        f"Было: {html.escape(current_fio)}\n"
+                        f"Стало: {html.escape(updated_fio)}\n"
+                        f"ID: <code>{message.from_user.id}</code>"
                     )
-                except Exception as e:
-                    logging.error(f"Не удалось уведомить менеджера о смене ФИО: {e}")
+                    for mgr_id in manager_ids:
+                        try:
+                            await mgr_bot.send_message(
+                                chat_id=int(mgr_id),
+                                text=nb_text,
+                                reply_markup=nb.as_markup(),
+                                parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            logging.error(f"Не удалось уведомить менеджера {mgr_id} о смене ФИО: {e}")
 
         driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
         lang = _lang_from_driver_row(driver_data)
-        if fio_changed:
-            msg = pick_lang(
-                "✅ **Забон нигоҳ дошта шуд.**\n"
-                "✏️ Дархости тағйири ном ба менеҷер фиристода шуд — мунтазири тасдиқ шавед.\n"
-                "───────────────────────\n"
-                "✅ **Язык сохранён.**\n"
-                "✏️ Заявка на смену ФИО отправлена менеджеру — ожидайте подтверждения.",
-                lang
-            )
-        else:
-            msg = pick_lang("✅ **Забон нигоҳ дошта шуд.**\n───────────────────────\n✅ **Язык сохранён.**", lang)
+        msg = L[lang]["lang_saved_fio_pending"] if fio_changed else L[lang]["lang_saved"]
         await message.answer(msg, reply_markup=await build_driver_main_menu(message.from_user.id), parse_mode="Markdown")
         return
 
@@ -865,19 +1129,20 @@ async def handle_webapp(message: types.Message):
     if action == "generate_report":
         if not await _get_active_driver(message.from_user.id):
             return
+        driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+        if not driver_data:
+            await message.answer(L["ru"]["not_registered"])
+            return
+        lang = _lang_from_driver_row(driver_data)
+
         week_start_str = data.get("week_start", "")
         try:
             week_start = datetime.strptime(week_start_str, "%Y-%m-%d")
         except ValueError:
-            await message.answer("❌ Некорректный формат даты.")
+            await message.answer(L[lang]["bad_date"])
             return
         week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
         period_label = _week_label(week_start, week_end)
-
-        driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
-        if not driver_data:
-            await message.answer("❌ Вы не зарегистрированы. Нажмите /start.")
-            return
 
         fio = driver_data[2] if len(driver_data) > 2 else "Курьер"
         try:
@@ -885,28 +1150,25 @@ async def handle_webapp(message: types.Message):
         except (ValueError, TypeError):
             rate = DEFAULT_DRIVER_RATE
 
-        wait_msg = await message.answer("⏳ Формирую отчёт...")
+        wait_msg = await message.answer(L[lang]["generating_report"])
         deliveries = await asyncio.to_thread(
             _sync_get_driver_deliveries, str(message.from_user.id), week_start, week_end
         )
 
         if not deliveries:
             await wait_msg.delete()
-            await message.answer(f"📭 За {period_label} доставок не найдено.")
+            await message.answer(L[lang]["no_deliveries_period"].format(period=period_label))
             return
 
-        excel_buf = await asyncio.to_thread(generate_excel_report, fio, rate, deliveries, period_label)
+        excel_buf = await asyncio.to_thread(
+            generate_excel_report, fio, rate, deliveries, period_label, show_earnings=False
+        )
         filename = f"report_{week_start_str}_{message.from_user.id}.xlsx"
         delivered_count = sum(1 for d in deliveries if d["s"] == "DELIVERED")
         await wait_msg.delete()
         await message.answer_document(
             types.BufferedInputFile(excel_buf.read(), filename=filename),
-            caption=(
-                f"📄 **Отчёт: {period_label}**\n"
-                f"👤 {fio}\n"
-                f"✅ Доставлено: {delivered_count}\n"
-                f"💰 К выплате: {delivered_count * rate:.2f} TJS"
-            ),
+            caption=L[lang]["report_caption"].format(period=period_label, fio=fio, n=delivered_count),
             parse_mode="Markdown"
         )
         return
@@ -915,49 +1177,57 @@ async def handle_webapp(message: types.Message):
 
 
 # ─── Биржа заказов ───────────────────────────────────────────────────────────
-@dp.message(F.text == "🔍 Фармоишҳои озод / Свободные заказы")
+@dp.message(F.text.in_({JOBS_BTN["ru"], JOBS_BTN["tj"]}))
 async def show_jobs(message: types.Message):
-    if not await _get_active_driver(message.from_user.id):
-        await message.answer("⛔ Дастрасӣ манъ аст. /start-ро пахш кунед.\n\n⛔ Доступ запрещён. Нажмите /start.")
+    driver_data = await _get_active_driver(message.from_user.id)
+    if not driver_data:
+        await message.answer(L["ru"]["access_denied"])
         return
+    lang = _lang_from_driver_row(driver_data)
+    chat_id = message.chat.id
+    await _try_delete(message)
+    await _clear_previous_jobs_view(chat_id)
+
     free_jobs = await asyncio.to_thread(_sync_get_free_orders)
     if not free_jobs:
-        await message.answer("🕳️ Ҳоло дар бирже фармоишҳои озод нест.\n\n🕳️ На бирже сейчас нет свободных заказов.")
+        sent = await message.answer(L[lang]["no_free_jobs"])
+        _last_jobs_msgs[chat_id] = [sent.message_id]
         return
 
-    await message.answer(f"📦 **Фармоишҳои озод / Свободные заказы ({len(free_jobs)}):**", parse_mode="Markdown")
+    msg_ids = []
+    header = await message.answer(L[lang]["jobs_header"].format(n=len(free_jobs)), parse_mode="Markdown")
+    msg_ids.append(header.message_id)
     for o in free_jobs:
-        dtype_readable = "ПВЗ 🏢" if o["delivery_type"] == "PVZ" else "То дар / До двери 🚪"
-        card = (
-            f"🆔 **Фармоиш / Заказ №:** `{o['id']}`\n"
-            f"• **Қабулкунанда / Получатель:** {o['r_phone']}\n"
-            f"• **Намуд / Тип:** {dtype_readable}\n"
-            f"• **Ориентир:** {o['driver_comment']}\n"
-            f"────────────────────\n"
-            f"📍 **Аз куҷо / Откуда:** {o['city_pickup']}, {o['address_pickup']}\n"
-            f"🌆 **Ба куҷо / Куда:** {o['city_delivery']}, {o['address_delivery']}\n"
-            f"💰 **Тариф:** {o['price']} TJS\n"
-            f"👤 **Фиристанда / Отправитель:** {o['s_name']}"
+        dtype_readable = L[lang]["dtype_pvz"] if o["delivery_type"] == "PVZ" else L[lang]["dtype_door"]
+        card = L[lang]["job_card"].format(
+            id=o['id'], phone=o['r_phone'], dtype=dtype_readable, comment=o['driver_comment'],
+            cf=o['city_pickup'], af=o['address_pickup'], ct=o['city_delivery'], at=o['address_delivery'],
+            sname=o['s_name'],
         )
         b = InlineKeyboardBuilder()
-        b.button(text="✅ Фармоишро гиред / Взять заказ", callback_data=f"take:{o['row_num']}")
-        await message.answer(card, reply_markup=b.as_markup(), parse_mode="Markdown")
+        b.button(text=TAKE_JOB_BTN[lang], callback_data=f"take:{o['row_num']}")
+        sent = await message.answer(card, reply_markup=b.as_markup(), parse_mode="Markdown")
+        _job_message_refs.setdefault(o['id'], []).append((chat_id, sent.message_id))
+        msg_ids.append(sent.message_id)
+    _last_jobs_msgs[chat_id] = msg_ids
 
 
 # ─── Управление заказом ──────────────────────────────────────────────────────
 @dp.callback_query(F.data.startswith("take:"))
 async def accept_order(callback: types.CallbackQuery):
     await callback.answer()
-    if not await _get_active_driver(callback.from_user.id):
-        await callback.message.answer("⛔ Доступ запрещён. Нажмите /start.")
+    driver_data = await _get_active_driver(callback.from_user.id)
+    if not driver_data:
+        await callback.message.answer(L["ru"]["access_denied"])
         return
+    lang = _lang_from_driver_row(driver_data)
     try:
         row_num = int(callback.data.split(":")[1])
         if row_num < 2 or not sheet:
-            await callback.message.answer("❌ Некорректный номер заказа.")
+            await callback.message.answer(L[lang]["bad_order_number"])
             return
 
-        c_name = callback.from_user.full_name
+        c_name = driver_data[2] if len(driver_data) > 2 and driver_data[2] else callback.from_user.full_name
         c_id   = callback.from_user.id
         row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
         order_id       = row_vals[1]
@@ -965,39 +1235,43 @@ async def accept_order(callback: types.CallbackQuery):
 
         success = await asyncio.to_thread(_sync_take_order, row_num, c_name, c_id)
         if not success:
-            await callback.message.edit_text("❌ Этот заказ уже забрал другой водитель!", reply_markup=None)
+            await callback.message.edit_text(L[lang]["job_taken_by_other"], reply_markup=None)
             return
+        await asyncio.to_thread(sync_update_order_info_status, order_id, "TAKEN")
 
         b = InlineKeyboardBuilder()
-        b.button(text="📦 Боркуниро оғоз кунед / Приступить к погрузке", callback_data=f"load:{row_num}")
-        b.button(text="❌ Аз фармоиш даст кашидан / Отказаться от заказа", callback_data=f"reject:{row_num}")
+        b.button(text=TRANSIT_BTN[lang], callback_data=f"transit:{row_num}")
+        b.button(text=REJECT_BTN[lang], callback_data=f"reject:{row_num}")
         b.adjust(1)
         await callback.message.edit_text(
-            f"🎉 **Шумо фармоиш {order_id} гирифтед!**\n\n"
-            "Ба нуқтаи забт равед ва ҳангоми боркунӣ тугмаро пахш кунед.\n\n"
-            f"🎉 **Вы взяли заказ {order_id}!**\n\n"
-            "Отправляйтесь на точку забора и нажмите кнопку, когда начнёте погрузку.",
+            L[lang]["order_taken"].format(id=order_id),
             reply_markup=b.as_markup(), parse_mode="Markdown"
         )
+        await _clear_stale_job_cards(order_id, keep=(callback.from_user.id, callback.message.message_id))
+        tracked = _last_jobs_msgs.get(callback.from_user.id)
+        if tracked and callback.message.message_id in tracked:
+            tracked.remove(callback.message.message_id)
         if client_chat_id:
             await send_client_push(client_chat_id,
                 f"🚚 **Фармоиши шумо {order_id} қабул шуд!**\n👤 **Курьер:** {c_name}\n\n"
                 f"🚚 **Ваш заказ {order_id} принят курьером!**\n👤 **Курьер:** {c_name}")
     except Exception:
         logging.error(f"Сбой take: {traceback.format_exc()}")
-        await callback.message.answer("❌ Ошибка на сервере. Попробуйте позже.")
+        await callback.message.answer(L[lang]["server_error"])
 
 
 @dp.callback_query(F.data.startswith("reject:"))
 async def reject_order(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
-    if not await _get_active_driver(callback.from_user.id):
-        await callback.message.answer("⛔ Доступ запрещён.")
+    driver_data = await _get_active_driver(callback.from_user.id)
+    if not driver_data:
+        await callback.message.answer(L["ru"]["access_denied_short"])
         return
+    lang = _lang_from_driver_row(driver_data)
     try:
         row_num = int(callback.data.split(":")[1])
         if not sheet:
-            await callback.message.answer("❌ База данных недоступна.")
+            await callback.message.answer(L[lang]["db_unavailable"])
             return
         row_vals       = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
         order_id       = row_vals[1]
@@ -1008,25 +1282,21 @@ async def reject_order(callback: types.CallbackQuery, state: FSMContext):
             row_num=row_num,
             order_id=order_id,
             client_chat_id=client_chat_id,
-            courier_name=callback.from_user.full_name,
+            courier_name=driver_data[2] if len(driver_data) > 2 and driver_data[2] else callback.from_user.full_name,
             courier_id=str(callback.from_user.id),
+            lang=lang,
         )
 
         b = InlineKeyboardBuilder()
-        b.button(text="Гузаштан / Пропустить", callback_data="reject_skip")
+        b.button(text=SKIP_BTN[lang], callback_data="reject_skip")
         await callback.message.edit_text(
-            f"↩️ Аз фармоиш даст кашидан <b>{order_id}</b>\n\n"
-            "Сабаби рад кардан (матн ё акс бо тавзеҳот) нависед.\n"
-            "Ё «Гузаштан»-ро пахш кунед.\n\n"
-            f"↩️ Отказ от заказа <b>{order_id}</b>\n\n"
-            "Укажите причину отказа (текст или фото с подписью).\n"
-            "Или нажмите «Пропустить».",
+            L[lang]["reject_prompt"].format(id=order_id),
             reply_markup=b.as_markup(),
             parse_mode="HTML"
         )
     except Exception:
         logging.error(f"Сбой reject: {traceback.format_exc()}")
-        await callback.message.answer("❌ Ошибка на сервере.")
+        await callback.message.answer(L[lang]["server_error"])
 
 
 async def _do_reject(chat_id: int, state: FSMContext, reason: str | None, photo_file_id: str | None):
@@ -1039,18 +1309,19 @@ async def _do_reject(chat_id: int, state: FSMContext, reason: str | None, photo_
     client_chat_id = data["client_chat_id"]
     c_name         = data["courier_name"]
     c_id           = data["courier_id"]
+    lang           = data.get("lang", "ru")
 
     success = await asyncio.to_thread(_sync_release_order, row_num, c_id)
     if not success:
         from config import driver_bot as _bot
-        await _bot.send_message(chat_id, "❌ Не удалось отказаться — статус заказа уже изменился.")
+        await _bot.send_message(chat_id, L[lang]["reject_failed"])
         return
+    await asyncio.to_thread(sync_update_order_info_status, order_id, "READY_FOR_DRIVERS")
 
     from config import driver_bot as _bot
     await _bot.send_message(
         chat_id,
-        f"↩️ Шумо аз фармоиш <b>{order_id}</b> даст кашидед.\nФармоиш ба бирже баргашт.\n\n"
-        f"↩️ Вы отказались от заказа <b>{order_id}</b>.\nЗаказ возвращён на биржу.",
+        L[lang]["reject_done"].format(id=order_id),
         parse_mode="HTML"
     )
 
@@ -1064,28 +1335,37 @@ async def _do_reject(chat_id: int, state: FSMContext, reason: str | None, photo_
         )
 
     async def _notify_manager():
-        if not (mgr_bot and MANAGER_CHAT_ID):
+        if not mgr_bot:
+            return
+        manager_ids = await asyncio.to_thread(get_manager_chat_ids)
+        if not manager_ids:
             return
         mgr_text = (
             f"⚠️ Курьер <b>{html.escape(c_name)}</b> отказался от заказа <b>{order_id}</b>.\n"
             f"📝 Причина: {html.escape(reason) if reason else '—'}"
         )
+        photo_bytes = None
         if photo_file_id:
             # file_id привязан к боту, который его получил (driver_bot) —
             # manager_bot чужой file_id использовать не может, скачиваем и грузим заново
-            photo_bytes = await bot.download(photo_file_id)
-            await mgr_bot.send_photo(
-                chat_id=int(MANAGER_CHAT_ID),
-                photo=types.BufferedInputFile(photo_bytes.read(), filename="reject.jpg"),
-                caption=mgr_text,
-                parse_mode="HTML"
-            )
-        else:
-            await mgr_bot.send_message(
-                chat_id=int(MANAGER_CHAT_ID),
-                text=mgr_text,
-                parse_mode="HTML"
-            )
+            photo_bytes = (await bot.download(photo_file_id)).read()
+        for mgr_id in manager_ids:
+            try:
+                if photo_bytes:
+                    await mgr_bot.send_photo(
+                        chat_id=int(mgr_id),
+                        photo=types.BufferedInputFile(photo_bytes, filename="reject.jpg"),
+                        caption=mgr_text,
+                        parse_mode="HTML"
+                    )
+                else:
+                    await mgr_bot.send_message(
+                        chat_id=int(mgr_id),
+                        text=mgr_text,
+                        parse_mode="HTML"
+                    )
+            except Exception as e:
+                logging.error(f"Не удалось уведомить менеджера {mgr_id} об отказе от заказа {order_id}: {e}")
 
     results = await asyncio.gather(_notify_client(), _notify_manager(), return_exceptions=True)
     for label, result in zip(("клиента", "менеджера"), results):
@@ -1096,7 +1376,9 @@ async def _do_reject(chat_id: int, state: FSMContext, reason: str | None, photo_
 @dp.callback_query(F.data == "reject_skip", DriverRejectReason.waiting_for_reason)
 async def reject_skip(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.edit_text("↩️ Обрабатываю отказ...", reply_markup=None)
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    await callback.message.edit_text(L[lang]["reject_processing"], reply_markup=None)
     await _do_reject(callback.message.chat.id, state, reason=None, photo_file_id=None)
 
 
@@ -1112,68 +1394,28 @@ async def reject_reason_text(message: types.Message, state: FSMContext):
     await _do_reject(message.chat.id, state, reason=message.text.strip(), photo_file_id=None)
 
 
-@dp.callback_query(F.data.startswith("load:"))
-async def load_order(callback: types.CallbackQuery):
-    await callback.answer()
-    driver_data = await _get_active_driver(callback.from_user.id)
-    if not driver_data:
-        await callback.message.answer("⛔ Доступ запрещён.")
-        return
-    try:
-        row_num  = int(callback.data.split(":")[1])
-        if not sheet:
-            await callback.message.answer("❌ База данных недоступна.")
-            return
-        c_name   = callback.from_user.full_name
-        row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
-        order_id       = row_vals[1]
-        client_chat_id = row_vals[18]
-        await asyncio.to_thread(_sync_update_status, row_num, "LOADING")
-        b = InlineKeyboardBuilder()
-        b.button(text="🚀 Мол бор шуд — роҳ афтодам / Товар погружен — выехать", callback_data=f"transit:{row_num}")
-        await callback.message.edit_text(
-            pick_lang(
-                f"📦 **Фармоиш {order_id}: Боркунӣ**\n\nСтатус: **[Боркунӣ]**.\n"
-                f"───────────────────────\n"
-                f"📦 **Заказ {order_id}: Погрузка**\n\nПосле укомплектовки нажмите кнопку выезда.",
-                _lang_from_driver_row(driver_data)
-            ),
-            reply_markup=b.as_markup(), parse_mode="Markdown"
-        )
-        if client_chat_id:
-            await send_client_push(client_chat_id,
-                f"📦 **Курьер {c_name} ба боркунии фармоиши шумо {order_id} шурӯъ кард.**\n\n"
-                f"📦 **Курьер {c_name} начал погрузку вашего заказа {order_id}.**")
-    except Exception as e:
-        logging.error(f"Ошибка load (строка {row_num}): {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка при погрузке. Попробуйте позже.")
-
-
 @dp.callback_query(F.data.startswith("transit:"))
 async def transit_order(callback: types.CallbackQuery):
     await callback.answer()
     driver_data = await _get_active_driver(callback.from_user.id)
     if not driver_data:
-        await callback.message.answer("⛔ Доступ запрещён.")
+        await callback.message.answer(L["ru"]["access_denied_short"])
         return
+    lang = _lang_from_driver_row(driver_data)
     try:
         row_num  = int(callback.data.split(":")[1])
         if not sheet:
-            await callback.message.answer("❌ База данных недоступна.")
+            await callback.message.answer(L[lang]["db_unavailable"])
             return
         row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
         order_id       = row_vals[1]
         client_chat_id = row_vals[18]
         await asyncio.to_thread(_sync_update_status, row_num, "IN_TRANSIT")
+        await asyncio.to_thread(sync_update_order_info_status, order_id, "IN_TRANSIT")
         b = InlineKeyboardBuilder()
-        b.button(text="📍 Ман дар ҷой ҳастам / Я на месте (прибыл)", callback_data=f"arrived:{row_num}")
+        b.button(text=DELIVERED_BTN[lang], callback_data=f"done:{row_num}")
         await callback.message.edit_text(
-            pick_lang(
-                f"🚚 **Фармоиш {order_id}: Дар роҳ**\n\nСтатус: **[Дар роҳ]**.\n"
-                f"───────────────────────\n"
-                f"🚚 **Заказ {order_id}: В пути**\n\nКак будете у получателя — нажмите «На месте».",
-                _lang_from_driver_row(driver_data)
-            ),
+            L[lang]["transit_msg"].format(id=order_id),
             reply_markup=b.as_markup(), parse_mode="Markdown"
         )
         if client_chat_id:
@@ -1182,43 +1424,7 @@ async def transit_order(callback: types.CallbackQuery):
                 f"🚀 **Ваш заказ {order_id} уже в пути!**")
     except Exception as e:
         logging.error(f"Ошибка transit (строка {row_num}): {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка при выезде. Попробуйте позже.")
-
-
-@dp.callback_query(F.data.startswith("arrived:"))
-async def arrived_order(callback: types.CallbackQuery):
-    await callback.answer()
-    driver_data = await _get_active_driver(callback.from_user.id)
-    if not driver_data:
-        await callback.message.answer("⛔ Доступ запрещён.")
-        return
-    try:
-        row_num  = int(callback.data.split(":")[1])
-        if not sheet:
-            await callback.message.answer("❌ База данных недоступна.")
-            return
-        row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
-        order_id       = row_vals[1]
-        client_chat_id = row_vals[18]
-        await asyncio.to_thread(_sync_update_status, row_num, "ARRIVED")
-        b = InlineKeyboardBuilder()
-        b.button(text="🏁 Фармоиш расонида шуд / Заказ доставлен", callback_data=f"done:{row_num}")
-        await callback.message.edit_text(
-            pick_lang(
-                f"📍 **Фармоиш {order_id}: Дар ҷой**\n\nМолро диҳед, пардохтро санҷед.\n"
-                f"───────────────────────\n"
-                f"📍 **Заказ {order_id}: На месте**\n\nПередайте посылку, проверьте оплату.",
-                _lang_from_driver_row(driver_data)
-            ),
-            reply_markup=b.as_markup(), parse_mode="Markdown"
-        )
-        if client_chat_id:
-            await send_client_push(client_chat_id,
-                f"🔔 **Курьер бо фармоиши шумо {order_id} расид!**\n\n"
-                f"🔔 **Курьер прибыл с вашим заказом {order_id}!**")
-    except Exception as e:
-        logging.error(f"Ошибка arrived (строка {row_num}): {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка при прибытии. Попробуйте позже.")
+        await callback.message.answer(L[lang]["transit_error"])
 
 
 @dp.callback_query(F.data.startswith("done:"))
@@ -1226,24 +1432,21 @@ async def finish_order(callback: types.CallbackQuery):
     await callback.answer()
     driver_data = await _get_active_driver(callback.from_user.id)
     if not driver_data:
-        await callback.message.answer("⛔ Доступ запрещён.")
+        await callback.message.answer(L["ru"]["access_denied_short"])
         return
+    lang = _lang_from_driver_row(driver_data)
     try:
         row_num  = int(callback.data.split(":")[1])
         if not sheet:
-            await callback.message.answer("❌ База данных недоступна.")
+            await callback.message.answer(L[lang]["db_unavailable"])
             return
         row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
         order_id       = row_vals[1]
         client_chat_id = row_vals[18]
         await asyncio.to_thread(_sync_update_status, row_num, "DELIVERED")
+        await asyncio.to_thread(sync_update_order_info_status, order_id, "DELIVERED")
         await callback.message.edit_text(
-            pick_lang(
-                f"🏁 **Фармоиш {order_id} баста шуд!**\n\nСтатус: **[Расонида шуд]**. Корхонаи хуб!\n"
-                f"───────────────────────\n"
-                f"🏁 **Заказ {order_id} закрыт!**\n\nОтличная работа!",
-                _lang_from_driver_row(driver_data)
-            ),
+            L[lang]["delivered_msg"].format(id=order_id),
             reply_markup=None, parse_mode="Markdown"
         )
         if client_chat_id:
@@ -1252,31 +1455,27 @@ async def finish_order(callback: types.CallbackQuery):
                 f"✅ **Ваш заказ {order_id} успешно доставлен!**\nСпасибо, что выбрали Mavsimi Rason!")
     except Exception as e:
         logging.error(f"Ошибка done (строка {row_num}): {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка при завершении. Попробуйте позже.")
+        await callback.message.answer(L[lang]["delivered_error"])
 
 
 # ─── Поддержка курьеров (Topics) ─────────────────────────────────────────────
-@dp.message(F.text == "📞 Дастгирӣ / Поддержка")
+@dp.message(F.text.in_({SUPPORT_BTN["ru"], SUPPORT_BTN["tj"]}))
 async def driver_support_start(message: types.Message, state: FSMContext):
+    await _try_delete(message)
     driver_data = await _get_active_driver(message.from_user.id)
     if not driver_data:
-        await message.answer("⛔ Дастрасӣ манъ аст. /start-ро пахш кунед.\n\n⛔ Доступ запрещён. Нажмите /start.")
+        await message.answer(L["ru"]["access_denied"])
         return
+    lang = _lang_from_driver_row(driver_data)
     if not SUPPORT_CHAT_ID:
-        await message.answer("⚙️ Дастгирӣ муваққатан дастнорас аст.\n\n⚙️ Поддержка временно недоступна.")
+        await message.answer(L[lang]["support_unavailable"])
         return
     await message.answer(
-        pick_lang(
-            "📞 <b>Саволи худро нависед:</b>\n"
-            "Мо ҳарчи зудтар ҷавоб хоҳем дод.\n"
-            "───────────────────────\n"
-            "📞 <b>Напишите ваш вопрос или проблему:</b>\n"
-            "Мы ответим в ближайшее время.",
-            _lang_from_driver_row(driver_data)
-        ),
+        L[lang]["support_prompt"],
         reply_markup=types.ReplyKeyboardRemove(),
         parse_mode="HTML"
     )
+    await state.update_data(lang=lang)
     await state.set_state(DriverSupport.waiting_for_message)
 
 
@@ -1284,6 +1483,7 @@ async def driver_support_start(message: types.Message, state: FSMContext):
 async def driver_support_send(message: types.Message, state: FSMContext):
     driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
     fio = driver_data[2] if driver_data and len(driver_data) > 2 else "Курьер"
+    lang = _lang_from_driver_row(driver_data)
     chat_id_str = str(message.from_user.id)
     try:
         topic_id_str = await asyncio.to_thread(_sync_get_driver_support_topic, chat_id_str)
@@ -1304,31 +1504,27 @@ async def driver_support_send(message: types.Message, state: FSMContext):
             parse_mode="HTML"
         )
         back_kb = ReplyKeyboardBuilder()
-        back_kb.button(text="🔙 Главное меню")
-        await state.update_data(fio=fio, topic_id=topic_id)
+        back_kb.button(text=BACK_BTN[lang])
+        await state.update_data(fio=fio, topic_id=topic_id, lang=lang)
         await state.set_state(DriverSupport.chatting)
         await message.answer(
-            pick_lang(
-                "✅ Фиристода шуд! Менеҷер ин ҷо ҷавоб хоҳад дод.\n"
-                "───────────────────────\n"
-                "✅ Отправлено! Менеджер ответит здесь.",
-                _lang_from_driver_row(driver_data)
-            ),
+            L[lang]["support_sent"],
             reply_markup=back_kb.as_markup(resize_keyboard=True),
         )
     except Exception as e:
         await state.clear()
         logging.error(f"Ошибка поддержки курьера (SUPPORT_CHAT_ID={SUPPORT_CHAT_ID}): {type(e).__name__}: {e}")
-        await message.answer("❌ Ошибка. Попробуйте позже.", reply_markup=await build_driver_main_menu(message.from_user.id))
+        await message.answer(L[lang]["support_error"], reply_markup=await build_driver_main_menu(message.from_user.id))
 
 
 @dp.message(DriverSupport.chatting)
 async def driver_support_continue(message: types.Message, state: FSMContext):
     data = await state.get_data()
+    lang = data.get("lang", "ru")
     topic_id = data.get("topic_id")
     if not topic_id:
         await state.clear()
-        await message.answer("❌ Сессия истекла. Нажмите кнопку поддержки снова.", reply_markup=await build_driver_main_menu(message.from_user.id))
+        await message.answer(L[lang]["support_session_expired"], reply_markup=await build_driver_main_menu(message.from_user.id))
         return
     try:
         await bot.send_message(
@@ -1339,7 +1535,7 @@ async def driver_support_continue(message: types.Message, state: FSMContext):
         )
     except Exception as e:
         logging.error(f"Ошибка отправки сообщения курьера в топик: {type(e).__name__}: {e}")
-        await message.answer("❌ Не удалось отправить. Попробуйте позже.")
+        await message.answer(L[lang]["support_send_failed"])
 
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}))
@@ -1357,10 +1553,12 @@ async def driver_support_group_message(message: types.Message):
     )
     if not driver_telegram_id:
         return
+    driver_data = await asyncio.to_thread(_sync_get_driver, str(driver_telegram_id))
+    lang = _lang_from_driver_row(driver_data)
     try:
         await bot.send_message(
             chat_id=int(driver_telegram_id),
-            text=f"💬 <b>Ответ от поддержки:</b>\n\n{html.escape(message.text)}",
+            text=L[lang]["support_reply_header"].format(text=html.escape(message.text)),
             parse_mode="HTML"
         )
     except Exception as e:
@@ -1383,29 +1581,22 @@ async def _broadcast_new_free_orders():
                 if not drivers:
                     logging.info("Новые заказы есть, но активных курьеров нет — повторим на следующей проверке.")
                 for o in (new_jobs if drivers else []):
-                    dtype_readable = "ПВЗ 🏢" if o["delivery_type"] == "PVZ" else "То дар / До двери 🚪"
-                    card = (
-                        f"🆕 **Фармоиши нав / Новый заказ!**\n\n"
-                        f"🆔 **Фармоиш / Заказ №:** `{o['id']}`\n"
-                        f"• **Қабулкунанда / Получатель:** {o['r_phone']}\n"
-                        f"• **Намуд / Тип:** {dtype_readable}\n"
-                        f"• **Ориентир:** {o['driver_comment']}\n"
-                        f"────────────────────\n"
-                        f"📍 **Аз куҷо / Откуда:** {o['city_pickup']}, {o['address_pickup']}\n"
-                        f"🌆 **Ба куҷо / Куда:** {o['city_delivery']}, {o['address_delivery']}\n"
-                        f"💰 **Тариф:** {o['price']} TJS\n"
-                        f"👤 **Фиристанда / Отправитель:** {o['s_name']}"
-                    )
-                    b = InlineKeyboardBuilder()
-                    b.button(text="✅ Фармоишро гиред / Взять заказ", callback_data=f"take:{o['row_num']}")
-                    keyboard = b.as_markup()
-
                     for d in drivers:
+                        lang = d.get("lang", "ru")
+                        dtype_readable = L[lang]["dtype_pvz"] if o["delivery_type"] == "PVZ" else L[lang]["dtype_door"]
+                        card = L[lang]["new_job_header"] + L[lang]["job_card"].format(
+                            id=o['id'], phone=o['r_phone'], dtype=dtype_readable, comment=o['driver_comment'],
+                            cf=o['city_pickup'], af=o['address_pickup'], ct=o['city_delivery'], at=o['address_delivery'],
+                            sname=o['s_name'],
+                        )
+                        b = InlineKeyboardBuilder()
+                        b.button(text=TAKE_JOB_BTN[lang], callback_data=f"take:{o['row_num']}")
                         try:
-                            await bot.send_message(
+                            sent = await bot.send_message(
                                 d["telegram_id"], card,
-                                reply_markup=keyboard, parse_mode="Markdown"
+                                reply_markup=b.as_markup(), parse_mode="Markdown"
                             )
+                            _job_message_refs.setdefault(o['id'], []).append((int(d["telegram_id"]), sent.message_id))
                         except Exception as e:
                             logging.warning(f"Не удалось отправить пуш курьеру {d['telegram_id']}: {e}")
 

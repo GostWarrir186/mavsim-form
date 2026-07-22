@@ -7,9 +7,9 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
-            --primary:       #2481cc;
-            --primary-light: rgba(36,129,204,0.1);
-            --primary-grad:  linear-gradient(135deg, #2a8de0, #1a6db5);
+            --primary:       #f2711c;
+            --primary-light: rgba(242,113,28,0.1);
+            --primary-grad:  linear-gradient(135deg, #fb923c, #ea580c);
             --success:       #2bca80;
             --success-grad:  linear-gradient(135deg, #2bca80, #22a368);
             --warning:       #f59e0b;
@@ -140,6 +140,7 @@
 
         /* ─── Price Box ─── */
         .price-box {
+            display: none !important;
             margin-top: 13px; border-radius: var(--radius-sm); overflow: hidden;
             background: var(--primary-grad); color: white; text-align: center; padding: 15px;
         }
@@ -284,7 +285,7 @@
             <input type="text" id="address_delivery" oninput="validateForm()">
         </div>
         <div class="form-group" id="driver-comment-group" style="display:none;">
-            <label id="lbl-comment">Ориентир для курьера</label>
+            <label id="lbl-comment">Комментарий курьеру</label>
             <input type="text" id="driver_comment">
         </div>
     </div>
@@ -424,7 +425,7 @@
             'lbl-city-delivery': 'Куда',
             'lbl-address-pickup': 'Адрес забора (Откуда)',
             'lbl-address-delivery': 'Адрес доставки (Куда)',
-            'lbl-comment': 'Ориентир для курьера',
+            'lbl-comment': 'Комментарий курьеру',
             'txt-prefill': 'Адрес подставлен из профиля',
             'txt-title-receiver': 'Получатель',
             'lbl-r-name': 'ФИО Получателя',
@@ -459,7 +460,7 @@
             'lbl-city-delivery': 'Ба куҷо',
             'lbl-address-pickup': 'Суроғаи гирифтан',
             'lbl-address-delivery': 'Суроғаи расонидан',
-            'lbl-comment': 'Нишонии курьер',
+            'lbl-comment': 'Шарҳ барои курьер',
             'txt-prefill': 'Суроға аз профил гузошта шуд',
             'txt-title-receiver': 'Қабулкунанда',
             'lbl-r-name': 'Ному насаби қабулкунанда',
@@ -609,8 +610,8 @@
         const cityDelivery = document.getElementById('city_delivery').value;
         const rName = document.getElementById('r_name').value;
         const msg = currentLang === 'tj'
-            ? `Тасдиқ кунед:\n📍 ${cityPickup} → ${cityDelivery}\n👤 ${rName}\n💰 ${res.price.toFixed(2)} TJS`
-            : `Подтвердите заказ:\n📍 ${cityPickup} → ${cityDelivery}\n👤 Получатель: ${rName}\n💰 Стоимость: ${res.price.toFixed(2)} TJS`;
+            ? `Тасдиқ кунед:\n📍 ${cityPickup} → ${cityDelivery}\n👤 ${rName}`
+            : `Подтвердите заказ:\n📍 ${cityPickup} → ${cityDelivery}\n👤 Получатель: ${rName}`;
         tg.showConfirm(msg, ok => { if (ok) sendDataToBot(res); });
     }
 
@@ -706,8 +707,7 @@
             body.innerHTML =
                 `<span style="font-size:11px;color:var(--hint)">📅 ${escapeHtml(order.date_str)}</span><br>` +
                 `📍 <b>${escapeHtml(order.city_pickup)}</b> → <b>${escapeHtml(order.city_delivery)}</b> <span style="color:var(--hint)">(${order.type === 'pvz' ? 'ПВЗ' : 'До двери'})</span><br>` +
-                `👤 <b>${escapeHtml(order.r_name)}</b><br>` +
-                `💰 <b class="order-price">${escapeHtml(order.price)} TJS</b>`;
+                `👤 <b>${escapeHtml(order.r_name)}</b>`;
 
             card.appendChild(hdr);
             card.appendChild(body);
