@@ -619,11 +619,17 @@
         const now = new Date();
         const dd = String(now.getDate()).padStart(2, '0');
         const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const localId = 'ORD-' + dd + mm + '-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+        // Тот же формат ID, что генерирует сервер (Z-ддмм-XXXX) — передаём его серверу,
+        // чтобы карточка в локальной "Истории" совпадала с реальным ID заказа в таблице.
+        const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let suffix = '';
+        for (let i = 0; i < 4; i++) suffix += ID_ALPHABET[Math.floor(Math.random() * ID_ALPHABET.length)];
+        const localId = `Z-${dd}${mm}-${suffix}`;
         const dateStr = `${dd}.${mm}.${now.getFullYear()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
 
         const data = {
             lang: currentLang,
+            order_id: localId,
             s_name: verifiedFio, s_phone: verifiedPhone,
             city_pickup: document.getElementById('city_pickup').value,
             address_pickup: document.getElementById('address_pickup').value,

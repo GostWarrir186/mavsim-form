@@ -1,22 +1,26 @@
 import asyncio
+import base64
 import datetime
 import html
 import json
 import logging
 import os
+import re
+import secrets
+import string
 import urllib.parse
-import uuid
 
 from aiogram import types, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.utils.keyboard import ReplyKeyboardBuilder
+from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
-from config import client_bot as bot, client_dp as dp, manager_bot as mgr_bot, sheet, clients_sheet, orders_info_sheet, pick_lang
+from config import client_bot as bot, client_dp as dp, manager_bot as mgr_bot, sheet, clients_sheet, orders_info_sheet, get_manager_chat_ids
 
 class Registration(StatesGroup):
-    waiting_for_fio = State()
+    waiting_for_lang = State()
+    waiting_for_fio  = State()
 
 class Support(StatesGroup):
     waiting_for_message = State()
@@ -25,7 +29,62 @@ class Support(StatesGroup):
 WEB_APP_URL = os.getenv("WEB_APP_URL", "https://gostwarrir186.github.io/mavsim-form/web/?v=19")
 LINK_TO_OFFER = os.getenv("LINK_TO_OFFER", "")
 SUPPORT_CHAT_ID = os.getenv("SUPPORT_CHAT_ID", "")
-MANAGER_CHAT_ID = os.getenv("MANAGER_CHAT_ID", "")
+
+# ─── Локализация (клиентский бот — только один язык за раз) ─────────────────
+AUTH_BTN     = {"ru": "📱 Авторизация",                       "tj": "📱 Ворид шудан"}
+BACK_BTN     = {"ru": "🔙 Главное меню",                      "tj": "🔙 Менюи асосӣ"}
+ACCEPT_OFFER_BTN = {"ru": "📝 Подписать оферту",               "tj": "📝 Қабули оферта"}
+ORDER_BTN    = {"ru": "📦 Оформить доставку",                  "tj": "📦 Ороиши дархост"}
+SUPPORT_BTN  = {"ru": "📞 Поддержка",                          "tj": "📞 Дастгирӣ"}
+
+CL = {
+    "ru": {
+        "welcome": "👋 **Добро пожаловать в Mavsimi Rason!**\nНажмите кнопку ниже для авторизации в системе:",
+        "menu_prompt": "Главное меню:",
+        "welcome_back": "👋 **С возвращением, {fio}!**\nИспользуйте кнопку ниже для перехода к заказам.",
+        "not_found": (
+            "📋 **Внимание! Вашего номера нет в системе.**\n"
+            "Для создания заказов вам необходимо ознакомиться с [Публичной офертой]({url})."
+        ),
+        "ask_fio": "Введите ваши **ФИО**:",
+        "session_expired": "❌ Сессия истекла. Нажмите /start.",
+        "registered": "🎉 **Регистрация завершена!**\n\nРады вас видеть, **{fio}**!",
+        "fio_empty": "❌ ФИО не может быть пустым.",
+        "profile_updated": "✅ **Данные обновлены!**\n\n• **ФИО:** {fio}\n• **Адрес:** {addr}",
+        "addr_missing": "Не указан",
+        "profile_user_not_found": "❌ Ошибка обновления. Пользователь не найден.",
+        "support_unavailable": "⚙️ Поддержка временно недоступна.",
+        "support_prompt": "📞 <b>Напишите ваш вопрос или проблему:</b>\nМы ответим в ближайшее время.",
+        "support_sent": "✅ Отправлено! Менеджер ответит здесь.",
+        "support_error": "❌ Ошибка. Попробуйте позже.",
+        "support_session_expired": "❌ Сессия истекла. Нажмите кнопку поддержки снова.",
+        "support_send_failed": "❌ Не удалось отправить. Попробуйте позже.",
+        "support_reply_header": "💬 <b>Ответ от поддержки:</b>\n\n{text}",
+    },
+    "tj": {
+        "welcome": "👋 **Ба Mavsimi Rason хуш омадед!**\nБарои ворид шудан тугмаи зерро пахш кунед:",
+        "menu_prompt": "Менюи асосӣ:",
+        "welcome_back": "👋 **Мо хурсандем, ки шуморо боз дидем, {fio}!**\nБарои гузариш ба дархостҳо тугмаи зеринро истифода баред.",
+        "not_found": (
+            "📋 **Диққат! Рақами шумо дар систем нест.**\n"
+            "Барои эҷоди дархостҳо шумо бояд бо [Офертаи оммавӣ]({url}) шинос шавед."
+        ),
+        "ask_fio": "**Ному Насаби** худро ворид кунед:",
+        "session_expired": "❌ Сессия хатм шуд. /start-ро пахш кунед.",
+        "registered": "🎉 **Бақайдгирӣ анҷом ёфт!**\n\nШодем, ки шуморо мебинем, **{fio}**!",
+        "fio_empty": "❌ Ном холӣ буда наметавонад.",
+        "profile_updated": "✅ **Маълумот навшуд!**\n\n• **Ном:** {fio}\n• **Суроға:** {addr}",
+        "addr_missing": "Нишон дода нашуд",
+        "profile_user_not_found": "❌ Хатогӣ. Корбар дар база нест.",
+        "support_unavailable": "⚙️ Дастгирӣ муваққатан дастнорас аст.",
+        "support_prompt": "📞 <b>Саволи худро нависед:</b>\nМо ҳарчи зудтар ҷавоб хоҳем дод.",
+        "support_sent": "✅ Фиристода шуд! Менеҷер ин ҷо ҷавоб хоҳад дод.",
+        "support_error": "❌ Хатогӣ. Баъдтар кӯшиш кунед.",
+        "support_session_expired": "❌ Мӯҳлати сессия гузашт. Тугмаи дастгириро аз нав пахш кунед.",
+        "support_send_failed": "❌ Фиристода нашуд. Баъдтар кӯшиш кунед.",
+        "support_reply_header": "💬 <b>Ҷавоб аз дастгирӣ:</b>\n\n{text}",
+    },
+}
 
 RECEIPTS = {
     "ru": (
@@ -70,11 +129,14 @@ RECEIPTS = {
     )
 }
 
+ORDER_ID_ALPHABET = string.ascii_uppercase + string.digits
+ORDER_ID_RE = re.compile(r"^Z-\d{4}-[A-Z0-9]{4}$")
+
 def generate_order_id() -> str:
     now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5)
     date_part = now.strftime("%d%m")
-    rand_part = uuid.uuid4().hex[:6].upper()
-    return f"ORD-{date_part}-{rand_part}"
+    rand_part = "".join(secrets.choice(ORDER_ID_ALPHABET) for _ in range(4))
+    return f"Z-{date_part}-{rand_part}"
 
 def sanitize_for_sheet(value) -> str:
     """Предотвращает formula injection: строки, начинающиеся с = + - @ \t \r, экранируются апострофом."""
@@ -132,6 +194,23 @@ def _sync_check_user_by_chat_id(chat_id: str):
         logging.error(f"Ошибка поиска клиента по chat_id {chat_id}: {e}")
         return None
 
+def _sync_get_client_order_statuses(chat_id: str) -> list[dict]:
+    """Актуальные статусы заказов клиента (Лист1, Chat ID клиента = столбец S = 19), для живого обновления «Истории» в WebApp."""
+    if not sheet:
+        return []
+    try:
+        result = []
+        for idx, row in enumerate(sheet.get_all_values()):
+            if idx == 0 or len(row) < 19:
+                continue
+            if str(row[18]).strip() != str(chat_id):
+                continue
+            result.append({"id": row[1], "status": row[0].upper().strip()})
+        return result
+    except Exception as e:
+        logging.error(f"Ошибка чтения статусов заказов клиента {chat_id}: {e}")
+        return []
+
 def _sync_update_profile(chat_id: str, new_fio: str, new_address: str, lang: str | None = None) -> bool:
     """Обновляет ФИО (C), адрес забора (E) и, если передан, язык (H) клиента по Chat ID (F = 6)."""
     if not clients_sheet:
@@ -153,22 +232,22 @@ def _sync_update_profile(chat_id: str, new_fio: str, new_address: str, lang: str
         return False
 
 
-def _lang_from_row(row) -> str:
+def _lang_from_row(row, fallback: str = "ru") -> str:
     """Достаёт сохранённое предпочтение языка из строки листа Клиенты (H = 8)."""
     if row and len(row) > 7 and row[7] in ("ru", "tj"):
         return row[7]
-    return "both"
+    return fallback
 
 def _sync_append_row(row_data: list):
     if sheet:
         sheet.append_row(row_data, table_range="A1")
 
-def _sync_register_client(chat_id: str, fio: str, phone: str) -> bool:
+def _sync_register_client(chat_id: str, fio: str, phone: str, lang: str = "ru") -> bool:
     if not clients_sheet:
         return False
     try:
         now = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5)).strftime("%d.%m.%Y %H:%M")
-        clients_sheet.append_row(["ACTIVE", now, fio, phone, "", str(chat_id), ""], table_range="A1")
+        clients_sheet.append_row(["ACTIVE", now, fio, phone, "", str(chat_id), "", lang], table_range="A1")
         return True
     except Exception as e:
         logging.error(f"Ошибка регистрации клиента chat_id={chat_id}: {e}")
@@ -216,33 +295,85 @@ def _sync_get_client_by_topic(topic_id: str) -> str | None:
 
 # --- Хэндлеры ---
 
+# Последнее сообщение шага регистрации — чтоб цепочка "welcome → не найден → ФИО → готово" схлопывалась в одно
+_status_msgs: dict[int, int] = {}
+
+
+async def _try_delete(message: types.Message):
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+async def _replace_status_message(chat_id: int, text: str, **kwargs):
+    old_id = _status_msgs.pop(chat_id, None)
+    if old_id:
+        try:
+            await bot.delete_message(chat_id, old_id)
+        except Exception:
+            pass
+    sent = await bot.send_message(chat_id, text, **kwargs)
+    _status_msgs[chat_id] = sent.message_id
+    return sent
+
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
-    welcome_text = (
-        "👋 **Ба Mavsimi Rason хуш омадед!**\n"
-        "Барои ворид шудан тугмаи зерро пахш кунед:\n\n"
-        "───────────────────────\n\n"
-        "👋 **Добро пожаловать в Mavsimi Rason!**\n"
-        "Нажмите кнопку ниже для авторизации в системе:"
-    )
-    builder = ReplyKeyboardBuilder()
-    builder.add(types.KeyboardButton(text="📱 Ворид шудан / Авторизация", request_contact=True))
-    await message.answer(
-        welcome_text,
-        reply_markup=builder.as_markup(resize_keyboard=True),
+    await _try_delete(message)
+    user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
+    if user_data:
+        fio = user_data[2] if len(user_data) > 2 else "Пользователь"
+        phone = user_data[3] if len(user_data) > 3 else ""
+        lang = _lang_from_row(user_data)
+        await message.answer(
+            CL[lang]["welcome_back"].format(fio=fio),
+            reply_markup=await get_main_menu(fio, phone, lang, message.chat.id),
+            parse_mode="Markdown"
+        )
+        return
+
+    b = InlineKeyboardBuilder()
+    b.button(text="🇷🇺 Русский", callback_data="clientlang:ru")
+    b.button(text="🇹🇯 Тоҷикӣ", callback_data="clientlang:tj")
+    b.adjust(2)
+    sent = await message.answer("🌐 Выберите язык / Забонро интихоб кунед:", reply_markup=b.as_markup())
+    _status_msgs[message.chat.id] = sent.message_id
+    await state.set_state(Registration.waiting_for_lang)
+
+
+@dp.callback_query(F.data.startswith("clientlang:"), Registration.waiting_for_lang)
+async def set_client_lang(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    lang = callback.data.split(":")[1]
+    if lang not in ("ru", "tj"):
+        lang = "ru"
+    await state.update_data(client_lang=lang)
+    b = ReplyKeyboardBuilder()
+    b.add(types.KeyboardButton(text=AUTH_BTN[lang], request_contact=True))
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+    _status_msgs.pop(callback.from_user.id, None)
+    await _replace_status_message(
+        callback.message.chat.id,
+        CL[lang]["welcome"],
+        reply_markup=b.as_markup(resize_keyboard=True),
         parse_mode="Markdown"
     )
 
-@dp.message(F.text == "🔙 Главное меню")
+
+@dp.message(F.text.in_({BACK_BTN["ru"], BACK_BTN["tj"]}))
 async def go_main_menu(message: types.Message, state: FSMContext):
     await state.clear()
+    await _try_delete(message)
     user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
     fio   = user_data[2] if user_data and len(user_data) > 2 else "Пользователь"
     phone = user_data[3] if user_data and len(user_data) > 3 else ""
     lang  = _lang_from_row(user_data)
-    menu_label = pick_lang("Менюи асосӣ:\n───────────────────────\nГлавное меню:", lang)
-    await message.answer(menu_label, reply_markup=get_main_menu(fio, phone))
+    await message.answer(CL[lang]["menu_prompt"], reply_markup=await get_main_menu(fio, phone, lang, message.chat.id))
 
 
 @dp.message(F.contact)
@@ -250,46 +381,45 @@ async def process_contact(message: types.Message, state: FSMContext):
     phone = message.contact.phone_number
     if not phone.startswith("+"):
         phone = "+" + phone
+    await _try_delete(message)
 
-    await state.update_data(phone=phone)
+    data = await state.get_data()
+    lang = data.get("client_lang", "ru")
+    await state.update_data(phone=phone, client_lang=lang)
     user_data = await asyncio.to_thread(_sync_check_user_by_phone, phone)
 
     if user_data:
         fio = user_data[2] if len(user_data) > 2 else "Пользователь"
-        lang = _lang_from_row(user_data)
-        menu_text = pick_lang(
-            f"👋 **Мо хурсандем, ки шуморо боз дидем, {fio}!**\n\n"
-            f"───────────────────────\n\n"
-            f"👋 **С возвращением, {fio}!**\n"
-            f"Используйте кнопку ниже для перехода к заказам.",
-            lang
-        )
-        await message.answer(
-            menu_text,
-            reply_markup=get_main_menu(fio, phone),
+        real_lang = _lang_from_row(user_data, fallback=lang)
+        await _replace_status_message(
+            message.chat.id,
+            CL[real_lang]["welcome_back"].format(fio=fio),
+            reply_markup=await get_main_menu(fio, phone, real_lang, message.chat.id),
             parse_mode="Markdown"
         )
+        _status_msgs.pop(message.chat.id, None)
     else:
-        not_found_text = (
-            f"📋 **Диққат! Рақами шумо дар систем нест.**\n"
-            f"Барои эҷоди дархостҳо шумо бояд бо [Офертаи оммавӣ]({LINK_TO_OFFER}) шинос шавед.\n\n"
-            f"───────────────────────\n\n"
-            f"📋 **Внимание! Вашего номера нет в системе.**\n"
-            f"Для создания заказов вам необходимо ознакомиться с [Публичной офертой]({LINK_TO_OFFER})."
-        )
-        builder = ReplyKeyboardBuilder()
-        builder.add(types.KeyboardButton(text="📝 Қабули оферта / Подписать оферту"))
-        await message.answer(
-            not_found_text,
-            reply_markup=builder.as_markup(resize_keyboard=True),
+        b = ReplyKeyboardBuilder()
+        b.add(types.KeyboardButton(text=ACCEPT_OFFER_BTN[lang]))
+        await _replace_status_message(
+            message.chat.id,
+            CL[lang]["not_found"].format(url=LINK_TO_OFFER),
+            reply_markup=b.as_markup(resize_keyboard=True),
             parse_mode="Markdown",
             disable_web_page_preview=True
         )
 
-@dp.message(F.text == "📝 Қабули оферта / Подписать оферту")
+@dp.message(F.text.in_({ACCEPT_OFFER_BTN["ru"], ACCEPT_OFFER_BTN["tj"]}))
 async def start_fio_step(message: types.Message, state: FSMContext):
-    ask_text = "**Ному Насаби** худро ворид кунед:\n\n───────────────────────\n\nВведите ваши **ФИО**:"
-    await message.answer(ask_text, reply_markup=types.ReplyKeyboardRemove(), parse_mode="Markdown")
+    await _try_delete(message)
+    data = await state.get_data()
+    lang = data.get("client_lang", "ru")
+    await _replace_status_message(
+        message.chat.id,
+        CL[lang]["ask_fio"],
+        reply_markup=types.ReplyKeyboardRemove(),
+        parse_mode="Markdown"
+    )
     await state.set_state(Registration.waiting_for_fio)
 
 @dp.message(Registration.waiting_for_fio)
@@ -297,31 +427,45 @@ async def save_fio(message: types.Message, state: FSMContext):
     fio = message.text.strip()
     data = await state.get_data()
     phone = data.get('phone')
+    lang = data.get('client_lang', 'ru')
     await state.clear()
+    await _try_delete(message)
     if not phone:
-        await message.answer("❌ Сессия хатм шуд. /start-ро пахш кунед.\n\n❌ Сессия истекла. Нажмите /start.")
+        await message.answer(CL[lang]["session_expired"])
         return
 
-    await asyncio.to_thread(_sync_register_client, str(message.chat.id), fio, phone)
+    await asyncio.to_thread(_sync_register_client, str(message.chat.id), fio, phone, lang)
 
-    success_text = f"🎉 **Бақайдгирӣ анҷом ёфт! / Регистрация завершена!**\n\nРады вас видеть, **{fio}**!"
-    await message.answer(
-        success_text,
-        reply_markup=get_main_menu(fio, phone),
+    await _replace_status_message(
+        message.chat.id,
+        CL[lang]["registered"].format(fio=fio),
+        reply_markup=await get_main_menu(fio, phone, lang, message.chat.id),
         parse_mode="Markdown"
     )
+    _status_msgs.pop(message.chat.id, None)
 
-def get_main_menu(fio: str, phone: str):
+async def get_main_menu(fio: str, phone: str, lang: str = "ru", chat_id=None):
     safe_fio = urllib.parse.quote(fio)
     safe_phone = urllib.parse.quote(str(phone))
     final_url = f"{WEB_APP_URL}&fio={safe_fio}&phone={safe_phone}"
 
+    if chat_id is not None:
+        try:
+            orders = await asyncio.to_thread(_sync_get_client_order_statuses, str(chat_id))
+            if orders:
+                b64 = base64.urlsafe_b64encode(
+                    json.dumps({"orders": orders}, ensure_ascii=False, separators=(",", ":")).encode()
+                ).decode().rstrip("=")
+                final_url += f"&d={b64}"
+        except Exception as e:
+            logging.error(f"Ошибка встраивания статусов заказов в WebApp URL для {chat_id}: {e}")
+
     builder = ReplyKeyboardBuilder()
     builder.add(types.KeyboardButton(
-        text="📦 Оформить доставку / Ороиши дархост",
+        text=ORDER_BTN[lang],
         web_app=types.WebAppInfo(url=final_url)
     ))
-    builder.add(types.KeyboardButton(text="📞 Поддержка / Дастгирӣ"))
+    builder.add(types.KeyboardButton(text=SUPPORT_BTN[lang]))
     builder.adjust(1)
     return builder.as_markup(resize_keyboard=True)
 
@@ -336,8 +480,10 @@ async def handle_webapp_data(message: types.Message):
             updated_addr = data.get("address", "").strip()
             new_lang = data.get("lang") if data.get("lang") in VALID_LANGS else None
 
+            user_data_now = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
+            lang = new_lang or _lang_from_row(user_data_now)
             if not updated_fio:
-                await message.answer("❌ ФИО не может быть пустым.")
+                await message.answer(CL[lang]["fio_empty"])
                 return
 
             # Ищем пользователя по chat_id (не по phone из запроса — безопасно)
@@ -353,21 +499,15 @@ async def handle_webapp_data(message: types.Message):
                 phone_from_db = user_data[3] if user_data and len(user_data) > 3 else ""
                 lang = _lang_from_row(user_data)
                 await message.answer(
-                    pick_lang(
-                        f"✅ **Маълумот навшуд!**\n\n"
-                        f"• **Ном:** {updated_fio}\n"
-                        f"• **Суроға:** {updated_addr if updated_addr else 'Нишон дода нашуд'}\n"
-                        f"───────────────────────\n"
-                        f"✅ **Данные обновлены!**\n\n"
-                        f"• **ФИО:** {updated_fio}\n"
-                        f"• **Адрес:** {updated_addr if updated_addr else 'Не указан'}",
-                        lang
+                    CL[lang]["profile_updated"].format(
+                        fio=updated_fio,
+                        addr=updated_addr if updated_addr else CL[lang]["addr_missing"]
                     ),
-                    reply_markup=get_main_menu(updated_fio, phone_from_db),
+                    reply_markup=await get_main_menu(updated_fio, phone_from_db, lang, message.chat.id),
                     parse_mode="Markdown"
                 )
             else:
-                await message.answer("❌ Хатогӣ. Корбар дар база нест.\n\n❌ Ошибка обновления. Пользователь не найден.")
+                await message.answer(CL[lang]["profile_user_not_found"])
             return
 
         # --- Новый заказ ---
@@ -392,8 +532,11 @@ async def handle_webapp_data(message: types.Message):
         utc_now = datetime.datetime.now(datetime.timezone.utc)
         dushanbe_time = (utc_now + datetime.timedelta(hours=5)).strftime("%d.%m.%Y %H:%M")
 
-        # ID генерируется на СЕРВЕРЕ, не доверяем клиентскому
-        order_id = generate_order_id()
+        # ID обычно приходит от клиента (тот же формат, что и на сервере) — чтобы карточка
+        # в локальной "Истории" клиента совпадала с реальным ID. Валидируем строго по формату,
+        # при несовпадении/отсутствии — генерируем сами.
+        client_order_id = str(data.get("order_id", ""))
+        order_id = client_order_id if ORDER_ID_RE.match(client_order_id) else generate_order_id()
 
         s = sanitize_for_sheet
         row = [
@@ -448,9 +591,10 @@ async def handle_webapp_data(message: types.Message):
             except Exception as e:
                 logging.error(f"Ошибка записи в лист Заказы: {e}")
 
-        # Уведомление менеджеру о новом заказе
-        if MANAGER_CHAT_ID:
-            try:
+        # Уведомление менеджерам о новом заказе
+        if mgr_bot:
+            manager_ids = await asyncio.to_thread(get_manager_chat_ids)
+            if manager_ids:
                 from aiogram.utils.keyboard import InlineKeyboardBuilder as IKB
                 dtype_mgr = "До ПВЗ 🏢" if data['delivery_type'] == "pvz" else "До двери 🚪"
                 e = html.escape
@@ -467,14 +611,16 @@ async def handle_webapp_data(message: types.Message):
                 b.button(text="✅ Принять", callback_data=f"oa:{order_id}")
                 b.button(text="❌ Отменить", callback_data=f"oc:{order_id}")
                 b.adjust(2)
-                await mgr_bot.send_message(
-                    chat_id=int(MANAGER_CHAT_ID),
-                    text=mgr_text,
-                    reply_markup=b.as_markup(),
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logging.error(f"Не удалось уведомить менеджера о заказе {order_id}: {e}")
+                for mgr_id in manager_ids:
+                    try:
+                        await mgr_bot.send_message(
+                            chat_id=int(mgr_id),
+                            text=mgr_text,
+                            reply_markup=b.as_markup(),
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        logging.error(f"Не удалось уведомить менеджера {mgr_id} о заказе {order_id}: {e}")
 
         msg = RECEIPTS[lang].format(
             date=dushanbe_time, order_id=order_id,
@@ -497,25 +643,20 @@ async def handle_webapp_data(message: types.Message):
 
 # ─── Поддержка (Topics) ──────────────────────────────────────────────────────
 
-@dp.message(F.text == "📞 Поддержка / Дастгирӣ")
+@dp.message(F.text.in_({SUPPORT_BTN["ru"], SUPPORT_BTN["tj"]}))
 async def support_start(message: types.Message, state: FSMContext):
-    if not SUPPORT_CHAT_ID:
-        await message.answer("⚙️ Поддержка временно недоступна.")
-        return
+    await _try_delete(message)
     user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
     lang = _lang_from_row(user_data)
+    if not SUPPORT_CHAT_ID:
+        await message.answer(CL[lang]["support_unavailable"])
+        return
     await message.answer(
-        pick_lang(
-            "📞 <b>Саволи худро нависед:</b>\n"
-            "Мо ҳарчи зудтар ҷавоб хоҳем дод.\n"
-            "───────────────────────\n"
-            "📞 <b>Напишите ваш вопрос или проблему:</b>\n"
-            "Мы ответим в ближайшее время.",
-            lang
-        ),
+        CL[lang]["support_prompt"],
         reply_markup=types.ReplyKeyboardRemove(),
         parse_mode="HTML"
     )
+    await state.update_data(lang=lang)
     await state.set_state(Support.waiting_for_message)
 
 
@@ -545,37 +686,35 @@ async def support_send(message: types.Message, state: FSMContext):
             text=f"📨 <b>Клиент:</b> {html.escape(message.text)}",
             parse_mode="HTML"
         )
+        lang = _lang_from_row(user_data)
         back_kb = ReplyKeyboardBuilder()
-        back_kb.button(text="🔙 Главное меню")
-        await state.update_data(fio=fio, phone=phone, topic_id=topic_id)
+        back_kb.button(text=BACK_BTN[lang])
+        await state.update_data(fio=fio, phone=phone, topic_id=topic_id, lang=lang)
         await state.set_state(Support.chatting)
         await message.answer(
-            pick_lang(
-                "✅ Фиристода шуд! Менеҷер ин ҷо ҷавоб хоҳад дод.\n"
-                "───────────────────────\n"
-                "✅ Отправлено! Менеджер ответит здесь.",
-                _lang_from_row(user_data)
-            ),
+            CL[lang]["support_sent"],
             reply_markup=back_kb.as_markup(resize_keyboard=True),
         )
     except Exception as e:
         logging.error(f"Ошибка поддержки (SUPPORT_CHAT_ID={SUPPORT_CHAT_ID}): {type(e).__name__}: {e}")
+        lang = _lang_from_row(user_data)
         if topic_id:
             # топик создан, но отправка не удалась — сохраняем state чтобы не создавать дубль
-            await state.update_data(fio=fio, phone=phone, topic_id=topic_id)
+            await state.update_data(fio=fio, phone=phone, topic_id=topic_id, lang=lang)
             await state.set_state(Support.chatting)
         else:
             await state.clear()
-        await message.answer("❌ Ошибка. Попробуйте позже.", reply_markup=get_main_menu(fio, phone))
+        await message.answer(CL[lang]["support_error"], reply_markup=await get_main_menu(fio, phone, lang, message.chat.id))
 
 
 @dp.message(Support.chatting)
 async def support_continue(message: types.Message, state: FSMContext):
     data = await state.get_data()
+    lang = data.get("lang", "ru")
     topic_id = data.get("topic_id")
     if not topic_id:
         await state.clear()
-        await message.answer("❌ Сессия истекла. Нажмите кнопку поддержки снова.")
+        await message.answer(CL[lang]["support_session_expired"])
         return
 
     try:
@@ -587,7 +726,7 @@ async def support_continue(message: types.Message, state: FSMContext):
         )
     except Exception as e:
         logging.error(f"Ошибка отправки в топик: {type(e).__name__}: {e}")
-        await message.answer("❌ Не удалось отправить. Попробуйте позже.")
+        await message.answer(CL[lang]["support_send_failed"])
 
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}))
@@ -608,10 +747,12 @@ async def support_group_message(message: types.Message):
     if not client_chat_id:
         return
 
+    client_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(client_chat_id))
+    lang = _lang_from_row(client_data)
     try:
         await bot.send_message(
             chat_id=int(client_chat_id),
-            text=f"💬 <b>Ответ от поддержки:</b>\n\n{html.escape(message.text)}",
+            text=CL[lang]["support_reply_header"].format(text=html.escape(message.text)),
             parse_mode="HTML"
         )
     except Exception as e:
