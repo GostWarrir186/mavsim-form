@@ -192,11 +192,10 @@
         }
         .s-new      { background: #e3f2fd; color: #1565c0; }
         .s-ready    { background: #fff3e0; color: #e65100; }
-        .s-taken    { background: #f3e5f5; color: #6a1b9a; }
-        .s-loading  { background: #fff8e1; color: #f57f17; }
-        .s-transit  { background: #e8f5e9; color: #2e7d32; }
-        .s-arrived  { background: #e0f7fa; color: #006064; }
+        .s-taken    { background: #fff3e0; color: #ef6c00; }
+        .s-transit  { background: #fff3e0; color: #ef6c00; }
         .s-delivered{ background: #e8f5e9; color: #1b5e20; }
+        .s-cancelled{ background: #ffebee; color: #c62828; }
         .swipe-delete-btn {
             position: absolute; top: 0; right: 0; bottom: 0; width: 68px;
             background: var(--danger); color: white; border: none;
@@ -379,6 +378,33 @@
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('fio')) verifiedFio = urlParams.get('fio');
     if (urlParams.get('phone')) verifiedPhone = urlParams.get('phone');
+
+    // ─── Живой статус заказов (приходит от бота при каждом открытии меню) ────
+    try {
+        const raw = urlParams.get('d');
+        if (raw) {
+            const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+            const pad = '='.repeat((4 - b64.length % 4) % 4);
+            const bytes = Uint8Array.from(atob(b64 + pad), c => c.charCodeAt(0));
+            const liveData = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+            const liveOrders = liveData.orders || [];
+            if (liveOrders.length) {
+                const statusById = {};
+                liveOrders.forEach(o => { statusById[o.id] = o.status; });
+                const history = JSON.parse(localStorage.getItem('user_orders') || '[]');
+                let changed = false;
+                history.forEach(o => {
+                    if (statusById[o.id] && statusById[o.id] !== o.status) {
+                        o.status = statusById[o.id];
+                        changed = true;
+                    }
+                });
+                if (changed) localStorage.setItem('user_orders', JSON.stringify(history));
+            }
+        }
+    } catch (e) {
+        console.error('Ошибка обновления статусов заказов:', e);
+    }
 
     function escapeHtml(str) {
         const d = document.createElement('div');
@@ -626,7 +652,7 @@
 
     const STATUS_CLASS = {
         'NEW': 's-new', 'READY_FOR_DRIVERS': 's-ready', 'TAKEN': 's-taken',
-        'LOADING': 's-loading', 'IN_TRANSIT': 's-transit', 'ARRIVED': 's-arrived', 'DELIVERED': 's-delivered'
+        'IN_TRANSIT': 's-transit', 'DELIVERED': 's-delivered', 'CANCELLED': 's-cancelled'
     };
 
     function renderOrdersHistory() {
