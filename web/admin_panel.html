@@ -7,15 +7,13 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
-            --primary:       #2481cc;
-            --primary-grad:  linear-gradient(135deg, #2a8de0, #1a6db5);
-            --primary-light: rgba(36,129,204,.1);
+            --primary:       #f2711c;
+            --primary-grad:  linear-gradient(135deg, #fb923c, #ea580c);
+            --primary-light: rgba(242,113,28,.1);
             --success:       #2bca80;
             --success-grad:  linear-gradient(135deg, #2bca80, #22a368);
             --warning:       #f59e0b;
             --danger:        #e53935;
-            --purple:        #9c27b0;
-            --teal:          #00897b;
             --bg:     var(--tg-theme-bg-color, #ffffff);
             --sec-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
             --text:   var(--tg-theme-text-color, #1c1c1e);
@@ -65,10 +63,8 @@
             box-shadow: 0 1px 6px rgba(0,0,0,.05);
             border-left: 3px solid var(--primary);
         }
-        .order-card.s-TAKEN     { border-left-color: var(--purple); }
-        .order-card.s-LOADING   { border-left-color: var(--warning); }
+        .order-card.s-TAKEN     { border-left-color: var(--primary); }
         .order-card.s-IN_TRANSIT{ border-left-color: var(--success); }
-        .order-card.s-ARRIVED   { border-left-color: var(--teal); }
 
         .card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
         .order-id { font-size: 12px; font-weight: 700; color: var(--text); }
@@ -76,10 +72,8 @@
             font-size: 9.5px; font-weight: 700; padding: 3px 8px;
             border-radius: 20px; text-transform: uppercase; letter-spacing: .3px;
         }
-        .sp-TAKEN      { background: #f3e5f5; color: #7b1fa2; }
-        .sp-LOADING    { background: #fff8e1; color: #e65100; }
+        .sp-TAKEN      { background: #fff3e0; color: #ef6c00; }
         .sp-IN_TRANSIT { background: #e8f5e9; color: #2e7d32; }
-        .sp-ARRIVED    { background: #e0f7fa; color: #006064; }
         .sp-DELIVERED  { background: #e8f5e9; color: #1b5e20; }
 
         .card-route { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
@@ -92,7 +86,7 @@
             background: var(--primary-light); color: var(--primary);
             font-size: 12px; font-weight: 700;
         }
-        .btn-manage:active { background: rgba(36,129,204,.22); }
+        .btn-manage:active { background: rgba(242,113,28,.22); }
 
         /* Manage modal sections */
         .manage-section { padding: 14px 16px; border-bottom: 1px solid var(--sec-bg); }
@@ -218,11 +212,11 @@
         }
         .btn-report {
             background: var(--primary-light); color: var(--primary);
-            border: 1px solid rgba(36,129,204,.2); border-radius: var(--radius-sm);
+            border: 1px solid rgba(242,113,28,.2); border-radius: var(--radius-sm);
             padding: 7px 12px; font-size: 12px; font-weight: 700;
             cursor: pointer; white-space: nowrap; flex-shrink: 0;
         }
-        .btn-report:active { background: rgba(36,129,204,.2); }
+        .btn-report:active { background: rgba(242,113,28,.2); }
 
         /* Empty */
         .empty { text-align: center; padding: 40px 20px; color: var(--hint); }
@@ -307,8 +301,7 @@
     let weekOffset = 0; // 0 = текущая, -1 = прошлая и т.д.
 
     const STATUS_LABEL = {
-        TAKEN: 'Взят', LOADING: 'Погрузка',
-        IN_TRANSIT: 'В пути', ARRIVED: 'На месте', DELIVERED: 'Доставлен',
+        TAKEN: 'Принял', IN_TRANSIT: 'В пути', DELIVERED: 'Доставил',
     };
 
     const RU_MONTHS_GEN = [
@@ -355,11 +348,9 @@
     let _manageOrder = null;
 
     const STATUSES = [
-        { key: 'TAKEN',      label: 'Взят' },
-        { key: 'LOADING',    label: 'Погрузка' },
+        { key: 'TAKEN',      label: 'Принял' },
         { key: 'IN_TRANSIT', label: 'В пути' },
-        { key: 'ARRIVED',    label: 'На месте' },
-        { key: 'DELIVERED',  label: 'Доставлен' },
+        { key: 'DELIVERED',  label: 'Доставил' },
     ];
     const STATUS_ORDER = STATUSES.map(s => s.key);
 

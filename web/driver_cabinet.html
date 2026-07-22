@@ -7,9 +7,9 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         :root {
-            --primary:       #2481cc;
-            --primary-light: rgba(36,129,204,0.1);
-            --primary-grad:  linear-gradient(135deg, #2a8de0, #1a6db5);
+            --primary:       #f2711c;
+            --primary-light: rgba(242,113,28,0.1);
+            --primary-grad:  linear-gradient(135deg, #fb923c, #ea580c);
             --success:       #2bca80;
             --success-grad:  linear-gradient(135deg, #2bca80, #22a368);
             --warning:       #f59e0b;
@@ -40,7 +40,7 @@
 
         /* ─── Stats Cards ─── */
         .stats-row {
-            display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
             padding: 0 14px; margin-top: 10px; margin-bottom: 14px;
         }
         .stat-card {
@@ -49,7 +49,6 @@
             box-shadow: 0 4px 16px rgba(0,0,0,0.1);
         }
         .stat-value { font-size: 20px; font-weight: 800; color: var(--primary); line-height: 1; }
-        .stat-value.green { color: var(--success); }
         .stat-label { font-size: 10px; color: var(--hint); font-weight: 600; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
 
         /* ─── Section ─── */
@@ -140,22 +139,13 @@
             padding: 2px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 600;
         }
 
-        .earn-col { flex-shrink: 0; text-align: right; }
-        .earn-amount {
-            font-size: 15px; font-weight: 800; color: var(--success); display: block;
-        }
-        .earn-label { font-size: 9.5px; color: var(--hint); font-weight: 600; text-transform: uppercase; }
-
         .status-pill {
             display: inline-block; padding: 2px 8px; border-radius: 6px;
             font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; margin-top: 5px;
         }
         .s-delivered  { background: #e8f5e9; color: #2e7d32; }
-        .s-transit    { background: #e8f5e9; color: #388e3c; }
-        .s-loading    { background: #fff8e1; color: #f57f17; }
-        .s-taken      { background: #f3e5f5; color: #7b1fa2; }
-        .s-arrived    { background: #e0f7fa; color: #00695c; }
-        .s-new        { background: #e3f2fd; color: #1565c0; }
+        .s-transit    { background: #fff3e0; color: #e65100; }
+        .s-taken      { background: #fff3e0; color: #ef6c00; }
 
         /* ─── Report Button ─── */
         .btn-report {
@@ -222,12 +212,11 @@
     // ─── Локализация ────────────────────────────────────────────────────────
     const T = {
         ru: {
-            cabinet_title: 'Кабинет курьера', stat_deliveries: 'Доставок', stat_earn: 'TJS заработок',
+            cabinet_title: 'Кабинет курьера', stat_deliveries: 'Доставок',
             stat_week: 'За неделю', week_title: 'Неделя', report_btn: 'Скачать отчёт за',
             all_deliveries: 'Все доставки', reset: 'Сбросить', all_label: 'Все',
             empty_month: 'Нет доставок за месяц', empty_day: l => `Нет доставок за ${l}`,
-            status_delivered: '✓ Доставлен', status_transit: 'В пути', status_loading: 'Погрузка',
-            status_taken: 'Взят', status_arrived: 'На месте', status_new: 'Новый',
+            status_delivered: '✓ Доставил', status_transit: 'В пути', status_taken: 'Принял',
             pvz: '🏢 ПВЗ', door: '🚪 До двери',
             profile_hint: 'Смена ФИО требует подтверждения менеджера', save: 'Сохранить',
             no_data_title: 'Нет данных', no_data_sub: 'Откройте кабинет через бота Mavsimi Rason.',
@@ -235,12 +224,11 @@
             days_short: ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'],
         },
         tj: {
-            cabinet_title: 'Кабинети курьер', stat_deliveries: 'Фармоишҳо', stat_earn: 'Даромад (TJS)',
+            cabinet_title: 'Кабинети курьер', stat_deliveries: 'Фармоишҳо',
             stat_week: 'Дар як ҳафта', week_title: 'Ҳафта', report_btn: 'Боргирии ҳисобот барои',
             all_deliveries: 'Ҳамаи фармоишҳо', reset: 'Бекор кардан', all_label: 'Ҳама',
             empty_month: 'Дар ин моҳ фармоише нест', empty_day: l => `Дар ${l} фармоише нест`,
-            status_delivered: '✓ Расонида шуд', status_transit: 'Дар роҳ', status_loading: 'Боркунӣ',
-            status_taken: 'Гирифта шуд', status_arrived: 'Дар ҷой', status_new: 'Нав',
+            status_delivered: '✓ Расонид', status_transit: 'Дар роҳ', status_taken: 'Гирифт',
             pvz: '🏢 ПВЗ', door: '🚪 То дар',
             profile_hint: 'Тағйири ном тасдиқи менеҷерро талаб мекунад', save: 'Нигоҳ доштан',
             no_data_title: 'Маълумот нест', no_data_sub: 'Кабинетро тавассути боти Mavsimi Rason кушоед.',
@@ -273,7 +261,6 @@
 
     // ─── Состояние ──────────────────────────────────────────────────────────
     const deliveries = DATA.deliveries || [];
-    const rate       = DATA.rate || 15;
     const driverName = DATA.name || 'Курьер';
     const monthLabel = DATA.month_label || '';
     const savedLang = localStorage.getItem('driver_lang');
@@ -297,28 +284,24 @@
     // ─── Статистика ─────────────────────────────────────────────────────────
     function calcStats() {
         const done = deliveries.filter(d => d.s === 'DELIVERED');
-        const monthEarn = done.length * rate;
-        const avg = done.length ? (monthEarn / done.length) : 0;
         // Текущая неделя
         const ws = isoFromDate(weekStart);
         const we = isoFromDate(addDays(weekStart, 6));
         const weekDone = done.filter(d => d.d >= ws && d.d <= we);
-        return { total: done.length, monthEarn, avg, weekDone: weekDone.length, weekEarn: weekDone.length * rate };
+        return { total: done.length, weekDone: weekDone.length };
     }
 
     // ─── Рендер ─────────────────────────────────────────────────────────────
     function statusClass(s) {
-        return { DELIVERED:'s-delivered', IN_TRANSIT:'s-transit', LOADING:'s-loading',
-                 TAKEN:'s-taken', ARRIVED:'s-arrived' }[s] || 's-new';
+        return { DELIVERED:'s-delivered', IN_TRANSIT:'s-transit', TAKEN:'s-taken' }[s] || 's-taken';
     }
     function statusLabel(s) {
         const t = T[profileLang];
-        return { DELIVERED:t.status_delivered, IN_TRANSIT:t.status_transit, LOADING:t.status_loading,
-                 TAKEN:t.status_taken, ARRIVED:t.status_arrived, NEW:t.status_new }[s] || s;
+        return { DELIVERED:t.status_delivered, IN_TRANSIT:t.status_transit, TAKEN:t.status_taken }[s] || s;
     }
     function cardClass(s) {
         if (s === 'DELIVERED') return 'delivery-card delivered';
-        if (['IN_TRANSIT','LOADING','TAKEN','ARRIVED'].includes(s)) return 'delivery-card in-progress';
+        if (['IN_TRANSIT','TAKEN'].includes(s)) return 'delivery-card in-progress';
         return 'delivery-card';
     }
 
@@ -360,8 +343,6 @@
     }
 
     function renderDeliveryCard(d) {
-        const isDelivered = d.s === 'DELIVERED';
-        const earn = isDelivered ? rate : 0;
         return `
         <div class="${cardClass(d.s)}">
             <div class="time-col">
@@ -379,10 +360,6 @@
                     <span class="meta-tag">🆔 ${d.i}</span>
                 </div>
                 <span class="status-pill ${statusClass(d.s)}">${statusLabel(d.s)}</span>
-            </div>
-            <div class="earn-col">
-                <span class="earn-amount">${isDelivered ? earn.toFixed(0) : '—'}</span>
-                <span class="earn-label">TJS</span>
             </div>
         </div>`;
     }
@@ -437,10 +414,6 @@
             <div class="stat-card">
                 <div class="stat-value">${stats.total}</div>
                 <div class="stat-label">${t.stat_deliveries}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value green">${stats.monthEarn.toFixed(0)}</div>
-                <div class="stat-label">${t.stat_earn}</div>
             </div>
             <div class="stat-card">
                 <div class="stat-value">${stats.weekDone}</div>
