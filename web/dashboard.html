@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Статистика</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --primary:       #f2711c;
+            --primary-grad:  linear-gradient(135deg, #fb923c, #ea580c);
+            --primary-light: rgba(242,113,28,.12);
+            --bg:     var(--tg-theme-bg-color, #ffffff);
+            --sec-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
+            --card:   var(--tg-theme-bg-color, #ffffff);
+            --text:   var(--tg-theme-text-color, #1c1c1e);
+            --hint:   var(--tg-theme-hint-color, #8e8e93);
+            --border: rgba(142,142,147,.18);
+            --radius:    16px;
+            --radius-sm: 11px;
+
+            --s-new:       #8e8e93;
+            --s-ready:     #f59e0b;
+            --s-taken:     #0ea5b7;
+            --s-transit:   #3b5bdb;
+            --s-delivered: #2bca80;
+            --s-cancel:    #e53935;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        body {
+            background: var(--sec-bg); color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            padding-bottom: 32px; overflow-x: hidden; line-height: 1.45;
+        }
+        .mono { font-variant-numeric: tabular-nums; }
+
+        .header {
+            background: var(--primary-grad); color: #fff;
+            padding: 18px 16px 20px; border-radius: 0 0 var(--radius) var(--radius);
+        }
+        .header h1 { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+        .header .sub { font-size: 12.5px; opacity: .9; margin-top: 3px; }
+
+        .wrap { padding: 14px 12px 0; display: flex; flex-direction: column; gap: 14px; }
+
+        .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+        .kpi {
+            background: var(--card); border-radius: var(--radius-sm); padding: 12px 10px;
+            box-shadow: 0 3px 14px rgba(0,0,0,.06); display: flex; flex-direction: column; gap: 3px;
+            min-height: 74px; justify-content: center;
+        }
+        .kpi .label { font-size: 10.5px; color: var(--hint); font-weight: 600; letter-spacing: .02em; }
+        .kpi .val { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+        .kpi .val small { font-size: 12px; font-weight: 700; color: var(--hint); margin-left: 1px; }
+
+        .card {
+            background: var(--card); border-radius: var(--radius); padding: 15px 15px 16px;
+            box-shadow: 0 3px 14px rgba(0,0,0,.06);
+        }
+        .card-title { font-size: 14px; font-weight: 700; }
+        .card-meta { font-size: 11.5px; color: var(--hint); margin-top: 1px; margin-bottom: 14px; }
+
+        .bars { display: flex; align-items: flex-end; gap: 7px; height: 132px; }
+        .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
+        .bar-num { font-size: 11px; font-weight: 700; color: var(--text); }
+        .bar {
+            width: 100%; max-width: 30px; border-radius: 6px 6px 3px 3px;
+            background: var(--primary-grad); min-height: 3px;
+            transition: height .6s cubic-bezier(.2,.7,.2,1);
+        }
+        .bar.today { box-shadow: 0 0 0 2px var(--primary-light); }
+        .bar-x { font-size: 10.5px; color: var(--hint); }
+
+        .donut-wrap { display: flex; align-items: center; gap: 16px; }
+        .donut { width: 108px; height: 108px; border-radius: 50%; flex: none; position: relative; }
+        .donut::after { content: ""; position: absolute; inset: 24px; border-radius: 50%; background: var(--card); }
+        .donut-center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; z-index: 1; }
+        .donut-center b { font-size: 19px; display: block; font-weight: 800; letter-spacing: -.02em; }
+        .donut-center span { font-size: 9.5px; color: var(--hint); text-transform: uppercase; letter-spacing: .05em; }
+        .legend { display: flex; flex-direction: column; gap: 7px; flex: 1; font-size: 12.5px; }
+        .legend-row { display: flex; align-items: center; gap: 8px; }
+        .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+        .legend-row .val { margin-left: auto; font-weight: 700; color: var(--hint); }
+
+        .rank-row { display: flex; align-items: center; gap: 11px; padding: 10px 0; border-top: 1px solid var(--border); }
+        .rank-row:first-child { border-top: none; padding-top: 2px; }
+        .rank-num { font-weight: 800; color: var(--hint); width: 15px; font-size: 13px; }
+        .avatar {
+            width: 32px; height: 32px; border-radius: 50%; flex: none; display: grid; place-items: center;
+            font-size: 12px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #fb923c, #ea580c);
+        }
+        .rank-name { font-weight: 600; font-size: 14px; }
+        .rank-sub { font-size: 11.5px; color: var(--hint); }
+        .rank-track { flex: 1; height: 7px; background: var(--sec-bg); border-radius: 4px; overflow: hidden; min-width: 40px; }
+        .rank-fill { height: 100%; background: var(--primary-grad); border-radius: 4px; }
+        .rank-rev { font-size: 12.5px; font-weight: 700; white-space: nowrap; color: var(--text); }
+
+        .empty { text-align: center; color: var(--hint); font-size: 13px; padding: 22px 8px; }
+        .foot { text-align: center; color: var(--hint); font-size: 11px; margin-top: 4px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 Статистика</h1>
+        <div class="sub" id="sub">Загрузка…</div>
+    </div>
+    <div class="wrap" id="app"></div>
+
+    <script>
+        try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (e) {}
+
+        // Декод ?d= — точно как в admin_panel.html (urlsafe base64 + UTF-8)
+        let DATA = null;
+        try {
+            const raw = new URLSearchParams(window.location.search).get('d');
+            if (raw) {
+                const b64   = raw.replace(/-/g, '+').replace(/_/g, '/');
+                const pad   = '='.repeat((4 - b64.length % 4) % 4);
+                const bytes = Uint8Array.from(atob(b64 + pad), c => c.charCodeAt(0));
+                DATA = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+            }
+        } catch (e) { console.error(e); }
+
+        const STATUS_COLOR = {
+            NEW: 'var(--s-new)', READY_FOR_DRIVERS: 'var(--s-ready)', TAKEN: 'var(--s-taken)',
+            IN_TRANSIT: 'var(--s-transit)', DELIVERED: 'var(--s-delivered)', CANCELLED: 'var(--s-cancel)',
+        };
+        const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
+            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+        const app = document.getElementById('app');
+        const sub = document.getElementById('sub');
+
+        if (!DATA) {
+            sub.textContent = 'Нет данных';
+            app.innerHTML = '<div class="card"><div class="empty">Не удалось загрузить статистику.<br>Откройте панель заново кнопкой «🔄 Обновить».</div></div>';
+        } else {
+            render(DATA);
+        }
+
+        function kpi(label, val, unit) {
+            return `<div class="kpi"><span class="label">${label}</span>` +
+                   `<span class="val mono">${val}${unit ? `<small>${unit}</small>` : ''}</span></div>`;
+        }
+
+        function render(d) {
+            const ov = d.overview || {};
+            sub.textContent = 'Обновлено ' + (d.generated_at || '—');
+
+            // --- KPI ---
+            const kpis = document.createElement('div');
+            kpis.className = 'kpis';
+            kpis.innerHTML =
+                kpi('Заказов сегодня', ov.orders_today ?? 0) +
+                kpi('Доставлено', ov.delivered_today ?? 0) +
+                kpi('В работе', ov.in_progress ?? 0) +
+                kpi('Выручка', ov.revenue_today ?? 0, ' сом.') +
+                kpi('Средний чек', ov.avg_check ?? 0, ' сом.') +
+                kpi('Курьеров', ov.active_couriers ?? 0);
+            app.appendChild(kpis);
+
+            // --- Заказы по дням ---
+            const perDay = d.per_day || [];
+            const maxC = Math.max(1, ...perDay.map(x => x.count));
+            const totalWeek = perDay.reduce((s, x) => s + x.count, 0);
+            const barsCard = document.createElement('div');
+            barsCard.className = 'card';
+            barsCard.innerHTML =
+                `<div class="card-title">Заказы по дням</div>` +
+                `<div class="card-meta">Последние 7 дней · всего ${totalWeek}</div>` +
+                `<div class="bars">${perDay.map((x, i) =>
+                    `<div class="bar-col">` +
+                        `<span class="bar-num">${x.count || ''}</span>` +
+                        `<div class="bar ${i === perDay.length - 1 ? 'today' : ''}" data-h="${x.count / maxC * 100}" style="height:0"></div>` +
+                        `<span class="bar-x">${esc(x.weekday)}</span>` +
+                    `</div>`).join('')}</div>`;
+            app.appendChild(barsCard);
+            requestAnimationFrame(() => barsCard.querySelectorAll('.bar').forEach(b => b.style.height = b.dataset.h + '%'));
+
+            // --- Статусы (donut) ---
+            const statuses = (d.statuses || []).filter(s => s.count > 0);
+            const statusCard = document.createElement('div');
+            statusCard.className = 'card';
+            if (statuses.length) {
+                let acc = 0;
+                const segs = statuses.map(s => {
+                    const from = acc; acc += s.pct;
+                    return `${STATUS_COLOR[s.status] || 'var(--s-new)'} ${from}% ${acc}%`;
+                }).join(', ');
+                const totalStatus = statuses.reduce((sum, s) => sum + s.count, 0);
+                statusCard.innerHTML =
+                    `<div class="card-title">Статусы</div>` +
+                    `<div class="card-meta">Распределение за 30 дней</div>` +
+                    `<div class="donut-wrap">` +
+                        `<div class="donut" style="background:conic-gradient(${segs})">` +
+                            `<div class="donut-center"><b>${totalStatus}</b><span>заказов</span></div>` +
+                        `</div>` +
+                        `<div class="legend">${statuses.map(s =>
+                            `<div class="legend-row">` +
+                                `<span class="swatch" style="background:${STATUS_COLOR[s.status] || 'var(--s-new)'}"></span>` +
+                                `${esc(s.label)}<span class="val">${s.count} · ${s.pct}%</span>` +
+                            `</div>`).join('')}</div>` +
+                    `</div>`;
+            } else {
+                statusCard.innerHTML = `<div class="card-title">Статусы</div><div class="empty">Нет заказов за период</div>`;
+            }
+            app.appendChild(statusCard);
+
+            // --- Топ курьеров ---
+            const couriers = d.couriers || [];
+            const maxDel = Math.max(1, ...couriers.map(c => c.deliveries));
+            const rankCard = document.createElement('div');
+            rankCard.className = 'card';
+            let rankInner = `<div class="card-title">Лучшие курьеры</div>` +
+                            `<div class="card-meta">По доставкам за 7 дней</div>`;
+            if (couriers.length) {
+                rankInner += couriers.map((c, i) => {
+                    const parts = String(c.name).trim().split(/\s+/);
+                    const ini = ((parts[0] || '?')[0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+                    return `<div class="rank-row">` +
+                        `<span class="rank-num">${i + 1}</span>` +
+                        `<span class="avatar">${esc(ini)}</span>` +
+                        `<div style="min-width:0"><div class="rank-name">${esc(c.name)}</div>` +
+                            `<div class="rank-sub">${c.deliveries} доставок</div></div>` +
+                        `<span class="rank-track"><span class="rank-fill" style="width:${c.deliveries / maxDel * 100}%"></span></span>` +
+                        `<span class="rank-rev mono">${c.revenue} сом.</span>` +
+                    `</div>`;
+                }).join('');
+            } else {
+                rankInner += `<div class="empty">Пока нет доставленных заказов</div>`;
+            }
+            rankCard.innerHTML = rankInner;
+            app.appendChild(rankCard);
+
+            const foot = document.createElement('div');
+            foot.className = 'foot';
+            foot.textContent = 'Данные из базы-зеркала · обновляются каждые ~10 мин';
+            app.appendChild(foot);
+        }
+    </script>
+</body>
+</html>
