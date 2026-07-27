@@ -1,242 +1,511 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Статистика</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <style>
-        :root {
-            --primary:       #f2711c;
-            --primary-grad:  linear-gradient(135deg, #fb923c, #ea580c);
-            --primary-light: rgba(242,113,28,.12);
-            --bg:     var(--tg-theme-bg-color, #ffffff);
-            --sec-bg: var(--tg-theme-secondary-bg-color, #f4f4f5);
-            --card:   var(--tg-theme-bg-color, #ffffff);
-            --text:   var(--tg-theme-text-color, #1c1c1e);
-            --hint:   var(--tg-theme-hint-color, #8e8e93);
-            --border: rgba(142,142,147,.18);
-            --radius:    16px;
-            --radius-sm: 11px;
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Статистика</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+    :root {
+        --bg: #F6F3F0;
+        --surface: #FFFFFF;
+        --surface-2: #F3ECE5;
+        --ink: #1C1611;
+        --ink-soft: #6B6157;
+        --hint: #9A8F84;
+        --border: #ECE3DA;
+        --accent: #EA580C;
+        --accent-2: #FB923C;
+        --accent-ghost: #FDECE0;
+        --shadow-sm: 0 1px 2px rgba(28,22,17,.05), 0 4px 14px -8px rgba(28,22,17,.12);
+        --shadow-md: 0 2px 6px rgba(28,22,17,.06), 0 18px 40px -22px rgba(234,88,12,.30);
+        --s-new: #78716C; --s-ready: #C77800; --s-taken: #0E8AA6;
+        --s-transit: #3B5BDB; --s-delivered: #1F9D4D; --s-cancel: #D4483B;
+        --good: #1F9D4D; --bad: #D4483B;
+    }
+    :root[data-theme="dark"] {
+        --bg: #121013;
+        --surface: #1C1712;
+        --surface-2: #251E17;
+        --ink: #F5EFE8;
+        --ink-soft: #C3B8AC;
+        --hint: #8B8177;
+        --border: #302A23;
+        --accent: #FB7A3C;
+        --accent-2: #F59E5C;
+        --accent-ghost: #2A2017;
+        --shadow-sm: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px -10px rgba(0,0,0,.55);
+        --shadow-md: 0 2px 8px rgba(0,0,0,.35), 0 20px 44px -22px rgba(0,0,0,.7);
+        --s-new: #A8A29A; --s-ready: #E9A21E; --s-taken: #2FB6D4;
+        --s-transit: #7C93F5; --s-delivered: #40C46E; --s-cancel: #F26A5D;
+        --good: #40C46E; --bad: #F26A5D;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html { -webkit-text-size-adjust: 100%; }
+    html, body { max-width: 100%; overflow-x: hidden; }
+    body {
+        background: var(--bg); color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.45;
+        padding: 0 0 40px;
+    }
+    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+    .wrap { width: 100%; max-width: 940px; margin: 0 auto; padding: 0 14px; }
 
-            --s-new:       #8e8e93;
-            --s-ready:     #f59e0b;
-            --s-taken:     #0ea5b7;
-            --s-transit:   #3b5bdb;
-            --s-delivered: #2bca80;
-            --s-cancel:    #e53935;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-        body {
-            background: var(--sec-bg); color: var(--text);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            padding-bottom: 32px; overflow-x: hidden; line-height: 1.45;
-        }
-        .mono { font-variant-numeric: tabular-nums; }
+    /* ── header ── */
+    .top {
+        position: sticky; top: 0; z-index: 20;
+        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        backdrop-filter: saturate(1.4) blur(12px);
+        -webkit-backdrop-filter: saturate(1.4) blur(12px);
+        border-bottom: 1px solid var(--border);
+    }
+    .top-inner { max-width: 940px; margin: 0 auto; padding: 14px 14px 12px; }
+    .title-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .title { display: flex; align-items: center; gap: 10px; }
+    .title .mark {
+        width: 30px; height: 30px; border-radius: 9px; flex: none;
+        background: linear-gradient(135deg, var(--accent-2), var(--accent));
+        display: grid; place-items: center; font-size: 15px;
+        box-shadow: 0 4px 12px -3px var(--accent);
+    }
+    .title h1 { font-size: 18px; font-weight: 800; letter-spacing: -.02em; }
+    .updated { font-size: 11px; color: var(--hint); text-align: right; line-height: 1.3; }
 
-        .header {
-            background: var(--primary-grad); color: #fff;
-            padding: 18px 16px 20px; border-radius: 0 0 var(--radius) var(--radius);
-        }
-        .header h1 { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
-        .header .sub { font-size: 12.5px; opacity: .9; margin-top: 3px; }
+    /* ── segmented period control ── */
+    .seg {
+        position: relative; display: grid; grid-template-columns: repeat(4, 1fr);
+        margin-top: 12px; background: var(--surface-2); border-radius: 12px; padding: 4px;
+        border: 1px solid var(--border);
+    }
+    .seg-ind {
+        position: absolute; top: 4px; left: 4px; bottom: 4px; width: calc(25% - 2px);
+        background: var(--surface); border-radius: 9px;
+        box-shadow: var(--shadow-sm);
+        transition: transform .32s cubic-bezier(.4,.1,.2,1);
+        border: 1px solid var(--border);
+    }
+    .seg button {
+        position: relative; z-index: 1; background: none; border: none; cursor: pointer;
+        font: inherit; font-size: 13px; font-weight: 600; color: var(--hint);
+        padding: 9px 4px; border-radius: 9px; transition: color .2s;
+    }
+    .seg button[aria-pressed="true"] { color: var(--accent); }
+    .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-        .wrap { padding: 14px 12px 0; display: flex; flex-direction: column; gap: 14px; }
+    /* ── content ── */
+    .content { width: 100%; padding-top: 14px; display: flex; flex-direction: column; gap: 13px; }
+    .content > * { min-width: 0; }
+    .fade { animation: fade .35s ease; }
+    @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
-        .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-        .kpi {
-            background: var(--card); border-radius: var(--radius-sm); padding: 12px 10px;
-            box-shadow: 0 3px 14px rgba(0,0,0,.06); display: flex; flex-direction: column; gap: 3px;
-            min-height: 74px; justify-content: center;
-        }
-        .kpi .label { font-size: 10.5px; color: var(--hint); font-weight: 600; letter-spacing: .02em; }
-        .kpi .val { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
-        .kpi .val small { font-size: 12px; font-weight: 700; color: var(--hint); margin-left: 1px; }
+    .card {
+        background: var(--surface); border: 1px solid var(--border);
+        border-radius: 18px; padding: 16px; box-shadow: var(--shadow-sm);
+    }
+    .card-h { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+    .card-t { font-size: 14.5px; font-weight: 700; letter-spacing: -.01em; }
+    .card-m { font-size: 11.5px; color: var(--hint); }
 
-        .card {
-            background: var(--card); border-radius: var(--radius); padding: 15px 15px 16px;
-            box-shadow: 0 3px 14px rgba(0,0,0,.06);
-        }
-        .card-title { font-size: 14px; font-weight: 700; }
-        .card-meta { font-size: 11.5px; color: var(--hint); margin-top: 1px; margin-bottom: 14px; }
+    /* hero revenue */
+    .hero {
+        position: relative; overflow: hidden; color: #fff;
+        background: linear-gradient(135deg, var(--accent-2), var(--accent));
+        border: none; border-radius: 20px; padding: 20px 18px;
+        box-shadow: var(--shadow-md);
+    }
+    .hero::after {
+        content: ""; position: absolute; right: -40px; top: -60px; width: 200px; height: 200px;
+        background: radial-gradient(circle, rgba(255,255,255,.22), transparent 70%);
+    }
+    .hero .lbl { font-size: 12px; font-weight: 600; opacity: .9; letter-spacing: .02em; }
+    .hero .big { font-size: 40px; font-weight: 800; letter-spacing: -.03em; margin-top: 2px; line-height: 1; }
+    .hero .big .cur { font-size: 20px; font-weight: 700; opacity: .85; margin-left: 4px; }
+    .hero .sub { display: flex; gap: 18px; margin-top: 14px; flex-wrap: wrap; }
+    .hero .sub div { font-size: 12.5px; opacity: .95; }
+    .hero .sub b { display: block; font-size: 17px; font-weight: 800; letter-spacing: -.01em; }
 
-        .bars { display: flex; align-items: flex-end; gap: 7px; height: 132px; }
-        .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; justify-content: flex-end; }
-        .bar-num { font-size: 11px; font-weight: 700; color: var(--text); }
-        .bar {
-            width: 100%; max-width: 30px; border-radius: 6px 6px 3px 3px;
-            background: var(--primary-grad); min-height: 3px;
-            transition: height .6s cubic-bezier(.2,.7,.2,1);
-        }
-        .bar.today { box-shadow: 0 0 0 2px var(--primary-light); }
-        .bar-x { font-size: 10.5px; color: var(--hint); }
+    /* kpi grid */
+    .kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    @media (min-width: 560px) { .kpis { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+    .kpi {
+        background: var(--surface); border: 1px solid var(--border); border-radius: 15px;
+        padding: 13px 13px 12px; box-shadow: var(--shadow-sm);
+        display: flex; flex-direction: column; gap: 3px; position: relative;
+    }
+    .kpi .k-lbl { font-size: 11px; color: var(--hint); font-weight: 600; }
+    .kpi .k-val { font-size: 25px; font-weight: 800; letter-spacing: -.02em; }
+    .kpi .now-tag {
+        position: absolute; top: 10px; right: 10px; font-size: 8.5px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .04em; color: var(--accent);
+        background: var(--accent-ghost); padding: 2px 6px; border-radius: 20px;
+    }
 
-        .donut-wrap { display: flex; align-items: center; gap: 16px; }
-        .donut { width: 108px; height: 108px; border-radius: 50%; flex: none; position: relative; }
-        .donut::after { content: ""; position: absolute; inset: 24px; border-radius: 50%; background: var(--card); }
-        .donut-center { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; z-index: 1; }
-        .donut-center b { font-size: 19px; display: block; font-weight: 800; letter-spacing: -.02em; }
-        .donut-center span { font-size: 9.5px; color: var(--hint); text-transform: uppercase; letter-spacing: .05em; }
-        .legend { display: flex; flex-direction: column; gap: 7px; flex: 1; font-size: 12.5px; }
-        .legend-row { display: flex; align-items: center; gap: 8px; }
-        .swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
-        .legend-row .val { margin-left: auto; font-weight: 700; color: var(--hint); }
+    /* chart */
+    .chart-toggle { display: inline-flex; background: var(--surface-2); border-radius: 9px; padding: 3px; border: 1px solid var(--border); }
+    .chart-toggle button {
+        background: none; border: none; font: inherit; font-size: 11.5px; font-weight: 600;
+        color: var(--hint); padding: 5px 11px; border-radius: 7px; cursor: pointer; transition: all .18s;
+    }
+    .chart-toggle button.on { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-sm); }
+    .readout { font-size: 12px; color: var(--ink-soft); margin-bottom: 10px; min-height: 16px; }
+    .readout b { color: var(--ink); font-weight: 700; }
+    .bars { display: flex; align-items: flex-end; gap: 5px; height: 150px; }
+    .bcol { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; height: 100%; justify-content: flex-end; cursor: pointer; min-width: 0; }
+    .bnum { font-size: 10px; font-weight: 700; color: var(--ink-soft); height: 12px; }
+    .btrack { width: 100%; flex: 1; display: flex; align-items: flex-end; }
+    .bar {
+        width: 100%; border-radius: 5px 5px 2px 2px; min-height: 3px;
+        background: linear-gradient(180deg, var(--accent-2), var(--accent));
+        transition: height .5s cubic-bezier(.2,.7,.2,1), opacity .18s;
+    }
+    .bcol.sel .bar { box-shadow: 0 0 0 2px var(--accent-ghost); }
+    .bcol.dim .bar { opacity: .38; }
+    .bx { font-size: 9.5px; color: var(--hint); white-space: nowrap; }
 
-        .rank-row { display: flex; align-items: center; gap: 11px; padding: 10px 0; border-top: 1px solid var(--border); }
-        .rank-row:first-child { border-top: none; padding-top: 2px; }
-        .rank-num { font-weight: 800; color: var(--hint); width: 15px; font-size: 13px; }
-        .avatar {
-            width: 32px; height: 32px; border-radius: 50%; flex: none; display: grid; place-items: center;
-            font-size: 12px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #fb923c, #ea580c);
-        }
-        .rank-name { font-weight: 600; font-size: 14px; }
-        .rank-sub { font-size: 11.5px; color: var(--hint); }
-        .rank-track { flex: 1; height: 7px; background: var(--sec-bg); border-radius: 4px; overflow: hidden; min-width: 40px; }
-        .rank-fill { height: 100%; background: var(--primary-grad); border-radius: 4px; }
-        .rank-rev { font-size: 12.5px; font-weight: 700; white-space: nowrap; color: var(--text); }
+    /* two columns on wide screens */
+    .two { display: grid; grid-template-columns: 1fr; gap: 13px; }
+    @media (min-width: 720px) { .two { grid-template-columns: 1fr 1fr; } }
 
-        .empty { text-align: center; color: var(--hint); font-size: 13px; padding: 22px 8px; }
-        .foot { text-align: center; color: var(--hint); font-size: 11px; margin-top: 4px; }
-    </style>
+    /* donut */
+    .donut-wrap { display: flex; align-items: center; gap: 16px; }
+    .donut { width: 112px; height: 112px; border-radius: 50%; flex: none; position: relative; }
+    .donut::after { content: ""; position: absolute; inset: 25px; border-radius: 50%; background: var(--surface); }
+    .donut-c { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; z-index: 1; }
+    .donut-c b { font-size: 21px; font-weight: 800; display: block; letter-spacing: -.02em; }
+    .donut-c span { font-size: 9px; color: var(--hint); text-transform: uppercase; letter-spacing: .06em; }
+    .legend { display: flex; flex-direction: column; gap: 7px; flex: 1; font-size: 12.5px; min-width: 0; }
+    .lrow { display: flex; align-items: center; gap: 8px; }
+    .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+    .lrow .lv { margin-left: auto; font-weight: 700; color: var(--hint); white-space: nowrap; }
+
+    /* couriers */
+    .crow { display: flex; align-items: center; gap: 11px; padding: 10px 0; border-top: 1px solid var(--border); min-width: 0; }
+    .crow:first-child { border-top: none; padding-top: 0; }
+    .cnum { font-weight: 800; color: var(--hint); width: 14px; font-size: 13px; text-align: center; }
+    .cav {
+        width: 34px; height: 34px; border-radius: 50%; flex: none; display: grid; place-items: center;
+        font-size: 12px; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--accent-2), var(--accent));
+    }
+    .cmeta { min-width: 0; flex: 1; }
+    .cname { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .csub { font-size: 11.5px; color: var(--hint); }
+    .ctrack { width: 74px; height: 6px; background: var(--surface-2); border-radius: 4px; overflow: hidden; flex: none; }
+    .cfill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: 4px; }
+    .crev { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+
+    /* export */
+    .export-btn {
+        display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%;
+        background: var(--surface); color: var(--accent); border: 1.5px solid var(--accent);
+        border-radius: 15px; padding: 15px; font: inherit; font-size: 14.5px; font-weight: 700;
+        cursor: pointer; transition: transform .1s, background .18s; box-shadow: var(--shadow-sm);
+    }
+    .export-btn:active { transform: scale(.985); background: var(--accent-ghost); }
+    .export-hint { font-size: 11px; color: var(--hint); text-align: center; margin-top: 8px; }
+
+    .empty { text-align: center; color: var(--hint); font-size: 13px; padding: 20px 8px; }
+    .foot { text-align: center; color: var(--hint); font-size: 11px; margin-top: 6px; }
+
+    @media (prefers-reduced-motion: reduce) {
+        *, .bar, .seg-ind { transition: none !important; animation: none !important; }
+    }
+</style>
 </head>
 <body>
-    <div class="header">
-        <h1>📊 Статистика</h1>
-        <div class="sub" id="sub">Загрузка…</div>
+    <div class="top">
+        <div class="top-inner">
+            <div class="title-row">
+                <div class="title">
+                    <span class="mark">📊</span>
+                    <h1>Статистика</h1>
+                </div>
+                <div class="updated" id="updated"></div>
+            </div>
+            <div class="seg" id="seg" role="tablist">
+                <span class="seg-ind" id="segInd"></span>
+                <button role="tab" data-p="week"  aria-pressed="true">Неделя</button>
+                <button role="tab" data-p="month" aria-pressed="false">Месяц</button>
+                <button role="tab" data-p="half"  aria-pressed="false">Полгода</button>
+                <button role="tab" data-p="year"  aria-pressed="false">Год</button>
+            </div>
+        </div>
     </div>
-    <div class="wrap" id="app"></div>
 
-    <script>
-        try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (e) {}
+    <div class="wrap">
+        <div class="content" id="content"></div>
+    </div>
 
-        // Декод ?d= — точно как в admin_panel.html (urlsafe base64 + UTF-8)
-        let DATA = null;
+<script>
+    try { Telegram.WebApp.ready(); Telegram.WebApp.expand(); } catch (e) {}
+
+    // тема из Telegram (fallback — системная)
+    (function () {
+        var scheme = null;
+        try { scheme = Telegram.WebApp.colorScheme; } catch (e) {}
+        if (!scheme) scheme = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', scheme);
+        try { Telegram.WebApp.onEvent('themeChanged', function () {
+            document.documentElement.setAttribute('data-theme', Telegram.WebApp.colorScheme || 'light');
+        }); } catch (e) {}
+    })();
+
+    // ── декод ?d= (как в admin_panel.html) ──
+    var DATA = null;
+    try {
+        var raw = new URLSearchParams(location.search).get('d');
+        if (raw) {
+            var b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+            var pad = '='.repeat((4 - b64.length % 4) % 4);
+            var bytes = Uint8Array.from(atob(b64 + pad), function (c) { return c.charCodeAt(0); });
+            DATA = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+        }
+    } catch (e) { console.error(e); }
+
+    var STATUS_COLOR = {
+        NEW: 'var(--s-new)', READY_FOR_DRIVERS: 'var(--s-ready)', TAKEN: 'var(--s-taken)',
+        IN_TRANSIT: 'var(--s-transit)', DELIVERED: 'var(--s-delivered)', CANCELLED: 'var(--s-cancel)'
+    };
+    var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+    var fmt = function (n) { return Number(n || 0).toLocaleString('ru-RU'); };
+
+    var content = document.getElementById('content');
+    var updated = document.getElementById('updated');
+    var seg = document.getElementById('seg');
+    var segInd = document.getElementById('segInd');
+    var PORDER = ['week', 'month', 'half', 'year'];
+    var state = { period: 'week', chartMode: 'count' };
+
+    if (!DATA || !DATA.periods) {
+        updated.textContent = '';
+        content.innerHTML = '<div class="card"><div class="empty">Не удалось загрузить статистику.<br>Откройте панель заново кнопкой «🔄 Обновить».</div></div>';
+    } else {
+        updated.innerHTML = 'обновлено<br>' + esc(DATA.generated_at || '—');
+        moveIndicator();
+        render();
+        seg.querySelectorAll('button').forEach(function (b) {
+            b.addEventListener('click', function () {
+                if (state.period === b.dataset.p) return;
+                state.period = b.dataset.p;
+                seg.querySelectorAll('button').forEach(function (x) {
+                    x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+                moveIndicator();
+                render();
+            });
+        });
+    }
+
+    function moveIndicator() {
+        segInd.style.transform = 'translateX(calc(' + (PORDER.indexOf(state.period) * 100) + '% + ' + (PORDER.indexOf(state.period) * 2) + 'px))';
+    }
+
+    function animateVal(el, target, suffix) {
+        var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduce) { el.textContent = fmt(target) + (suffix || ''); return; }
+        var start = performance.now(), dur = 550;
+        function step(t) {
+            var k = Math.min(1, (t - start) / dur);
+            k = 1 - Math.pow(1 - k, 3);
+            el.textContent = fmt(Math.round(target * k)) + (suffix || '');
+            if (k < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+    }
+
+    function render() {
+        var p = DATA.periods[state.period];
+        var now = DATA.now || {};
+        var ov = p.overview || {};
+        content.innerHTML = '';
+        var frag = document.createElement('div');
+        frag.className = 'content fade';
+
+        // hero
+        var hero = document.createElement('div');
+        hero.className = 'card hero';
+        hero.innerHTML =
+            '<div class="lbl">Выручка · ' + esc(p.label) + '</div>' +
+            '<div class="big mono"><span id="revBig">0</span><span class="cur">сом.</span></div>' +
+            '<div class="sub">' +
+                '<div>Средний чек<b class="mono">' + fmt(ov.avg_check) + ' сом.</b></div>' +
+                '<div>Доставлено<b class="mono">' + fmt(ov.delivered) + '</b></div>' +
+                '<div>Всего заказов<b class="mono">' + fmt(ov.orders) + '</b></div>' +
+            '</div>';
+        frag.appendChild(hero);
+
+        // kpis
+        var kpis = document.createElement('div');
+        kpis.className = 'kpis';
+        kpis.innerHTML =
+            kpi('Заказов', ov.orders) +
+            kpi('Доставлено', ov.delivered) +
+            kpi('Отменено', ov.cancelled) +
+            kpi('В работе', now.in_progress, true) +
+            kpi('Курьеров', now.active_couriers, true);
+        frag.appendChild(kpis);
+
+        // chart
+        frag.appendChild(chartCard(p));
+
+        // two-up
+        var two = document.createElement('div');
+        two.className = 'two';
+        two.appendChild(statusCard(p));
+        two.appendChild(couriersCard(p));
+        frag.appendChild(two);
+
+        // export
+        var exp = document.createElement('div');
+        exp.className = 'card';
+        exp.style.padding = '14px';
+        exp.innerHTML =
+            '<button class="export-btn" id="exportBtn">📑 Выгрузить для бухгалтерии</button>' +
+            '<div class="export-hint">Excel-реестр доставленных заказов · ' + esc(p.label) + '</div>';
+        frag.appendChild(exp);
+
+        var foot = document.createElement('div');
+        foot.className = 'foot';
+        foot.textContent = 'Данные из базы-зеркала · обновляются каждые ~10 мин';
+        frag.appendChild(foot);
+
+        content.replaceWith(frag);
+        content = frag;
+
+        // анимация выручки
+        animateVal(document.getElementById('revBig'), ov.revenue || 0);
+        document.querySelectorAll('.kpi .k-val').forEach(function (el) {
+            animateVal(el, parseInt(el.dataset.v, 10) || 0);
+        });
+
+        wireChart(p);
+        document.getElementById('exportBtn').addEventListener('click', doExport);
+    }
+
+    function kpi(label, val, now) {
+        return '<div class="kpi">' + (now ? '<span class="now-tag">сейчас</span>' : '') +
+            '<span class="k-lbl">' + label + '</span>' +
+            '<span class="k-val mono" data-v="' + (val || 0) + '">0</span></div>';
+    }
+
+    function chartCard(p) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML =
+            '<div class="card-h"><div class="card-t">Динамика</div>' +
+            '<div class="chart-toggle"><button data-m="count" class="on">Заказы</button>' +
+            '<button data-m="revenue">Выручка</button></div></div>' +
+            '<div class="readout" id="readout"></div>' +
+            '<div class="bars" id="bars"></div>';
+        return card;
+    }
+
+    function wireChart(p) {
+        var series = p.series || [];
+        var bars = document.getElementById('bars');
+        var readout = document.getElementById('readout');
+        var showNums = series.length <= 12;
+
+        function draw(mode) {
+            var vals = series.map(function (s) { return mode === 'revenue' ? s.revenue : s.count; });
+            var max = Math.max.apply(null, vals.concat([1]));
+            bars.innerHTML = series.map(function (s, i) {
+                var v = vals[i];
+                var everyX = series.length > 14 ? (i % Math.ceil(series.length / 7) === 0) : true;
+                return '<div class="bcol" data-i="' + i + '">' +
+                    '<span class="bnum">' + (showNums && v ? fmt(v) : '') + '</span>' +
+                    '<div class="btrack"><div class="bar" data-h="' + (v / max * 100) + '"></div></div>' +
+                    '<span class="bx">' + (everyX ? esc(s.label) : '') + '</span>' +
+                    '</div>';
+            }).join('');
+            requestAnimationFrame(function () {
+                bars.querySelectorAll('.bar').forEach(function (b) { b.style.height = b.dataset.h + '%'; });
+            });
+            // сводка по периоду в readout по умолчанию
+            var total = vals.reduce(function (a, b) { return a + b; }, 0);
+            readout.innerHTML = (mode === 'revenue'
+                ? 'Выручка за период: <b class="mono">' + fmt(Math.round(total)) + ' сом.</b>'
+                : 'Заказов за период: <b class="mono">' + fmt(total) + '</b>');
+            bars.querySelectorAll('.bcol').forEach(function (col) {
+                col.addEventListener('click', function () {
+                    var i = +col.dataset.i, s = series[i];
+                    bars.querySelectorAll('.bcol').forEach(function (c) {
+                        c.classList.toggle('sel', c === col); c.classList.toggle('dim', c !== col); });
+                    readout.innerHTML = '<b>' + esc(s.label) + '</b> · заказов: <b class="mono">' +
+                        fmt(s.count) + '</b> · выручка: <b class="mono">' + fmt(s.revenue) + ' сом.</b>';
+                });
+            });
+        }
+        draw(state.chartMode);
+        document.querySelectorAll('.chart-toggle button').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                state.chartMode = btn.dataset.m;
+                document.querySelectorAll('.chart-toggle button').forEach(function (b) {
+                    b.classList.toggle('on', b === btn); });
+                draw(state.chartMode);
+            });
+        });
+    }
+
+    function statusCard(p) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        var statuses = (p.statuses || []).filter(function (s) { return s.count > 0; });
+        if (!statuses.length) {
+            card.innerHTML = '<div class="card-h"><div class="card-t">Статусы</div></div><div class="empty">Нет заказов за период</div>';
+            return card;
+        }
+        var acc = 0;
+        var segs = statuses.map(function (s) {
+            var from = acc; acc += s.pct;
+            return (STATUS_COLOR[s.status] || 'var(--s-new)') + ' ' + from + '% ' + acc + '%';
+        }).join(', ');
+        var total = statuses.reduce(function (a, s) { return a + s.count; }, 0);
+        card.innerHTML =
+            '<div class="card-h"><div class="card-t">Статусы</div><div class="card-m">' + esc(p.label) + '</div></div>' +
+            '<div class="donut-wrap">' +
+                '<div class="donut" style="background:conic-gradient(' + segs + ')">' +
+                    '<div class="donut-c"><b class="mono">' + fmt(total) + '</b><span>заказов</span></div></div>' +
+                '<div class="legend">' + statuses.map(function (s) {
+                    return '<div class="lrow"><span class="sw" style="background:' +
+                        (STATUS_COLOR[s.status] || 'var(--s-new)') + '"></span>' + esc(s.label) +
+                        '<span class="lv mono">' + fmt(s.count) + ' · ' + s.pct + '%</span></div>';
+                }).join('') + '</div>' +
+            '</div>';
+        return card;
+    }
+
+    function couriersCard(p) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        var couriers = p.couriers || [];
+        var head = '<div class="card-h"><div class="card-t">Лучшие курьеры</div><div class="card-m">' + esc(p.label) + '</div></div>';
+        if (!couriers.length) {
+            card.innerHTML = head + '<div class="empty">Нет доставленных заказов</div>';
+            return card;
+        }
+        var maxD = Math.max.apply(null, couriers.map(function (c) { return c.deliveries; }).concat([1]));
+        card.innerHTML = head + couriers.map(function (c, i) {
+            var parts = String(c.name).trim().split(/\s+/);
+            var ini = ((parts[0] || '?')[0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+            return '<div class="crow"><span class="cnum">' + (i + 1) + '</span>' +
+                '<span class="cav">' + esc(ini) + '</span>' +
+                '<div class="cmeta"><div class="cname">' + esc(c.name) + '</div>' +
+                '<div class="csub">' + fmt(c.deliveries) + ' доставок</div></div>' +
+                '<span class="ctrack"><span class="cfill" style="width:' + (c.deliveries / maxD * 100) + '%"></span></span>' +
+                '<span class="crev mono">' + fmt(c.revenue) + '</span></div>';
+        }).join('');
+        return card;
+    }
+
+    function doExport() {
+        var payload = JSON.stringify({ action: 'export_accounting', period: state.period });
         try {
-            const raw = new URLSearchParams(window.location.search).get('d');
-            if (raw) {
-                const b64   = raw.replace(/-/g, '+').replace(/_/g, '/');
-                const pad   = '='.repeat((4 - b64.length % 4) % 4);
-                const bytes = Uint8Array.from(atob(b64 + pad), c => c.charCodeAt(0));
-                DATA = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-            }
-        } catch (e) { console.error(e); }
-
-        const STATUS_COLOR = {
-            NEW: 'var(--s-new)', READY_FOR_DRIVERS: 'var(--s-ready)', TAKEN: 'var(--s-taken)',
-            IN_TRANSIT: 'var(--s-transit)', DELIVERED: 'var(--s-delivered)', CANCELLED: 'var(--s-cancel)',
-        };
-        const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c =>
-            ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-        const app = document.getElementById('app');
-        const sub = document.getElementById('sub');
-
-        if (!DATA) {
-            sub.textContent = 'Нет данных';
-            app.innerHTML = '<div class="card"><div class="empty">Не удалось загрузить статистику.<br>Откройте панель заново кнопкой «🔄 Обновить».</div></div>';
-        } else {
-            render(DATA);
+            Telegram.WebApp.sendData(payload);  // закроет мини-приложение, файл придёт сообщением
+        } catch (e) {
+            alert('Экспорт доступен только внутри Telegram.');
         }
-
-        function kpi(label, val, unit) {
-            return `<div class="kpi"><span class="label">${label}</span>` +
-                   `<span class="val mono">${val}${unit ? `<small>${unit}</small>` : ''}</span></div>`;
-        }
-
-        function render(d) {
-            const ov = d.overview || {};
-            sub.textContent = 'Обновлено ' + (d.generated_at || '—');
-
-            // --- KPI ---
-            const kpis = document.createElement('div');
-            kpis.className = 'kpis';
-            kpis.innerHTML =
-                kpi('Заказов сегодня', ov.orders_today ?? 0) +
-                kpi('Доставлено', ov.delivered_today ?? 0) +
-                kpi('В работе', ov.in_progress ?? 0) +
-                kpi('Выручка', ov.revenue_today ?? 0, ' сом.') +
-                kpi('Средний чек', ov.avg_check ?? 0, ' сом.') +
-                kpi('Курьеров', ov.active_couriers ?? 0);
-            app.appendChild(kpis);
-
-            // --- Заказы по дням ---
-            const perDay = d.per_day || [];
-            const maxC = Math.max(1, ...perDay.map(x => x.count));
-            const totalWeek = perDay.reduce((s, x) => s + x.count, 0);
-            const barsCard = document.createElement('div');
-            barsCard.className = 'card';
-            barsCard.innerHTML =
-                `<div class="card-title">Заказы по дням</div>` +
-                `<div class="card-meta">Последние 7 дней · всего ${totalWeek}</div>` +
-                `<div class="bars">${perDay.map((x, i) =>
-                    `<div class="bar-col">` +
-                        `<span class="bar-num">${x.count || ''}</span>` +
-                        `<div class="bar ${i === perDay.length - 1 ? 'today' : ''}" data-h="${x.count / maxC * 100}" style="height:0"></div>` +
-                        `<span class="bar-x">${esc(x.weekday)}</span>` +
-                    `</div>`).join('')}</div>`;
-            app.appendChild(barsCard);
-            requestAnimationFrame(() => barsCard.querySelectorAll('.bar').forEach(b => b.style.height = b.dataset.h + '%'));
-
-            // --- Статусы (donut) ---
-            const statuses = (d.statuses || []).filter(s => s.count > 0);
-            const statusCard = document.createElement('div');
-            statusCard.className = 'card';
-            if (statuses.length) {
-                let acc = 0;
-                const segs = statuses.map(s => {
-                    const from = acc; acc += s.pct;
-                    return `${STATUS_COLOR[s.status] || 'var(--s-new)'} ${from}% ${acc}%`;
-                }).join(', ');
-                const totalStatus = statuses.reduce((sum, s) => sum + s.count, 0);
-                statusCard.innerHTML =
-                    `<div class="card-title">Статусы</div>` +
-                    `<div class="card-meta">Распределение за 30 дней</div>` +
-                    `<div class="donut-wrap">` +
-                        `<div class="donut" style="background:conic-gradient(${segs})">` +
-                            `<div class="donut-center"><b>${totalStatus}</b><span>заказов</span></div>` +
-                        `</div>` +
-                        `<div class="legend">${statuses.map(s =>
-                            `<div class="legend-row">` +
-                                `<span class="swatch" style="background:${STATUS_COLOR[s.status] || 'var(--s-new)'}"></span>` +
-                                `${esc(s.label)}<span class="val">${s.count} · ${s.pct}%</span>` +
-                            `</div>`).join('')}</div>` +
-                    `</div>`;
-            } else {
-                statusCard.innerHTML = `<div class="card-title">Статусы</div><div class="empty">Нет заказов за период</div>`;
-            }
-            app.appendChild(statusCard);
-
-            // --- Топ курьеров ---
-            const couriers = d.couriers || [];
-            const maxDel = Math.max(1, ...couriers.map(c => c.deliveries));
-            const rankCard = document.createElement('div');
-            rankCard.className = 'card';
-            let rankInner = `<div class="card-title">Лучшие курьеры</div>` +
-                            `<div class="card-meta">По доставкам за 7 дней</div>`;
-            if (couriers.length) {
-                rankInner += couriers.map((c, i) => {
-                    const parts = String(c.name).trim().split(/\s+/);
-                    const ini = ((parts[0] || '?')[0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
-                    return `<div class="rank-row">` +
-                        `<span class="rank-num">${i + 1}</span>` +
-                        `<span class="avatar">${esc(ini)}</span>` +
-                        `<div style="min-width:0"><div class="rank-name">${esc(c.name)}</div>` +
-                            `<div class="rank-sub">${c.deliveries} доставок</div></div>` +
-                        `<span class="rank-track"><span class="rank-fill" style="width:${c.deliveries / maxDel * 100}%"></span></span>` +
-                        `<span class="rank-rev mono">${c.revenue} сом.</span>` +
-                    `</div>`;
-                }).join('');
-            } else {
-                rankInner += `<div class="empty">Пока нет доставленных заказов</div>`;
-            }
-            rankCard.innerHTML = rankInner;
-            app.appendChild(rankCard);
-
-            const foot = document.createElement('div');
-            foot.className = 'foot';
-            foot.textContent = 'Данные из базы-зеркала · обновляются каждые ~10 мин';
-            app.appendChild(foot);
-        }
-    </script>
+    }
+</script>
 </body>
 </html>
