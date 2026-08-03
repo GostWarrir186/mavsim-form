@@ -5,3 +5,6 @@ creds.json
 __pycache__/
 *.pyc
 .rtk
+mavsim.db
+mavsim.db-journal
+mavsim.db-wal

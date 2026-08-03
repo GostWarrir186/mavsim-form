@@ -19,7 +19,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
-from config import driver_bot as bot, client_bot, manager_bot as mgr_bot, driver_dp as dp, sheet, drivers_sheet, get_manager_chat_ids, sync_update_order_info_status
+from config import driver_bot as bot, client_bot, manager_bot as mgr_bot, driver_dp as dp, sheet, drivers_sheet, clients_sheet, get_manager_chat_ids, sync_update_order_info_status, sync_set_delivery_time, sanitize_for_sheet, md_escape
 
 # ─── Конфигурация ───────────────────────────────────────────────────────────
 DRIVER_WEBAPP_URL   = os.getenv("DRIVER_WEBAPP_URL", "")
@@ -28,6 +28,8 @@ DEFAULT_DRIVER_RATE = float(os.getenv("DEFAULT_DRIVER_RATE", "18.0"))
 LINK_TO_DRIVER_OFFER = os.getenv("DRIVER_OFFER_URL", "https://www.google.com")
 SUPPORT_CHAT_ID     = os.getenv("SUPPORT_CHAT_ID", "")
 NEW_ORDERS_POLL_SECONDS = int(os.getenv("NEW_ORDERS_POLL_SECONDS", "15"))
+# Пауза между сообщениями в рассылке — держим отправку ниже лимита Telegram (~30 msg/s)
+BROADCAST_DELAY_SECONDS = float(os.getenv("BROADCAST_DELAY_SECONDS", "0.05"))
 
 DUSHANBE_TZ = timezone(timedelta(hours=5))
 
@@ -209,6 +211,7 @@ L = {
         "support_session_expired": "❌ Сессия истекла. Нажмите кнопку поддержки снова.",
         "support_send_failed": "❌ Не удалось отправить. Попробуйте позже.",
         "support_reply_header": "💬 <b>Ответ от поддержки:</b>\n\n{text}",
+        "support_text_only": "✍️ Пока принимаем только текст — опишите проблему сообщением.",
     },
     "tj": {
         "lang_saved": "✅ Забон нигоҳ дошта шуд.",
@@ -290,8 +293,30 @@ L = {
         "support_session_expired": "❌ Мӯҳлати сессия гузашт. Тугмаи дастгириро аз нав пахш кунед.",
         "support_send_failed": "❌ Фиристода нашуд. Баъдтар кӯшиш кунед.",
         "support_reply_header": "💬 <b>Ҷавоб аз дастгирӣ:</b>\n\n{text}",
+        "support_text_only": "✍️ Ҳоло танҳо матн қабул мекунем — мушкилотро бо паём нависед.",
     },
 }
+
+
+def _render_job_card(o: dict, lang: str, header: str = "") -> str:
+    """Карточка заказа для биржи/рассылки.
+
+    ВСЕ пользовательские поля прогоняются через md_escape: карточка уходит с
+    parse_mode="Markdown", и один символ `_`/`*`/`[` в адресе или комментарии
+    раньше валил отправку целиком — заказ молча не доезжал ни до кого."""
+    m = md_escape
+    dtype_readable = L[lang]["dtype_pvz"] if o["delivery_type"] == "PVZ" else L[lang]["dtype_door"]
+    return header + L[lang]["job_card"].format(
+        id=m(o["id"]),
+        phone=m(o["r_phone"]),
+        dtype=dtype_readable,
+        comment=m(o["driver_comment"]),
+        cf=m(o["city_pickup"]),
+        af=m(o["address_pickup"]),
+        ct=m(o["city_delivery"]),
+        at=m(o["address_delivery"]),
+        sname=m(o["s_name"]),
+    )
 
 
 class DriverRegistration(StatesGroup):
@@ -313,7 +338,7 @@ async def _get_active_driver(user_id: int) -> list | None:
     return data if (data and data[0].upper() == "ACTIVE") else None
 
 
-def _pad_row(row: list, size: int = 20) -> list:
+def _pad_row(row: list, size: int = 21) -> list:
     return row + [""] * max(0, size - len(row))
 
 
@@ -411,8 +436,8 @@ def _sync_register_driver(chat_id: str, fio: str, phone: str = "", lang: str = "
     try:
         now = _now_dushanbe()
         drivers_sheet.append_row([
-            "PENDING", now, fio, str(chat_id),
-            str(DEFAULT_DRIVER_RATE), now, "", phone, lang
+            "PENDING", now, sanitize_for_sheet(fio), str(chat_id),
+            str(DEFAULT_DRIVER_RATE), now, "", sanitize_for_sheet(phone), lang
         ], table_range="A1")
         return True
     except Exception as e:
@@ -443,7 +468,7 @@ def _sync_request_name_change(chat_id: str, new_fio: str) -> bool:
         cell = drivers_sheet.find(str(chat_id), in_column=4)
         if not cell:
             return False
-        drivers_sheet.update_cell(cell.row, 10, new_fio)
+        drivers_sheet.update_cell(cell.row, 10, sanitize_for_sheet(new_fio))
         return True
     except Exception as e:
         logging.error(f"Ошибка заявки на смену ФИО водителя {chat_id}: {e}")
@@ -526,7 +551,7 @@ def _sync_get_driver_deliveries(chat_id: str, date_from: datetime, date_to: date
             if idx == 0:
                 continue
             row = _pad_row(row)
-            if str(row[19]).strip() != str(chat_id):
+            if str(row[20]).strip() != str(chat_id):
                 continue
             date_cell = row[2].strip()
             try:
@@ -535,13 +560,16 @@ def _sync_get_driver_deliveries(chat_id: str, date_from: datetime, date_to: date
                 continue
             if not (date_from <= dt <= date_to):
                 continue
+            tp = row[10]
+            f_addr = f"{row[5]}, {row[6]}" if row[6] else row[5]
+            to_addr = f"{row[7]}, {row[8]}" if tp == "DOOR" and row[8] else row[7]
             result.append({
                 "i":  row[1],
                 "d":  dt.strftime("%Y-%m-%d"),
                 "t":  dt.strftime("%H:%M"),
-                "f":  row[4],
-                "to": row[6],
-                "tp": row[9],
+                "f":  f_addr,
+                "to": to_addr,
+                "tp": tp,
                 "s":  row[0].upper(),
             })
         return result
@@ -560,20 +588,23 @@ def _sync_get_free_orders() -> list:
         for idx, row in enumerate(all_rows):
             if idx == 0:
                 continue
-            status = row[0].upper().strip() if row else ""
+            # gspread обрезает хвостовые пустые ячейки — без padding короткая строка
+            # роняла построение ВСЕГО списка свободных заказов по IndexError.
+            row = _pad_row(row)
+            status = row[0].upper().strip()
             if status == "READY_FOR_DRIVERS":
                 free_list.append({
                     "row_num":          idx + 1,
                     "id":               row[1],
-                    "price":            row[3],
-                    "city_pickup":      row[4],
-                    "address_pickup":   row[5],
-                    "city_delivery":    row[6],
-                    "address_delivery": row[7],
-                    "driver_comment":   row[8]  if len(row) > 8  else "Нет",
-                    "delivery_type":    row[9]  if len(row) > 9  else "DOOR",
-                    "s_name":           row[12] if len(row) > 12 else "—",
-                    "r_phone":          row[15] if len(row) > 15 else "—",
+                    "price":            row[4],
+                    "city_pickup":      row[5],
+                    "address_pickup":   row[6],
+                    "city_delivery":    row[7],
+                    "address_delivery": row[8],
+                    "driver_comment":   row[9]  or "—",
+                    "delivery_type":    row[10] or "DOOR",
+                    "s_name":           row[13] or "—",
+                    "r_phone":          row[16] or "—",
                 })
         return free_list
     except Exception as e:
@@ -581,56 +612,77 @@ def _sync_get_free_orders() -> list:
         return []
 
 
-def _sync_take_order(row_num: int, courier_name: str, courier_id: str) -> bool:
+def _sync_take_order(order_id: str, courier_name: str, courier_id: str) -> bool:
+    """READY_FOR_DRIVERS → TAKEN. Строка ищется по ID заказа ВНУТРИ блокировки:
+    номер строки в таблице непостоянен (менеджер удаляет/вставляет строки), а
+    кнопки в чатах живут долго — по номеру строки можно было забрать чужой заказ."""
     if not sheet:
         return False
     with _order_take_lock:
         try:
-            row = sheet.row_values(row_num)
-            if (row[0].upper().strip() if row else "") != "READY_FOR_DRIVERS":
+            found = _sync_find_order_by_id(order_id)
+            if not found:
+                return False
+            row_num, row = found
+            if row[0].upper().strip() != "READY_FOR_DRIVERS":
                 return False
             sheet.batch_update([
                 {"range": f"A{row_num}", "values": [["TAKEN"]]},
-                {"range": f"R{row_num}", "values": [[courier_name]]},
-                {"range": f"T{row_num}", "values": [[str(courier_id)]]},
+                {"range": f"S{row_num}", "values": [[courier_name]]},
+                {"range": f"U{row_num}", "values": [[str(courier_id)]]},
             ])
             return True
         except Exception as e:
-            logging.error(f"Ошибка захвата заказа (строка {row_num}): {e}")
+            logging.error(f"Ошибка захвата заказа {order_id}: {e}")
             return False
 
 
-def _sync_release_order(row_num: int, courier_id: str) -> bool:
+def _sync_release_order(order_id: str, courier_id: str) -> bool:
     """TAKEN → READY_FOR_DRIVERS. Проверяет, что именно этот курьер владеет заказом."""
     if not sheet:
         return False
     with _order_take_lock:
         try:
-            row = _pad_row(sheet.row_values(row_num))
+            found = _sync_find_order_by_id(order_id)
+            if not found:
+                return False
+            row_num, row = found
             if row[0].upper().strip() != "TAKEN":
                 return False
-            if str(row[19]).strip() != str(courier_id):
+            if str(row[20]).strip() != str(courier_id):
                 return False
             sheet.batch_update([
                 {"range": f"A{row_num}", "values": [["READY_FOR_DRIVERS"]]},
-                {"range": f"R{row_num}", "values": [[""]]},
-                {"range": f"T{row_num}", "values": [[""]]},
+                {"range": f"S{row_num}", "values": [[""]]},
+                {"range": f"U{row_num}", "values": [[""]]},
             ])
             return True
         except Exception as e:
-            logging.error(f"Ошибка освобождения заказа (строка {row_num}): {e}")
+            logging.error(f"Ошибка освобождения заказа {order_id}: {e}")
             return False
 
 
-def _sync_update_status(row_num: int, status: str) -> bool:
+def _sync_update_status(order_id: str, status: str, courier_id=None, allowed_from=None) -> bool:
+    """Меняет статус заказа в Лист1 по ID. Если передан courier_id — проверяет, что
+    заказ принадлежит именно этому курьеру (столбец U), а текущий статус входит
+    в allowed_from. Иначе курьер мог бы двигать чужой заказ."""
     if not sheet:
         return False
-    try:
-        sheet.update_cell(row_num, 1, status)
-        return True
-    except Exception as e:
-        logging.error(f"Ошибка обновления статуса на {status} (строка {row_num}): {e}")
-        return False
+    with _order_take_lock:
+        try:
+            found = _sync_find_order_by_id(order_id)
+            if not found:
+                return False
+            row_num, row = found
+            if courier_id is not None and str(row[20]).strip() != str(courier_id):
+                return False
+            if allowed_from and row[0].upper().strip() not in allowed_from:
+                return False
+            sheet.update_cell(row_num, 1, status)
+            return True
+        except Exception as e:
+            logging.error(f"Ошибка обновления статуса заказа {order_id} на {status}: {e}")
+            return False
 
 
 def _sync_find_order_by_id(order_id: str) -> tuple[int, list] | None:
@@ -646,27 +698,29 @@ def _sync_find_order_by_id(order_id: str) -> tuple[int, list] | None:
         return None
 
 
-def _sync_reassign_order(row_num: int, new_courier_name: str, new_courier_id: str) -> tuple[bool, str, str]:
-    """Переназначает заказ. Разрешено для TAKEN/IN_TRANSIT → сбрасывает в TAKEN."""
+def _sync_reassign_order(order_id: str, new_courier_name: str, new_courier_id: str) -> tuple[bool, str, str]:
+    """Переназначает заказ по ID. Разрешено для TAKEN/IN_TRANSIT → сбрасывает в TAKEN."""
     if not sheet:
         return False, "", ""
     with _order_take_lock:
         try:
-            row = _pad_row(sheet.row_values(row_num))
+            found = _sync_find_order_by_id(order_id)
+            if not found:
+                return False, "", ""
+            row_num, row = found
             status = row[0].upper().strip()
             if status not in ("TAKEN", "IN_TRANSIT"):
                 return False, "", ""
-            old_courier_id = row[19]
-            order_id = row[1]
+            old_courier_id = row[20]
             sheet.batch_update([
                 {"range": f"A{row_num}", "values": [["TAKEN"]]},
-                {"range": f"R{row_num}", "values": [[new_courier_name]]},
-                {"range": f"T{row_num}", "values": [[str(new_courier_id)]]},
+                {"range": f"S{row_num}", "values": [[new_courier_name]]},
+                {"range": f"U{row_num}", "values": [[str(new_courier_id)]]},
             ])
             sync_update_order_info_status(order_id, "TAKEN")
             return True, old_courier_id, order_id
         except Exception as e:
-            logging.error(f"Ошибка переназначения заказа (строка {row_num}): {e}")
+            logging.error(f"Ошибка переназначения заказа {order_id}: {e}")
             return False, "", ""
 
 
@@ -686,33 +740,33 @@ def _sync_get_orders_for_dashboard() -> tuple[list, list, list]:
                     "row":        idx + 1,
                     "id":         row[1],
                     "status":     status,
-                    "courier":    row[17],
-                    "courier_id": row[19],
-                    "city_from":  row[4],
-                    "city_to":    row[6],
-                    "addr_from":  row[5],
-                    "addr_to":    row[7],
-                    "price":      row[3],
-                    "r_phone":    row[15],
-                    "s_name":     row[12],
+                    "courier":    row[18],
+                    "courier_id": row[20],
+                    "city_from":  row[5],
+                    "city_to":    row[7],
+                    "addr_from":  row[6],
+                    "addr_to":    row[8],
+                    "price":      row[4],
+                    "r_phone":    row[16],
+                    "s_name":     row[13],
                 })
             elif status == "READY_FOR_DRIVERS":
                 free.append({
                     "row":       idx + 1,
                     "id":        row[1],
-                    "city_from": row[4],
-                    "city_to":   row[6],
-                    "price":     row[3],
-                    "s_name":    row[12],
+                    "city_from": row[5],
+                    "city_to":   row[7],
+                    "price":     row[4],
+                    "s_name":    row[13],
                 })
             elif status == "NEW":
                 new.append({
                     "row":       idx + 1,
                     "id":        row[1],
-                    "city_from": row[4],
-                    "city_to":   row[6],
-                    "price":     row[3],
-                    "s_name":    row[12],
+                    "city_from": row[5],
+                    "city_to":   row[7],
+                    "price":     row[4],
+                    "s_name":    row[13],
                     "date":      row[2],
                 })
     except Exception as e:
@@ -758,8 +812,8 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
 
     n_cols = 8 if show_earnings else 7
 
-    BLUE   = "FF2481CC"
-    L_BLUE = "FFD6EAF8"
+    BRAND   = "FFEA580C"
+    L_BRAND = "FFFDECE0"
     WHITE  = "FFFFFFFF"
     GRAY   = "FFF4F4F5"
 
@@ -781,7 +835,7 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
     ws.merge_cells(f"A1:{last_col_letter}1")
     c = ws.cell(row=1, column=1, value="MAVSIMI RASON — Отчёт курьера")
     c.font = Font(bold=True, color=WHITE, size=14, name="Calibri")
-    c.fill = PatternFill("solid", fgColor=BLUE)
+    c.fill = PatternFill("solid", fgColor=BRAND)
     c.alignment = Alignment(horizontal="center", vertical="center")
 
     ws.merge_cells(f"A2:{last_col_letter}2")
@@ -804,19 +858,19 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
         ws.merge_cells(f"A3:{last_col_letter}3")
     c3a = ws.cell(row=3, column=1, value=f"Итого доставок: {total_count}")
     c3a.font = Font(bold=True, color=WHITE, size=12, name="Calibri")
-    c3a.fill = PatternFill("solid", fgColor=BLUE)
+    c3a.fill = PatternFill("solid", fgColor=BRAND)
     c3a.alignment = Alignment(horizontal="center", vertical="center")
     if show_earnings:
         c3b = ws.cell(row=3, column=5, value=f"Итого к выплате: {total_earn:.2f} TJS")
         c3b.font = Font(bold=True, color=WHITE, size=12, name="Calibri")
-        c3b.fill = PatternFill("solid", fgColor="FF22A368")
+        c3b.fill = PatternFill("solid", fgColor="FF1F9D4D")
         c3b.alignment = Alignment(horizontal="center", vertical="center")
 
     headers = ["№", "Дата", "Время", "Откуда", "Куда", "Тип", "Статус"]
     if show_earnings:
         headers.append("Заработок (TJS)")
     for col, h in enumerate(headers, 1):
-        cell_style(ws, 4, col, h, bold=True, bg=BLUE, color=WHITE, align="center", size=11)
+        cell_style(ws, 4, col, h, bold=True, bg=BRAND, color=WHITE, align="center", size=11)
 
     col_widths = [5, 13, 9, 18, 18, 12, 14] + ([16] if show_earnings else [])
     for i, w in enumerate(col_widths, 1):
@@ -828,7 +882,7 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
 
     for i, d in enumerate(deliveries, 1):
         r = i + 4
-        bg = L_BLUE if i % 2 == 0 else WHITE
+        bg = L_BRAND if i % 2 == 0 else WHITE
         is_done = d["s"] == "DELIVERED"
         earn = rate if is_done else 0.0
         status_label = {
@@ -841,10 +895,10 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
         cell_style(ws, r, 5, d["to"],      bg=bg)
         cell_style(ws, r, 6, "ПВЗ" if d["tp"] == "PVZ" else "До двери", bg=bg, align="center")
         cell_style(ws, r, 7, status_label, bg=bg, align="center",
-                   color="FF2BCA80" if is_done else "FF555555", bold=is_done)
+                   color="FF1F9D4D" if is_done else "FF555555", bold=is_done)
         if show_earnings:
             earn_cell = cell_style(ws, r, 8, earn, bg=bg, align="center",
-                                   bold=is_done, color="FF2481CC" if is_done else "FF999999")
+                                   bold=is_done, color="FFEA580C" if is_done else "FF999999")
             earn_cell.number_format = '0.00 "TJS"'
         ws.row_dimensions[r].height = 18
 
@@ -853,7 +907,7 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
         ws.merge_cells(f"A{last}:G{last}")
         cell_style(ws, last, 1, "ИТОГО К ВЫПЛАТЕ:", bold=True, bg=GRAY, align="right", size=12)
         earn_total = ws.cell(row=last, column=8, value=total_earn)
-        earn_total.font = Font(bold=True, color="FF22A368", size=13, name="Calibri")
+        earn_total.font = Font(bold=True, color="FF1F9D4D", size=13, name="Calibri")
         earn_total.fill = PatternFill("solid", fgColor=GRAY)
         earn_total.alignment = Alignment(horizontal="center", vertical="center")
         earn_total.number_format = '0.00 "TJS"'
@@ -906,12 +960,36 @@ async def build_driver_main_menu(driver_id: int):
     return b.as_markup(resize_keyboard=True)
 
 
-async def send_client_push(chat_id: str, text: str):
-    if client_bot and chat_id and str(chat_id).isdigit():
-        try:
-            await client_bot.send_message(chat_id=int(chat_id), text=text, parse_mode="Markdown")
-        except Exception as e:
-            logging.error(f"Не удалось отправить пуш клиенту {chat_id}: {e}")
+def _sync_client_lang(chat_id: str) -> str:
+    """Язык клиента (лист Клиенты, H=8) по Chat ID (F=6). Дефолт 'ru'."""
+    if not clients_sheet or not str(chat_id).strip():
+        return "ru"
+    try:
+        cell = clients_sheet.find(str(chat_id), in_column=6)
+        if not cell:
+            return "ru"
+        row = clients_sheet.row_values(cell.row)
+        return row[7] if len(row) > 7 and row[7] in ("ru", "tj") else "ru"
+    except Exception as e:
+        logging.error(f"Ошибка чтения языка клиента {chat_id}: {e}")
+        return "ru"
+
+
+async def send_client_push(chat_id: str, ru: str, tj: str | None = None):
+    """Шлёт пуш клиенту на ЕГО языке (ru или tj), а не оба сразу.
+    tj опционален: если не передан (напр. пуши из manager_bot без перевода),
+    клиенту уходит русский текст — лучше, чем TypeError и молчание."""
+    if not (client_bot and chat_id and str(chat_id).isdigit()):
+        return
+    lang = await asyncio.to_thread(_sync_client_lang, chat_id)
+    try:
+        await client_bot.send_message(
+            chat_id=int(chat_id),
+            text=(tj if lang == "tj" and tj else ru),
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        logging.error(f"Не удалось отправить пуш клиенту {chat_id}: {e}")
 
 
 # ─── Глобальная навигация ────────────────────────────────────────────────────
@@ -1188,28 +1266,33 @@ async def show_jobs(message: types.Message):
     await _try_delete(message)
     await _clear_previous_jobs_view(chat_id)
 
-    free_jobs = await asyncio.to_thread(_sync_get_free_orders)
-    if not free_jobs:
-        sent = await message.answer(L[lang]["no_free_jobs"])
-        _last_jobs_msgs[chat_id] = [sent.message_id]
-        return
+    try:
+        free_jobs = await asyncio.to_thread(_sync_get_free_orders)
+        if not free_jobs:
+            sent = await message.answer(L[lang]["no_free_jobs"])
+            _last_jobs_msgs[chat_id] = [sent.message_id]
+            return
 
-    msg_ids = []
-    header = await message.answer(L[lang]["jobs_header"].format(n=len(free_jobs)), parse_mode="Markdown")
-    msg_ids.append(header.message_id)
-    for o in free_jobs:
-        dtype_readable = L[lang]["dtype_pvz"] if o["delivery_type"] == "PVZ" else L[lang]["dtype_door"]
-        card = L[lang]["job_card"].format(
-            id=o['id'], phone=o['r_phone'], dtype=dtype_readable, comment=o['driver_comment'],
-            cf=o['city_pickup'], af=o['address_pickup'], ct=o['city_delivery'], at=o['address_delivery'],
-            sname=o['s_name'],
-        )
-        b = InlineKeyboardBuilder()
-        b.button(text=TAKE_JOB_BTN[lang], callback_data=f"take:{o['row_num']}")
-        sent = await message.answer(card, reply_markup=b.as_markup(), parse_mode="Markdown")
-        _job_message_refs.setdefault(o['id'], []).append((chat_id, sent.message_id))
-        msg_ids.append(sent.message_id)
-    _last_jobs_msgs[chat_id] = msg_ids
+        msg_ids = []
+        header = await message.answer(L[lang]["jobs_header"].format(n=len(free_jobs)), parse_mode="Markdown")
+        msg_ids.append(header.message_id)
+        for o in free_jobs:
+            b = InlineKeyboardBuilder()
+            b.button(text=TAKE_JOB_BTN[lang], callback_data=f"take:{o['id']}")
+            try:
+                sent = await message.answer(
+                    _render_job_card(o, lang), reply_markup=b.as_markup(), parse_mode="Markdown"
+                )
+            except Exception as e:
+                # одна битая карточка не должна лишать курьера всей биржи
+                logging.error(f"Не удалось показать карточку заказа {o['id']}: {e}")
+                continue
+            _job_message_refs.setdefault(o['id'], []).append((chat_id, sent.message_id))
+            msg_ids.append(sent.message_id)
+        _last_jobs_msgs[chat_id] = msg_ids
+    except Exception:
+        logging.error(f"Сбой показа биржи заказов: {traceback.format_exc()}")
+        await message.answer(L[lang]["server_error"])
 
 
 # ─── Управление заказом ──────────────────────────────────────────────────────
@@ -1222,26 +1305,26 @@ async def accept_order(callback: types.CallbackQuery):
         return
     lang = _lang_from_driver_row(driver_data)
     try:
-        row_num = int(callback.data.split(":")[1])
-        if row_num < 2 or not sheet:
+        order_id = callback.data.split(":", 1)[1]
+        if not order_id or not sheet:
             await callback.message.answer(L[lang]["bad_order_number"])
             return
 
         c_name = driver_data[2] if len(driver_data) > 2 and driver_data[2] else callback.from_user.full_name
         c_id   = callback.from_user.id
-        row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
-        order_id       = row_vals[1]
-        client_chat_id = row_vals[18]
 
-        success = await asyncio.to_thread(_sync_take_order, row_num, c_name, c_id)
+        success = await asyncio.to_thread(_sync_take_order, order_id, c_name, c_id)
         if not success:
             await callback.message.edit_text(L[lang]["job_taken_by_other"], reply_markup=None)
             return
         await asyncio.to_thread(sync_update_order_info_status, order_id, "TAKEN")
 
+        found = await asyncio.to_thread(_sync_find_order_by_id, order_id)
+        client_chat_id = found[1][19] if found else ""
+
         b = InlineKeyboardBuilder()
-        b.button(text=TRANSIT_BTN[lang], callback_data=f"transit:{row_num}")
-        b.button(text=REJECT_BTN[lang], callback_data=f"reject:{row_num}")
+        b.button(text=TRANSIT_BTN[lang], callback_data=f"transit:{order_id}")
+        b.button(text=REJECT_BTN[lang], callback_data=f"reject:{order_id}")
         b.adjust(1)
         await callback.message.edit_text(
             L[lang]["order_taken"].format(id=order_id),
@@ -1252,9 +1335,10 @@ async def accept_order(callback: types.CallbackQuery):
         if tracked and callback.message.message_id in tracked:
             tracked.remove(callback.message.message_id)
         if client_chat_id:
+            safe_name = md_escape(c_name)
             await send_client_push(client_chat_id,
-                f"🚚 **Фармоиши шумо {order_id} қабул шуд!**\n👤 **Курьер:** {c_name}\n\n"
-                f"🚚 **Ваш заказ {order_id} принят курьером!**\n👤 **Курьер:** {c_name}")
+                ru=f"🚚 **Ваш заказ {order_id} принят курьером!**\n👤 **Курьер:** {safe_name}",
+                tj=f"🚚 **Фармоиши шумо {order_id} қабул шуд!**\n👤 **Курьер:** {safe_name}")
     except Exception:
         logging.error(f"Сбой take: {traceback.format_exc()}")
         await callback.message.answer(L[lang]["server_error"])
@@ -1269,17 +1353,18 @@ async def reject_order(callback: types.CallbackQuery, state: FSMContext):
         return
     lang = _lang_from_driver_row(driver_data)
     try:
-        row_num = int(callback.data.split(":")[1])
+        order_id = callback.data.split(":", 1)[1]
         if not sheet:
             await callback.message.answer(L[lang]["db_unavailable"])
             return
-        row_vals       = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
-        order_id       = row_vals[1]
-        client_chat_id = row_vals[18]
+        found = await asyncio.to_thread(_sync_find_order_by_id, order_id)
+        if not found:
+            await callback.message.answer(L[lang]["bad_order_number"])
+            return
+        client_chat_id = found[1][19]
 
         await state.set_state(DriverRejectReason.waiting_for_reason)
         await state.update_data(
-            row_num=row_num,
             order_id=order_id,
             client_chat_id=client_chat_id,
             courier_name=driver_data[2] if len(driver_data) > 2 and driver_data[2] else callback.from_user.full_name,
@@ -1304,14 +1389,13 @@ async def _do_reject(chat_id: int, state: FSMContext, reason: str | None, photo_
     data = await state.get_data()
     await state.clear()
 
-    row_num        = data["row_num"]
     order_id       = data["order_id"]
     client_chat_id = data["client_chat_id"]
     c_name         = data["courier_name"]
     c_id           = data["courier_id"]
     lang           = data.get("lang", "ru")
 
-    success = await asyncio.to_thread(_sync_release_order, row_num, c_id)
+    success = await asyncio.to_thread(_sync_release_order, order_id, c_id)
     if not success:
         from config import driver_bot as _bot
         await _bot.send_message(chat_id, L[lang]["reject_failed"])
@@ -1330,8 +1414,8 @@ async def _do_reject(chat_id: int, state: FSMContext, reason: str | None, photo_
             return
         await send_client_push(
             client_chat_id,
-            f"ℹ️ Дар фармоиши шумо *{order_id}* тағйирот рӯй дод — курьери нав меҷӯем.\n\n"
-            f"ℹ️ По вашему заказу *{order_id}* происходят изменения — ищем нового курьера."
+            ru=f"ℹ️ По вашему заказу *{order_id}* происходят изменения — ищем нового курьера.",
+            tj=f"ℹ️ Дар фармоиши шумо *{order_id}* тағйирот рӯй дод — курьери нав меҷӯем."
         )
 
     async def _notify_manager():
@@ -1402,28 +1486,32 @@ async def transit_order(callback: types.CallbackQuery):
         await callback.message.answer(L["ru"]["access_denied_short"])
         return
     lang = _lang_from_driver_row(driver_data)
+    order_id = callback.data.split(":", 1)[1]
     try:
-        row_num  = int(callback.data.split(":")[1])
         if not sheet:
             await callback.message.answer(L[lang]["db_unavailable"])
             return
-        row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
-        order_id       = row_vals[1]
-        client_chat_id = row_vals[18]
-        await asyncio.to_thread(_sync_update_status, row_num, "IN_TRANSIT")
+        found = await asyncio.to_thread(_sync_find_order_by_id, order_id)
+        client_chat_id = found[1][19] if found else ""
+        ok = await asyncio.to_thread(
+            _sync_update_status, order_id, "IN_TRANSIT", callback.from_user.id, {"TAKEN"}
+        )
+        if not ok:
+            await callback.message.answer(L[lang]["access_denied_short"])
+            return
         await asyncio.to_thread(sync_update_order_info_status, order_id, "IN_TRANSIT")
         b = InlineKeyboardBuilder()
-        b.button(text=DELIVERED_BTN[lang], callback_data=f"done:{row_num}")
+        b.button(text=DELIVERED_BTN[lang], callback_data=f"done:{order_id}")
         await callback.message.edit_text(
             L[lang]["transit_msg"].format(id=order_id),
             reply_markup=b.as_markup(), parse_mode="Markdown"
         )
         if client_chat_id:
             await send_client_push(client_chat_id,
-                f"🚀 **Фармоиши шумо {order_id} дар роҳ аст!**\n\n"
-                f"🚀 **Ваш заказ {order_id} уже в пути!**")
+                ru=f"🚀 **Ваш заказ {order_id} уже в пути!**",
+                tj=f"🚀 **Фармоиши шумо {order_id} дар роҳ аст!**")
     except Exception as e:
-        logging.error(f"Ошибка transit (строка {row_num}): {e}", exc_info=True)
+        logging.error(f"Ошибка transit (заказ {order_id}): {e}", exc_info=True)
         await callback.message.answer(L[lang]["transit_error"])
 
 
@@ -1435,26 +1523,37 @@ async def finish_order(callback: types.CallbackQuery):
         await callback.message.answer(L["ru"]["access_denied_short"])
         return
     lang = _lang_from_driver_row(driver_data)
+    order_id = callback.data.split(":", 1)[1]
     try:
-        row_num  = int(callback.data.split(":")[1])
         if not sheet:
             await callback.message.answer(L[lang]["db_unavailable"])
             return
-        row_vals = _pad_row(await asyncio.to_thread(sheet.row_values, row_num))
-        order_id       = row_vals[1]
-        client_chat_id = row_vals[18]
-        await asyncio.to_thread(_sync_update_status, row_num, "DELIVERED")
+        found = await asyncio.to_thread(_sync_find_order_by_id, order_id)
+        client_chat_id = found[1][19] if found else ""
+        ok = await asyncio.to_thread(
+            _sync_update_status, order_id, "DELIVERED", callback.from_user.id, {"IN_TRANSIT"}
+        )
+        if not ok:
+            await callback.message.answer(L[lang]["access_denied_short"])
+            return
         await asyncio.to_thread(sync_update_order_info_status, order_id, "DELIVERED")
+        delivered_at = datetime.now(DUSHANBE_TZ).strftime("%d.%m.%Y %H:%M")
+        await asyncio.to_thread(sync_set_delivery_time, order_id, delivered_at)
         await callback.message.edit_text(
             L[lang]["delivered_msg"].format(id=order_id),
             reply_markup=None, parse_mode="Markdown"
         )
         if client_chat_id:
             await send_client_push(client_chat_id,
-                f"✅ **Фармоиши шумо {order_id} бомуваффақият расонида шуд!**\n\n"
-                f"✅ **Ваш заказ {order_id} успешно доставлен!**\nСпасибо, что выбрали Mavsimi Rason!")
+                ru=f"✅ **Ваш заказ {order_id} успешно доставлен!**\nСпасибо, что выбрали Mavsimi Rason!",
+                tj=f"✅ **Фармоиши шумо {order_id} бомуваффақият расонида шуд!**\nМинатдорем, ки Mavsimi Rason-ро интихоб кардед!")
+        # Пересобираем меню, чтобы кабинет (WebApp URL) сразу увидел новую доставку
+        await callback.message.answer(
+            L[lang]["menu_prompt"],
+            reply_markup=await build_driver_main_menu(callback.from_user.id),
+        )
     except Exception as e:
-        logging.error(f"Ошибка done (строка {row_num}): {e}", exc_info=True)
+        logging.error(f"Ошибка done (заказ {order_id}): {e}", exc_info=True)
         await callback.message.answer(L[lang]["delivered_error"])
 
 
@@ -1479,7 +1578,7 @@ async def driver_support_start(message: types.Message, state: FSMContext):
     await state.set_state(DriverSupport.waiting_for_message)
 
 
-@dp.message(DriverSupport.waiting_for_message)
+@dp.message(DriverSupport.waiting_for_message, F.text)
 async def driver_support_send(message: types.Message, state: FSMContext):
     driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
     fio = driver_data[2] if driver_data and len(driver_data) > 2 else "Курьер"
@@ -1517,7 +1616,7 @@ async def driver_support_send(message: types.Message, state: FSMContext):
         await message.answer(L[lang]["support_error"], reply_markup=await build_driver_main_menu(message.from_user.id))
 
 
-@dp.message(DriverSupport.chatting)
+@dp.message(DriverSupport.chatting, F.text)
 async def driver_support_continue(message: types.Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
@@ -1536,6 +1635,15 @@ async def driver_support_continue(message: types.Message, state: FSMContext):
     except Exception as e:
         logging.error(f"Ошибка отправки сообщения курьера в топик: {type(e).__name__}: {e}")
         await message.answer(L[lang]["support_send_failed"])
+
+
+@dp.message(DriverSupport.waiting_for_message)
+@dp.message(DriverSupport.chatting)
+async def driver_support_non_text(message: types.Message, state: FSMContext):
+    """Фото/стикер/голос в поддержке: раньше падало на html.escape(None) и курьер
+    не получал вообще ничего в ответ."""
+    data = await state.get_data()
+    await message.answer(L[data.get("lang", "ru")]["support_text_only"])
 
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}))
@@ -1583,14 +1691,9 @@ async def _broadcast_new_free_orders():
                 for o in (new_jobs if drivers else []):
                     for d in drivers:
                         lang = d.get("lang", "ru")
-                        dtype_readable = L[lang]["dtype_pvz"] if o["delivery_type"] == "PVZ" else L[lang]["dtype_door"]
-                        card = L[lang]["new_job_header"] + L[lang]["job_card"].format(
-                            id=o['id'], phone=o['r_phone'], dtype=dtype_readable, comment=o['driver_comment'],
-                            cf=o['city_pickup'], af=o['address_pickup'], ct=o['city_delivery'], at=o['address_delivery'],
-                            sname=o['s_name'],
-                        )
+                        card = _render_job_card(o, lang, header=L[lang]["new_job_header"])
                         b = InlineKeyboardBuilder()
-                        b.button(text=TAKE_JOB_BTN[lang], callback_data=f"take:{o['row_num']}")
+                        b.button(text=TAKE_JOB_BTN[lang], callback_data=f"take:{o['id']}")
                         try:
                             sent = await bot.send_message(
                                 d["telegram_id"], card,
@@ -1599,11 +1702,18 @@ async def _broadcast_new_free_orders():
                             _job_message_refs.setdefault(o['id'], []).append((int(d["telegram_id"]), sent.message_id))
                         except Exception as e:
                             logging.warning(f"Не удалось отправить пуш курьеру {d['telegram_id']}: {e}")
+                        # Telegram режет отправку быстрее ~30 msg/s: при большой базе
+                        # курьеров рассылка без паузы упирается в flood control.
+                        await asyncio.sleep(BROADCAST_DELAY_SECONDS)
 
                     _notified_order_ids.add(o["id"])
 
             # заказ забрали/отменили — освобождаем id, чтобы он мог снова попасть в рассылку при повторном появлении
             _notified_order_ids.intersection_update(current_ids)
+            # и чистим трекинг разосланных карточек по тем же id — иначе _job_message_refs
+            # растёт без предела (заказы уходят из свободных, а записи о карточках висят вечно)
+            for stale_id in [oid for oid in _job_message_refs if oid not in current_ids]:
+                _job_message_refs.pop(stale_id, None)
         except Exception:
             logging.error(f"Сбой автоуведомления о новых заказах: {traceback.format_exc()}")
 

@@ -5,46 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Статистика</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="theme.css?v=1">
 <style>
-    :root {
-        --bg: #F6F3F0;
-        --surface: #FFFFFF;
-        --surface-2: #F3ECE5;
-        --ink: #1C1611;
-        --ink-soft: #6B6157;
-        --hint: #9A8F84;
-        --border: #ECE3DA;
-        --accent: #EA580C;
-        --accent-2: #FB923C;
-        --accent-ghost: #FDECE0;
-        --shadow-sm: 0 1px 2px rgba(28,22,17,.05), 0 4px 14px -8px rgba(28,22,17,.12);
-        --shadow-md: 0 2px 6px rgba(28,22,17,.06), 0 18px 40px -22px rgba(234,88,12,.30);
-        --s-new: #78716C; --s-ready: #C77800; --s-taken: #0E8AA6;
-        --s-transit: #3B5BDB; --s-delivered: #1F9D4D; --s-cancel: #D4483B;
-        --good: #1F9D4D; --bad: #D4483B;
-    }
-    :root[data-theme="dark"] {
-        --bg: #121013;
-        --surface: #1C1712;
-        --surface-2: #251E17;
-        --ink: #F5EFE8;
-        --ink-soft: #C3B8AC;
-        --hint: #8B8177;
-        --border: #302A23;
-        --accent: #FB7A3C;
-        --accent-2: #F59E5C;
-        --accent-ghost: #2A2017;
-        --shadow-sm: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px -10px rgba(0,0,0,.55);
-        --shadow-md: 0 2px 8px rgba(0,0,0,.35), 0 20px 44px -22px rgba(0,0,0,.7);
-        --s-new: #A8A29A; --s-ready: #E9A21E; --s-taken: #2FB6D4;
-        --s-transit: #7C93F5; --s-delivered: #40C46E; --s-cancel: #F26A5D;
-        --good: #40C46E; --bad: #F26A5D;
-    }
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     html { -webkit-text-size-adjust: 100%; }
     html, body { max-width: 100%; overflow-x: hidden; }
     body {
-        background: var(--bg); color: var(--ink);
+        background: var(--page-bg); color: var(--ink);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         line-height: 1.45;
         padding: 0 0 40px;
@@ -55,7 +22,7 @@
     /* ── header ── */
     .top {
         position: sticky; top: 0; z-index: 20;
-        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        background: color-mix(in srgb, var(--page-bg) 88%, transparent);
         backdrop-filter: saturate(1.4) blur(12px);
         -webkit-backdrop-filter: saturate(1.4) blur(12px);
         border-bottom: 1px solid var(--border);

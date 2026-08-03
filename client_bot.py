@@ -16,7 +16,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
-from config import client_bot as bot, client_dp as dp, manager_bot as mgr_bot, sheet, clients_sheet, orders_info_sheet, get_manager_chat_ids
+from config import client_bot as bot, client_dp as dp, manager_bot as mgr_bot, sheet, clients_sheet, orders_info_sheet, get_manager_chat_ids, sanitize_for_sheet, md_escape
 
 class Registration(StatesGroup):
     waiting_for_lang = State()
@@ -60,6 +60,9 @@ CL = {
         "support_session_expired": "❌ Сессия истекла. Нажмите кнопку поддержки снова.",
         "support_send_failed": "❌ Не удалось отправить. Попробуйте позже.",
         "support_reply_header": "💬 <b>Ответ от поддержки:</b>\n\n{text}",
+        "support_text_only": "✍️ Пока принимаем только текст — опишите вопрос сообщением.",
+        "contact_not_own": "❌ Нужен ваш собственный номер. Нажмите кнопку «Авторизация» ещё раз.",
+        "fio_text_only": "❌ Введите ФИО текстом.",
     },
     "tj": {
         "welcome": "👋 **Ба Mavsimi Rason хуш омадед!**\nБарои ворид шудан тугмаи зерро пахш кунед:",
@@ -83,6 +86,9 @@ CL = {
         "support_session_expired": "❌ Мӯҳлати сессия гузашт. Тугмаи дастгириро аз нав пахш кунед.",
         "support_send_failed": "❌ Фиристода нашуд. Баъдтар кӯшиш кунед.",
         "support_reply_header": "💬 <b>Ҷавоб аз дастгирӣ:</b>\n\n{text}",
+        "support_text_only": "✍️ Ҳоло танҳо матн қабул мекунем — саволро бо паём нависед.",
+        "contact_not_own": "❌ Рақами худатон лозим аст. Тугмаи «Ворид шудан»-ро дубора пахш кунед.",
+        "fio_text_only": "❌ Номро бо матн ворид кунед.",
     },
 }
 
@@ -133,13 +139,6 @@ def generate_order_id() -> str:
     date_part = now.strftime("%d%m")
     rand_part = "".join(secrets.choice(ORDER_ID_ALPHABET) for _ in range(4))
     return f"Z-{date_part}-{rand_part}"
-
-def sanitize_for_sheet(value) -> str:
-    """Предотвращает formula injection: строки, начинающиеся с = + - @ \t \r, экранируются апострофом."""
-    s = str(value) if value is not None else ""
-    if s and s[0] in ('=', '+', '-', '@', '\t', '\r'):
-        return "'" + s
-    return s[:500]  # Ограничение длины
 
 REQUIRED_ORDER_FIELDS = {
     's_name', 'r_name', 's_phone', 'r_phone',
@@ -197,9 +196,9 @@ def _sync_get_client_order_statuses(chat_id: str) -> list[dict]:
     try:
         result = []
         for idx, row in enumerate(sheet.get_all_values()):
-            if idx == 0 or len(row) < 19:
+            if idx == 0 or len(row) < 20:
                 continue
-            if str(row[18]).strip() != str(chat_id):
+            if str(row[19]).strip() != str(chat_id):
                 continue
             result.append({"id": row[1], "status": row[0].upper().strip()})
         return result
@@ -215,9 +214,12 @@ def _sync_update_profile(chat_id: str, new_fio: str, new_address: str, lang: str
         cell = clients_sheet.find(str(chat_id), in_column=6)
         if not cell:
             return False
+        # sanitize_for_sheet обязателен и здесь: путь обновления профиля был
+        # единственным, где пользовательский текст попадал в таблицу «как есть»
+        # (формула-инъекция в ФИО/адрес).
         updates = [
-            {'range': f'C{cell.row}', 'values': [[new_fio]]},
-            {'range': f'E{cell.row}', 'values': [[new_address or '']]},
+            {'range': f'C{cell.row}', 'values': [[sanitize_for_sheet(new_fio)]]},
+            {'range': f'E{cell.row}', 'values': [[sanitize_for_sheet(new_address or '')]]},
         ]
         if lang in ("ru", "tj"):
             updates.append({'range': f'H{cell.row}', 'values': [[lang]]})
@@ -243,7 +245,7 @@ def _sync_register_client(chat_id: str, fio: str, phone: str, lang: str = "ru") 
         return False
     try:
         now = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=5)).strftime("%d.%m.%Y %H:%M")
-        clients_sheet.append_row(["ACTIVE", now, fio, phone, "", str(chat_id), "", lang], table_range="A1")
+        clients_sheet.append_row(["ACTIVE", now, sanitize_for_sheet(fio), sanitize_for_sheet(phone), "", str(chat_id), "", lang], table_range="A1")
         return True
     except Exception as e:
         logging.error(f"Ошибка регистрации клиента chat_id={chat_id}: {e}")
@@ -374,6 +376,15 @@ async def go_main_menu(message: types.Message, state: FSMContext):
 
 @dp.message(F.contact)
 async def process_contact(message: types.Message, state: FSMContext):
+    # Telegram позволяет отправить контакт ЛЮБОГО человека из адресной книги.
+    # Без этой проверки можно было подобрать чужой номер и получить в ответ
+    # ФИО владельца + предзаполненный его данными WebApp.
+    if message.contact.user_id != message.from_user.id:
+        await _try_delete(message)
+        data = await state.get_data()
+        await message.answer(CL[data.get("client_lang", "ru")]["contact_not_own"])
+        return
+
     phone = message.contact.phone_number
     if not phone.startswith("+"):
         phone = "+" + phone
@@ -420,6 +431,10 @@ async def start_fio_step(message: types.Message, state: FSMContext):
 
 @dp.message(Registration.waiting_for_fio)
 async def save_fio(message: types.Message, state: FSMContext):
+    data_lang = (await state.get_data()).get("client_lang", "ru")
+    if not message.text:
+        await message.answer(CL[data_lang]["fio_text_only"])
+        return
     fio = message.text.strip()
     data = await state.get_data()
     phone = data.get('phone')
@@ -469,6 +484,8 @@ async def get_main_menu(fio: str, phone: str, lang: str = "ru", chat_id=None):
 async def handle_webapp_data(message: types.Message):
     try:
         data = json.loads(message.web_app_data.data)
+        # Убираем служебное «Вы успешно передали данные боту…» (само web_app-сообщение)
+        await _try_delete(message)
 
         # --- Обновление профиля ---
         if data.get("action") == "update_profile":
@@ -494,7 +511,8 @@ async def handle_webapp_data(message: types.Message):
                 user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
                 phone_from_db = user_data[3] if user_data and len(user_data) > 3 else ""
                 lang = _lang_from_row(user_data)
-                await message.answer(
+                await _replace_status_message(
+                    message.chat.id,
                     CL[lang]["profile_updated"].format(
                         fio=updated_fio,
                         addr=updated_addr if updated_addr else CL[lang]["addr_missing"]
@@ -538,24 +556,25 @@ async def handle_webapp_data(message: types.Message):
         row = [
             "NEW",                               # A (1)  - Статус заявки
             order_id,                            # B (2)  - ID заказа
-            dushanbe_time,                       # C (3)  - Дата и время оформления
-            s(data['price']),                    # D (4)  - Итоговая стоимость
-            s(data['city_pickup']),              # E (5)  - Город забора
-            s(data['address_pickup']),           # F (6)  - Точный адрес забора
-            s(data['city_delivery']),            # G (7)  - Город доставки
-            s(data['address_delivery']),         # H (8)  - Точный адрес доставки
-            s(data['driver_comment']),           # I (9)  - Ориентир для курьера
-            data['delivery_type'].upper(),       # J (10) - Тип доставки (PVZ / DOOR)
-            s(data['weight']),                   # K (11) - Вес посылки
-            s(data['sizes']),                    # L (12) - Габариты
-            s(data['s_name']),                   # M (13) - ФИО отправителя
-            s(data['s_phone']),                  # N (14) - Телефон отправителя
-            s(data['r_name']),                   # O (15) - ФИО получателя
-            s(data['r_phone']),                  # P (16) - Телефон получателя
-            "bot_webapp",                        # Q (17) - Источник создания
-            "",                                  # R (18) - Имя курьера
-            str(message.chat.id),                # S (19) - Telegram Chat ID клиента
-            ""                                   # T (20) - Telegram Chat ID курьера
+            dushanbe_time,                       # C (3)  - Дата принятия
+            "",                                  # D (4)  - Дата доставки (заполнит курьер при DELIVERED)
+            s(data['price']),                    # E (5)  - Итоговая стоимость
+            s(data['city_pickup']),              # F (6)  - Город забора
+            s(data['address_pickup']),           # G (7)  - Точный адрес забора
+            s(data['city_delivery']),            # H (8)  - Город доставки
+            s(data['address_delivery']),         # I (9)  - Точный адрес доставки
+            s(data['driver_comment']),           # J (10) - Ориентир для курьера
+            data['delivery_type'].upper(),       # K (11) - Тип доставки (PVZ / DOOR)
+            s(data['weight']),                   # L (12) - Вес посылки
+            s(data['sizes']),                    # M (13) - Габариты
+            s(data['s_name']),                   # N (14) - ФИО отправителя
+            s(data['s_phone']),                  # O (15) - Телефон отправителя
+            s(data['r_name']),                   # P (16) - ФИО получателя
+            s(data['r_phone']),                  # Q (17) - Телефон получателя
+            "bot_webapp",                        # R (18) - Источник создания
+            "",                                  # S (19) - Имя курьера
+            str(message.chat.id),                # T (20) - Telegram Chat ID клиента
+            ""                                   # U (21) - Telegram Chat ID курьера
         ]
 
         await asyncio.to_thread(_sync_append_row, row)
@@ -566,21 +585,22 @@ async def handle_webapp_data(message: types.Message):
                 dtype_plain = "До ПВЗ" if data['delivery_type'] == "pvz" else "До двери"
                 orders_info_sheet.append_row([
                     order_id,                        # A — ID заказа
-                    dushanbe_time,                   # B — Дата
-                    "NEW",                           # C — Статус
-                    s(data['price']),                # D — Цена (TJS)
-                    dtype_plain,                      # E — Тип доставки
-                    s(data['weight']),               # F — Вес (кг)
-                    s(data['sizes']),                # G — Габариты
-                    s(data['s_name']),               # H — ФИО отправителя
-                    s(data['s_phone']),              # I — Тел отправителя
-                    s(data['city_pickup']),          # J — Город откуда
-                    s(data['address_pickup']),       # K — Адрес откуда
-                    s(data['r_name']),               # L — ФИО получателя
-                    s(data['r_phone']),              # M — Тел получателя
-                    s(data['city_delivery']),        # N — Город куда
-                    s(data['address_delivery']),     # O — Адрес куда
-                    s(data['driver_comment']),       # P — Ориентир
+                    dushanbe_time,                   # B — Дата принятия
+                    "",                              # C — Дата доставки (заполнит курьер при DELIVERED)
+                    "NEW",                           # D — Статус
+                    s(data['price']),                # E — Цена (TJS)
+                    dtype_plain,                      # F — Тип доставки
+                    s(data['weight']),               # G — Вес (кг)
+                    s(data['sizes']),                # H — Габариты
+                    s(data['s_name']),               # I — ФИО отправителя
+                    s(data['s_phone']),              # J — Тел отправителя
+                    s(data['city_pickup']),          # K — Город откуда
+                    s(data['address_pickup']),       # L — Адрес откуда
+                    s(data['r_name']),               # M — ФИО получателя
+                    s(data['r_phone']),              # N — Тел получателя
+                    s(data['city_delivery']),        # O — Город куда
+                    s(data['address_delivery']),     # P — Адрес куда
+                    s(data['driver_comment']),       # Q — Ориентир
                 ], table_range="A1")
             try:
                 await asyncio.to_thread(_sync_append_order_info)
@@ -618,14 +638,15 @@ async def handle_webapp_data(message: types.Message):
                     except Exception as e:
                         logging.error(f"Не удалось уведомить менеджера {mgr_id} о заказе {order_id}: {e}")
 
+        m = md_escape
         msg = RECEIPTS[lang].format(
             date=dushanbe_time, order_id=order_id,
-            s_name=data['s_name'], s_phone=data['s_phone'],
-            city_pickup=data['city_pickup'], address_pickup=data['address_pickup'],
-            city_delivery=data['city_delivery'], address_delivery=data['address_delivery'],
+            s_name=m(data['s_name']), s_phone=m(data['s_phone']),
+            city_pickup=m(data['city_pickup']), address_pickup=m(data['address_pickup']),
+            city_delivery=m(data['city_delivery']), address_delivery=m(data['address_delivery']),
             delivery_type=dtype_readable,
-            r_name=data['r_name'], r_phone=data['r_phone'],
-            price=data['price']
+            r_name=m(data['r_name']), r_phone=m(data['r_phone']),
+            price=m(data['price'])
         )
         await message.answer(msg, parse_mode="Markdown")
 
@@ -656,7 +677,7 @@ async def support_start(message: types.Message, state: FSMContext):
     await state.set_state(Support.waiting_for_message)
 
 
-@dp.message(Support.waiting_for_message)
+@dp.message(Support.waiting_for_message, F.text)
 async def support_send(message: types.Message, state: FSMContext):
     user_data = await asyncio.to_thread(_sync_check_user_by_chat_id, str(message.chat.id))
     fio   = user_data[2] if user_data and len(user_data) > 2 else "Неизвестно"
@@ -703,7 +724,7 @@ async def support_send(message: types.Message, state: FSMContext):
         await message.answer(CL[lang]["support_error"], reply_markup=await get_main_menu(fio, phone, lang, message.chat.id))
 
 
-@dp.message(Support.chatting)
+@dp.message(Support.chatting, F.text)
 async def support_continue(message: types.Message, state: FSMContext):
     data = await state.get_data()
     lang = data.get("lang", "ru")
@@ -723,6 +744,14 @@ async def support_continue(message: types.Message, state: FSMContext):
     except Exception as e:
         logging.error(f"Ошибка отправки в топик: {type(e).__name__}: {e}")
         await message.answer(CL[lang]["support_send_failed"])
+
+
+@dp.message(Support.waiting_for_message)
+@dp.message(Support.chatting)
+async def support_non_text(message: types.Message, state: FSMContext):
+    """Фото/стикер/голос в поддержке: раньше падало на html.escape(None)."""
+    data = await state.get_data()
+    await message.answer(CL[data.get("lang", "ru")]["support_text_only"])
 
 
 @dp.message(F.chat.type.in_({"group", "supergroup"}))

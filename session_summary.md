@@ -1,14 +1,15 @@
-# Выжимка сессии — 2026-06-24 (сессия 2)
+# Выжимка сессии — 2026-07-27 (аналитика: база-зеркало + дашборд)
 
 ## 1. Проект
 
-**Mavsimi Rason** — система доставки (Таджикистан, валюта TJS).  
-Репозиторий бота: `/Users/azam/Desktop/mavsim-delivery-bot`  
-Репозиторий GitHub Pages (HTML): `git@github.com:GostWarrir186/mavsim-form.git`  
-Клон GitHub Pages: `/private/tmp/mavsim-form/`  
-GitHub Pages: `https://gostwarrir186.github.io/mavsim-form/`  
-Стек: Python 3.x, aiogram 3.x, gspread, Google Sheets как БД, GitHub Pages (HTML/JS без фреймворков).  
-Три бота запускаются одним процессом через `asyncio.gather` в `main.py`.
+**Mavsimi Rason** — система доставки (Таджикистан, валюта TJS, сомони).
+Репозиторий: `/Users/azam/Documents/mavsim-delivery-bot`
+(`git@github.com:GostWarrir186/mavsim-form.git`)
+GitHub Pages (WebApp): `https://gostwarrir186.github.io/mavsim-form/web/`
+Стек: Python 3.11+, aiogram 3.x, gspread + Google Sheets как источник истины,
+**SQLite как база-зеркало для аналитики**, GitHub Pages (HTML/JS без
+фреймворков), Docker на VPS. Три бота — один процесс через `asyncio.gather`
+в `main.py`.
 
 ---
 
@@ -16,130 +17,112 @@ GitHub Pages: `https://gostwarrir186.github.io/mavsim-form/`
 
 ```
 mavsim-delivery-bot/
-├── main.py                  # запуск трёх ботов
-├── config.py                # токены, gspread, 4 листа
+├── main.py                  # запуск трёх ботов + db.run_sync_loop (снапшот каждые 10 мин)
+├── config.py                # токены, gspread, листы, sanitize_for_sheet, md_escape
 ├── client_bot.py            # клиентский бот
-├── driver_bot.py            # курьерский бот
-├── manager_bot.py           # менеджерский бот
-├── creds.json               # Google service account
+├── driver_bot.py            # курьерский бот (send_client_push, declutter, автопуш)
+├── manager_bot.py           # менеджерский бот (+ кнопка Статистика, экспорт бухгалтерии)
+├── db.py                    # ★ НОВЫЙ: SQLite-зеркало, статистика по периодам, Excel бухгалтерии
+├── Dockerfile               # COPY включает db.py
 ├── requirements.txt
-├── .env
-├── CLAUDE.md
-└── web/
-    ├── client.html          # WebApp клиента
-    ├── driver_cabinet.html  # WebApp кабинет курьера (объединён с отчётом)
-    ├── report_picker.html   # (устарел)
-    └── admin_panel.html     # WebApp панель менеджера
+├── CLAUDE.md                # правила + карта файлов (обновлена: db.py, дашборд)
+├── web/{client,driver_cabinet,report_picker,admin_panel,dashboard}.html
+└── graphify-out/            # knowledge graph кодовой базы
 ```
+Плюс `~/Desktop/docker-compose.yml` (деплой-конфиг на уровне `~/automation/`):
+у сервиса `mavsim-bots` добавлен volume `./mavsim-delivery-bot/data:/data`
+и `SQLITE_DB_PATH=/data/mavsim.db`.
 
-**Google Sheets — «Заявки Mavsimi Rason», 4 листа:**
-- **Лист1** (заказы): A=статус, B=order_id, C=дата, D=цена, E=город_откуда, F=адрес_откуда, G=город_куда, H=адрес_куда, I=ориентир, J=тип(PVZ/DOOR), K=вес, L=габариты, M=ФИО_отправителя, N=тел_отправителя, O=ФИО_получателя, P=тел_получателя, Q=источник, R=имя_курьера, S=chat_id_клиента, T=telegram_id_курьера
-- **Клиенты**: A=статус, B=дата_рег, C=ФИО, D=телефон, E=адрес_забора, F=chat_id, G=support_topic_id
-- **Водители**: A=статус(PENDING/ACTIVE/REJECTED), B=дата_рег, C=ФИО, D=telegram_id, E=ставка_TJS, F=дата_оферты, G=support_topic_id, H=телефон
-- **Заказы** (чистый): A=ID, B=дата, C=статус, D=цена, E=тип, F=вес, G=габариты, H=ФИО_отпр, I=тел_отпр, J=город_откуда, K=адрес_откуда, L=ФИО_получ, M=тел_получ, N=город_куда, O=адрес_куда, P=ориентир
-
-**Статусы заказа:** NEW → READY_FOR_DRIVERS → TAKEN → LOADING → IN_TRANSIT → ARRIVED → DELIVERED | CANCELLED
+**Google Sheets «Заявки Mavsimi Rason» (4 листа):** Лист1 (заказы, гл. источник),
+Клиенты, Водители, Заказы (чистый лог). Схема колонок — см. CLAUDE.md.
+**Статусы заказа (3):** `TAKEN`→`IN_TRANSIT`→`DELIVERED` (+ NEW,
+READY_FOR_DRIVERS, CANCELLED). **Курьер:** PENDING→ACTIVE|REJECTED.
 
 ---
 
-## 3. Что сделано в этой сессии
+## 3. Что сделано в этой сессии (задеплоено и проверено в проде)
 
-### Фикс: авторефреш панели менеджера после WebApp-действий
-- Проблема: после `sendData` WebApp закрывается, но кнопка «🎛 Открыть панель» хранила старый URL → курьер показывался занятым даже после отмены заказа
-- Решение: `await _send_panel(message.chat.id, bot)` в конце каждого action-хендлера в `handle_webapp`
-- Затронутые actions: `change_status`, `cancel_active`, `set_ready`, `reassign_confirm`
-- Файл: `manager_bot.py`
+### База-зеркало SQLite (`db.py`, новый)
+- Снапшот "Лист1"+"Водители" → SQLite (`orders`/`drivers`), полная перезапись
+  (mirror без drift). Не трогает запись ботов — ноль риска.
+- `main.py`: `db.run_sync_loop(interval_sec=600)` в `asyncio.gather` — снапшот
+  при старте и каждые 10 мин, обёрнут в try/except.
+- Volume `/data/mavsim.db` — база переживает пересборку контейнера.
+- CLI: `python db.py --sync|--stats` (на сервере — `docker exec ...`).
 
-### Рефакторинг: удаление мёртвого кода
-- `driver_bot.py:422` — удалён мёртвый `return result` после `return {…}`
-- `manager_bot.py` — удалён `import traceback`
-- `manager_bot.py` — удалён дублирующий `from driver_bot import _pad_row` внутри `_sync_cancel_order`
-- `manager_bot.py` — `_build_panel_message` — убраны dead InlineKeyboardMarkup и `_`-распаковка
-- `manager_bot.py` — удалены `admin_refresh` callback, `do_reassign` (rt:), `reassign_request` action
-- `client_bot.py` — `LINK_TO_OFFER = "https://www.google.com"` → `os.getenv("LINK_TO_OFFER", "")`
-- `client_bot.py` — удалён неверный комментарий «ФИО из столбца M (индекс 12)»
+### Дашборд статистики (`web/dashboard.html`, новый)
+- ОТДЕЛЬНАЯ кнопка "📊 Статистика" у менеджера (не связана с "🎛 Панель").
+  `manager_bot._build_dashboard_url()` собирает `db.dashboard_payload()` в `?d=`.
+- Периоды **неделя/месяц/полгода/год** — все данные зашиты в URL, переключение
+  на клиенте без обращения к серверу.
+- Премиальный адаптивный дизайн (фирменный оранжевый, светлая/тёмная тема
+  Telegram): hero-выручка, KPI (3 кол моб / 5 широк), график с тумблером
+  Заказы/Выручка, donut статусов, топ курьеров. Проверено скриншотами
+  (моб 390 / десктоп 900).
 
-### UI: унификация дизайн-системы (все три WebApp)
-**admin_panel.html:**
-- `--r: 12px` → `--radius: 14px / --radius-sm: 10px`
-- `--primary-g` → `--primary-grad`
-- Добавлены `--primary-light`, `--success-grad`
-- Кнопка «⚙️ Управление» — была серая, стала синяя с обводкой (primary style)
-- Модалка — верхний радиус `16px` → `20px`
-- `btn-report-all` — зелёный градиент вместо плоского
-- `btn-report` — тонкая синяя обводка
-- Добавлен `DELIVERED` в STATUS_LABEL и CSS (.sp-DELIVERED)
-- Тени статистики: `0 2px 8px` → `0 4px 16px` (как в driver_cabinet)
+### Экспорт для бухгалтерии
+- Кнопка в дашборде → `Telegram.WebApp.sendData` → `manager_bot.handle_webapp`
+  ветка `export_accounting` → `db.build_accounting_excel(period)` присылает
+  Excel-реестр доставленных заказов (дата, ID, маршрут, тип, курьер, сумма +
+  ИТОГО).
 
-**client.html:**
-- Добавлены `--success-grad`, `--warning` в :root
-- Добавлена `.brand-bar` — 3px градиентная полоска наверху sticky header
-- `btn-success` теперь через `var(--success-grad)`
-
-**driver_cabinet.html:**
-- Выравнивание форматирования :root (идентично другим файлам)
+### Попутно
+- Починен краш-цикл на сервере: старый `config.py` без `md_escape` +
+  новый `manager_bot.py` → ImportError → рестарты → 429. Вылечено заливкой
+  всего согласованного набора `.py`. Урок записан в CLAUDE.md и в память.
+- `DASHBOARD_URL` добавлен в `.env` на сервере.
 
 ---
 
 ## 4. Текущее состояние
 
-**Работает:**
-- Все три бота запускаются одним процессом локально
-- Клиентский бот: заказы, профиль, поддержка, обратная связь
-- Курьерский бот: регистрация с телефоном, полный цикл статусов, кабинет+отчёт
-- Менеджерский бот: /start → панель, авторефреш после каждого действия, push о новых заказах
+**Работает в проде (проверено):** три бота, автопуш, двуязычие ru/tj,
+3 статуса, база-зеркало наполняется, дашборд со всеми периодами, экспорт
+бухгалтерии присылает Excel.
 
-**GitHub Pages (запушено):**
-- `admin_panel.html`, `driver_cabinet.html`, `client.html` — актуальны (коммит `cb8646c`)
-
-**Требует проверки (не тестировалось):**
-- Авторефреш панели после отмены/смены статуса/переназначения
-- Модалка «⚙️ Управление» — кнопка теперь синяя, работает ли визуально
+**Замечание:** обрезка справа была только в headless-скриншоте (артефакт
+рендера), на реальном устройстве вёрстка корректна — пользователь подтвердил.
 
 ---
 
-## 5. Что осталось
+## 5. Что осталось (обсуждалось, не начато)
 
-- [ ] Протестировать весь флоу нового заказа (клиент → push менеджеру → принять/отклонить)
-- [ ] Протестировать авторефреш: после cancel_active курьер должен стать «Свободен»
-- [ ] Протестировать регистрацию нового курьера (шаг телефона)
-- [ ] Добавить реальную ссылку на оферту в `.env` (LINK_TO_OFFER=...)
-- [ ] Хостинг (Railway не вышло — Cyrillic в env var обрезается xargs'ом)
+1. **Этап 2 — горячие чтения на базу.** Перевести биржу заказов и дашборды
+   курьера/менеджера с `get_all_values()` Google на чтение из SQLite-зеркала,
+   чтобы снять лимиты 429 при росте объёма. Сейчас не срочно.
+2. **Расширение Excel бухгалтерии** — при запросе добавить телефоны, ставку
+   курьера, заработок, отдельный лист-разбивку по курьерам.
+3. **«Живое» обновление WebApp без кнопки** — нужен backend API (FastAPI) +
+   fetch. Ранее пробовали (07-21), откатили к base64+sendData.
+4. **Прочие идеи UX** (не начаты): оценка курьера после доставки, гео-локация
+   курьера, авто-обновление панели менеджера, SLA-алерты.
 
 ---
 
 ## 6. Важные детали
 
-**.env (актуальный):**
-```
-TELEGRAM_BOT_TOKEN=8911160775:AAFpuaYqxNFqe-w8f_6HxZ95Gn6i7dd5OYE
-DRIVER_BOT_TOKEN=8634346674:AAFW5TBonzvr49tw2zxjMwMOEZqiFbRMCPo
-MANAGER_BOT_TOKEN=8853197840:AAFzkGJY3YA9P-oHDKMHS-_fhzAaX8EWIK0
-GOOGLE_CREDS_PATH=creds.json
-GOOGLE_SHEET_NAME=Заявки Mavsimi Rason
-WEB_APP_URL=https://gostwarrir186.github.io/mavsim-form/web/client.html?v=20
-DRIVER_WEBAPP_URL=https://gostwarrir186.github.io/mavsim-form/web/driver_cabinet.html
-REPORT_PICKER_URL=https://gostwarrir186.github.io/mavsim-form/web/report_picker.html
-ADMIN_PANEL_URL=https://gostwarrir186.github.io/mavsim-form/web/admin_panel.html
-SUPPORT_CHAT_ID=-1003913005014
-MANAGER_CHAT_ID=972542297
-DEFAULT_DRIVER_RATE=15.0
-LINK_TO_OFFER=          ← нужно заполнить реальной ссылкой на оферту
-```
+**Деплой:**
+- `.py` (вкл. `db.py`) — Cyberduck (SFTP) в `~/automation/mavsim-delivery-bot/`,
+  затем `cd ~/automation && docker compose build mavsim-bots && docker compose up -d mavsim-bots`.
+  Git на `.py` НЕ влияет. Новый .py → добавить в `COPY` в Dockerfile.
+- `web/*.html` (вкл. `dashboard.html`) — GitHub Pages, `git push` в main.
+- `.env` на сервере: `DASHBOARD_URL`, `ADMIN_PANEL_URL`, `WEB_APP_URL(?v=)`,
+  токены. После правки `.env` → `docker compose up -d mavsim-bots`.
+- Диагностика: `docker logs automation-mavsim-bots --tail 100` (без grep).
+  При краше — смотреть ПЕРВУЮ строку трейсбека, не 429 внизу.
 
 **Критические нюансы:**
-- Все Sheets-операции → `asyncio.to_thread(...)` (блокирующие вызовы)
-- Callback-хендлеры: `await callback.answer()` первой строкой
-- `sendData()` работает ТОЛЬКО из reply keyboard web_app кнопки, НЕ из inline keyboard
-- `sendData()` всегда закрывает WebApp — live-обновление без закрытия требует backend API (не реализовано)
-- `build_driver_main_menu(driver_id)` — async, везде `await`
-- `_order_take_lock` (threading.Lock) в driver_bot — не убирать, защита от race condition
-- manager_bot импортирует из driver_bot → порядок в main.py: сначала driver_bot, потом manager_bot
-- `_sync_change_order_status` возвращает `(success, client_chat_id, courier_id, err)` — 4 значения
-- `_sync_set_order_ready` и `_sync_cancel_order` возвращают `(success, client_chat_id, err)` — 3 значения
-- file_id фото переносится между ботами через `mgr_bot.send_photo(photo=file_id)` — работает
-- Railway не вышло: Cyrillic в GOOGLE_SHEET_NAME обрезается xargs'ом при `railway up`
-- Клон репо GitHub Pages: `/private/tmp/mavsim-form/` (копировать файлы туда → git push)
-- `_build_panel_message` возвращает `(text, webapp_url)` — 2 значения (inline keyboard удалён)
+- db.py не трогает запись в Sheets — источник истины остаётся "Лист1".
+  Снапшот — полная перезапись, статусы англ. кодами, даты `%d.%m.%Y %H:%M` UTC+5.
+- Payload дашборда ограничен по размеру независимо от числа заказов (всё
+  агрегировано): ~5-8 КБ base64 в `?d=`.
+- Все Sheets/SQLite-операции → `asyncio.to_thread(...)`; callback →
+  `await callback.answer()` первой строкой.
+- `sendData()` только из reply keyboard web_app кнопки; всегда закрывает WebApp.
+- WebApp-кнопка со старым URL не обновляется сама — данные подтянутся только
+  при пересылке клавиатуры заново (после /start / "🔄 Обновить").
+- main.py: сначала driver_bot, потом manager_bot (manager импортит из driver).
+- Секреты — в `.env` (не в git).
 
-**Зависимости:** aiogram, gspread, google-auth, python-dotenv, openpyxl
+**Зависимости:** aiogram, gspread, google-auth, python-dotenv, openpyxl,
+sqlite3 (stdlib — ставить ничего не надо).
