@@ -1,632 +1,499 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mavsimi Rason</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="theme.css?v=1">
-    <script>
-    // Тема: явный выбор Telegram важнее системной; см. web/theme.css
-    (function () {
-        var d = document.documentElement, s = null;
-        try { s = Telegram.WebApp.colorScheme; } catch (e) {}
-        if (!s) s = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
-        d.setAttribute('data-theme', s);
-        try { Telegram.WebApp.onEvent('themeChanged', function () {
-            d.setAttribute('data-theme', Telegram.WebApp.colorScheme || 'light');
-        }); } catch (e) {}
-    })();
-    </script>
-    <style>
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--sec-bg); color: var(--text);
-            margin: 0; padding: 0; overflow-x: hidden;
-            user-select: none; -webkit-user-select: none;
-            padding-bottom: 20px;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Mavsimi Rason</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="theme.css?v=2">
+<script>
+// Тема: явный выбор Telegram важнее системной; палитра — в theme.css
+(function () {
+    var d = document.documentElement, s = null;
+    try { s = Telegram.WebApp.colorScheme; } catch (e) {}
+    if (!s) s = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    d.setAttribute('data-theme', s);
+    try { Telegram.WebApp.onEvent('themeChanged', function () {
+        d.setAttribute('data-theme', Telegram.WebApp.colorScheme || 'light');
+    }); } catch (e) {}
+})();
+</script>
+<style>
+    .lang { display: flex; gap: 4px; margin-left: auto; flex: none; }
+    .lang button {
+        font: inherit; font-size: 12px; font-weight: 650; padding: 5px 10px;
+        border-radius: 999px; border: 1px solid var(--border); cursor: pointer;
+        background: var(--surface); color: var(--ink-3); transition: all .16s;
+    }
+    .lang button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 
-        /* ─── Sticky Header ─── */
-        .sticky-header {
-            position: sticky; top: 0; z-index: 100;
-            background: var(--bg);
-            border-bottom: 1px solid rgba(0,0,0,0.06);
-            box-shadow: 0 2px 12px rgba(0,0,0,0.05);
-        }
-        .brand-bar { height: 3px; background: var(--primary-grad); }
-        .header-top {
-            display: flex; justify-content: flex-end; align-items: center;
-            padding: 8px 14px 6px; gap: 5px;
-        }
-        .lang-btn {
-            font-size: 12px; font-weight: 600; padding: 4px 11px;
-            border-radius: 20px; border: 1.5px solid rgba(0,0,0,0.1);
-            background: none; color: var(--hint); cursor: pointer;
-            transition: all 0.18s;
-        }
-        .lang-btn.active {
-            color: var(--primary); border-color: var(--primary);
-            background: var(--primary-light);
-        }
-        .header-tabs { display: flex; }
-        .tab-btn {
-            flex: 1; text-align: center; padding: 10px 0 11px; font-size: 14px; font-weight: 600;
-            color: var(--hint); background: none; border: none; cursor: pointer;
-            border-bottom: 2.5px solid transparent; transition: all 0.2s;
-        }
-        .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .pane { display: none; padding-top: 14px; }
+    .pane.on { display: block; }
 
-        /* ─── Layout ─── */
-        .container { padding: 14px; display: none; }
-        .container.active { display: block; }
+    .route { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); gap: 9px; align-items: end; }
+    .route .arrow { color: var(--ink-3); padding-bottom: 12px; }
+    .dims { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .dims-hint { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .dims-hint span { font-size: 11.5px; color: var(--ink-3); text-align: center; }
 
-        /* ─── Cards ─── */
-        .card {
-            background: var(--bg); border-radius: var(--radius);
-            padding: 16px; margin-bottom: 13px;
-            box-shadow: 0 1px 8px rgba(0,0,0,0.05), 0 0 0 0.5px rgba(0,0,0,0.04);
-        }
-        .card-title {
-            margin: 0 0 14px; color: var(--primary); font-size: 14px; font-weight: 700;
-            display: flex; align-items: center; gap: 7px; letter-spacing: 0.1px;
-            padding-bottom: 10px; border-bottom: 1px solid var(--sec-bg);
-        }
+    .price {
+        display: flex; align-items: center; gap: 12px; margin-top: 14px;
+        padding: 14px; border-radius: var(--r); background: var(--accent-soft);
+    }
+    .price .p-label { font-size: 12.5px; font-weight: 600; color: var(--accent); }
+    .price .p-value { margin-left: auto; font-size: 22px; font-weight: 700; letter-spacing: -.02em; color: var(--accent); white-space: nowrap; }
 
-        /* ─── Form ─── */
-        .form-group { margin-bottom: 12px; }
-        .form-group:last-child { margin-bottom: 0; }
-        label {
-            display: block; font-size: 11.5px; font-weight: 600; margin-bottom: 5px;
-            color: var(--hint); text-transform: uppercase; letter-spacing: 0.4px;
-        }
-        input, select {
-            width: 100%; padding: 11px 13px;
-            border: 1.5px solid rgba(0,0,0,0.06); border-radius: var(--radius-sm);
-            font-size: 15px; background: var(--sec-bg); color: var(--text);
-            transition: border-color 0.18s, box-shadow 0.18s;
-            appearance: none; -webkit-appearance: none;
-        }
-        select {
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238e8e93' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-            background-repeat: no-repeat; background-position: right 12px center;
-            padding-right: 34px;
-        }
-        input:focus, select:focus {
-            border-color: var(--primary); outline: none;
-            box-shadow: 0 0 0 3px var(--primary-light);
-        }
-        input[type="number"] { text-align: center; font-weight: 600; }
-
-        /* ─── Route Row ─── */
-        .route-row { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; }
-        .route-row .form-group { flex: 1; margin-bottom: 0; }
-        .route-arrow { color: var(--hint); font-size: 20px; padding-bottom: 10px; line-height: 1; flex-shrink: 0; }
-
-        /* ─── Delivery Type ─── */
-        .radio-group { display: flex; gap: 8px; }
-        .radio-label {
-            flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
-            padding: 10px 6px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500;
-            cursor: pointer; border: 1.5px solid rgba(0,0,0,0.06); background: var(--sec-bg);
-            transition: all 0.18s; color: var(--text);
-        }
-        .radio-label input[type="radio"] { display: none; }
-        .radio-label.selected {
-            background: var(--primary-light); border-color: var(--primary); color: var(--primary); font-weight: 600;
-        }
-
-        /* ─── Prefill Notice ─── */
-        .prefill-notice {
-            font-size: 12px; color: var(--primary); background: var(--primary-light);
-            padding: 6px 10px; border-radius: 8px; margin-top: 6px;
-            display: none; align-items: center; gap: 5px;
-        }
-
-        /* ─── Sizes ─── */
-        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }
-        .size-hint { display: flex; justify-content: space-around; margin-top: 5px; }
-        .size-hint span { font-size: 10.5px; color: var(--hint); font-weight: 500; flex: 1; text-align: center; }
-
-        /* ─── Warning ─── */
-        .warning {
-            font-size: 13px; font-weight: 600; margin-top: 12px; display: none;
-            text-align: center; background: rgba(229,57,53,0.08); color: var(--danger);
-            padding: 11px 14px; border-radius: 10px; border: 1px solid rgba(229,57,53,0.15);
-        }
-
-        /* ─── Price Box ─── */
-        .price-box {
-            display: none !important;
-            margin-top: 13px; border-radius: var(--radius-sm); overflow: hidden;
-            background: var(--primary-grad); color: white; text-align: center; padding: 15px;
-        }
-        .price-label { font-size: 11px; font-weight: 500; opacity: 0.8; margin-bottom: 4px; letter-spacing: 0.3px; }
-        .price-value { font-size: 22px; font-weight: 800; letter-spacing: -0.3px; }
-
-        /* ─── Buttons ─── */
-        .btn {
-            width: 100%; border: none; padding: 15px;
-            border-radius: var(--radius); font-size: 16px; font-weight: 700;
-            cursor: pointer; transition: opacity 0.15s, transform 0.1s;
-            letter-spacing: 0.1px;
-        }
-        .btn:active:not(:disabled) { transform: scale(0.98); opacity: 0.9; }
-        .btn-primary { background: var(--primary-grad); color: white; }
-        .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-        .btn-success { background: var(--success-grad); color: white; }
-        .btn + .btn { margin-top: 10px; }
-
-        /* ─── Profile ─── */
-        .profile-info-row {
-            display: flex; justify-content: space-between; align-items: center;
-            background: var(--sec-bg); border-radius: var(--radius-sm);
-            padding: 11px 13px; margin-bottom: 14px;
-        }
-        .profile-info-row .p-label { font-size: 11.5px; color: var(--hint); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
-        .profile-info-row .p-value { font-size: 15px; font-weight: 600; }
-        .save-feedback {
-            font-size: 13px; font-weight: 600; color: var(--success);
-            text-align: center; padding: 10px 0 4px; display: none;
-        }
-
-        /* ─── History ─── */
-        .history-hint { font-size: 11.5px; color: var(--hint); margin: -6px 0 13px; display: flex; align-items: center; gap: 5px; }
-        .order-swipe-wrapper { position: relative; overflow: hidden; border-radius: var(--radius-sm); margin-bottom: 9px; background: var(--danger); }
-        .order-card {
-            background: var(--bg); padding: 12px 14px;
-            border-left: 3px solid var(--primary);
-            border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-            position: relative; z-index: 2; cursor: grab;
-        }
-        .order-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; }
-        .order-id { font-weight: 700; font-size: 13px; }
-        .order-card-body { font-size: 12.5px; color: var(--hint); line-height: 1.65; }
-        .order-card-body b { color: var(--text); }
-        .order-price { color: var(--primary) !important; font-weight: 700; }
-        .status-badge {
-            padding: 3px 8px; border-radius: 6px; font-size: 10px;
-            font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
-        }
-        .s-new      { background: #e3f2fd; color: #1565c0; }
-        .s-ready    { background: #fff3e0; color: #e65100; }
-        .s-taken    { background: #fff3e0; color: #ef6c00; }
-        .s-transit  { background: #fff3e0; color: #ef6c00; }
-        .s-delivered{ background: #e8f5e9; color: #1b5e20; }
-        .s-cancelled{ background: #ffebee; color: #c62828; }
-        .swipe-delete-btn {
-            position: absolute; top: 0; right: 0; bottom: 0; width: 68px;
-            background: var(--danger); color: white; border: none;
-            display: flex; align-items: center; justify-content: center;
-            flex-direction: column; gap: 3px; font-size: 10.5px; font-weight: 700; z-index: 1;
-        }
-        .no-orders {
-            text-align: center; color: var(--hint); font-size: 14px;
-            padding: 30px 0; display: flex; flex-direction: column; align-items: center; gap: 10px;
-        }
-    </style>
+    /* ── история заказов ── */
+    .swipe { position: relative; overflow: hidden; border-radius: var(--r); margin-bottom: 9px; }
+    .swipe .del {
+        position: absolute; inset: 0 0 0 auto; width: 76px;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+        background: var(--bad); color: #fff; border: none; cursor: pointer;
+        font: inherit; font-size: 10.5px; font-weight: 650;
+    }
+    .order {
+        position: relative; background: var(--surface); border: 1px solid var(--border);
+        border-radius: var(--r); padding: 13px 14px; touch-action: pan-y;
+    }
+    .order-top { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+    .order-id { font-size: 12.5px; font-weight: 650; letter-spacing: .01em; }
+    .order-top .badge { margin-left: auto; }
+    .order-line { display: flex; align-items: center; gap: 7px; font-size: 13.5px; padding: 3px 0; min-width: 0; }
+    .order-line .ic { color: var(--ink-3); }
+    .order-line b { font-weight: 650; }
+</style>
 </head>
 <body>
+<svg class="sprite" aria-hidden="true" focusable="false"><defs><symbol id="i-package" viewBox="0 0 24 24"><path d="M21 8v8a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol><symbol id="i-box" viewBox="0 0 24 24"><path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M2 5h20v4H2z"/><path d="M10 13h4"/></symbol><symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 17V5a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1"/><path d="M14 8h4l3 3v5a1 1 0 0 1-1 1h-1"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><path d="M9 17h6"/></symbol><symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol><symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol><symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></symbol><symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></symbol><symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h6a4 4 0 0 0 0-8H9a4 4 0 0 1 0-8h3"/></symbol><symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M16 12h.01"/></symbol><symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M7 15v-3"/><path d="M12 15V8"/><path d="M17 15v-6"/></symbol><symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol><symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol><symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></symbol><symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol><symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol><symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></symbol><symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol><symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></symbol><symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></symbol><symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12 19"/></symbol><symbol id="i-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></symbol><symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol><symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol><symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol></defs></svg>
 
-<!-- ─── Sticky Header ─── -->
-<div class="sticky-header">
-    <div class="brand-bar"></div>
-    <div class="header-top">
-        <button class="lang-btn active" id="lang-ru-btn" onclick="setLang('ru')">🇷🇺 RU</button>
-        <button class="lang-btn" id="lang-tj-btn" onclick="setLang('tj')">🇹🇯 TJ</button>
-    </div>
-    <div class="header-tabs">
-        <button class="tab-btn active" id="tab-order-btn" onclick="switchTab('order')">📦 Новый заказ</button>
-        <button class="tab-btn" id="tab-profile-btn" onclick="switchTab('profile')">👤 Личный кабинет</button>
-    </div>
-</div>
-
-<!-- ─── TAB 1: Заказ ─── -->
-<div id="tab-order" class="container active">
-
-    <div class="card">
-        <h3 class="card-title">🗺 <span id="txt-title-route">Маршрут и доставка</span></h3>
-
-        <div class="form-group">
-            <label id="lbl-dtype">Тип доставки</label>
-            <div class="radio-group">
-                <label class="radio-label selected" id="lbl-pvz">
-                    <input type="radio" name="dtype" value="pvz" checked onchange="syncRadioStyle(); toggleAddress(); calculatePrice()">
-                    <span id="txt-pvz">До ПВЗ 🏢</span>
-                </label>
-                <label class="radio-label" id="lbl-door">
-                    <input type="radio" name="dtype" value="door" onchange="syncRadioStyle(); toggleAddress(); calculatePrice()">
-                    <span id="txt-door">До двери 🚪</span>
-                </label>
+<header class="topbar">
+    <div class="topbar-inner" style="display:block;padding-bottom:0">
+        <div class="row" style="padding-bottom:10px">
+            <span class="glyph"><svg class="ic"><use href="#i-package"></use></svg></span>
+            <div class="spacer">
+                <h1>Mavsimi Rason</h1>
+                <div class="sub" data-i18n="brand-sub">Доставка по Таджикистану</div>
+            </div>
+            <div class="lang">
+                <button id="lang-ru" aria-pressed="true" onclick="setLang('ru')">RU</button>
+                <button id="lang-tj" aria-pressed="false" onclick="setLang('tj')">TJ</button>
             </div>
         </div>
+        <nav class="tabs">
+            <button id="tab-order-btn" aria-selected="true" onclick="switchTab('order')">
+                <svg class="ic ic-sm"><use href="#i-plus"></use></svg><span data-i18n="tab-order">Новый заказ</span>
+            </button>
+            <button id="tab-profile-btn" aria-selected="false" onclick="switchTab('profile')">
+                <svg class="ic ic-sm"><use href="#i-user"></use></svg><span data-i18n="tab-profile">Кабинет</span>
+            </button>
+        </nav>
+    </div>
+</header>
 
-        <div class="route-row">
-            <div class="form-group">
-                <label id="lbl-city-pickup">Откуда</label>
-                <select id="city_pickup" onchange="calculatePrice()">
-                    <option value="Душанбе">Душанбе</option>
-                    <option value="Худжанд">Худжанд</option>
-                    <option value="Бохтар">Бохтар</option>
-                    <option value="Хорог">Хорог</option>
-                    <option value="РРП">РРП</option>
-                    <option value="Хатлонская область">Хатлон</option>
-                    <option value="Согдийская область">Согд</option>
-                    <option value="ГБАО">ГБАО</option>
-                </select>
+<!-- ─── Новый заказ ─── -->
+<main id="pane-order" class="pane on container">
+    <div class="stack">
+
+        <section class="card">
+            <div class="card-head">
+                <svg class="ic" style="color:var(--accent)"><use href="#i-route"></use></svg>
+                <div class="card-title" data-i18n="sec-route">Маршрут и доставка</div>
             </div>
-            <div class="route-arrow">→</div>
-            <div class="form-group">
-                <label id="lbl-city-delivery">Куда</label>
-                <select id="city_delivery" onchange="calculatePrice()">
-                    <option value="Душанбе">Душанбе</option>
-                    <option value="Худжанд">Худжанд</option>
-                    <option value="Бохтар">Бохтар</option>
-                    <option value="Хорог">Хорог</option>
-                    <option value="РРП">РРП</option>
-                    <option value="Хатлонская область">Хатлон</option>
-                    <option value="Согдийская область">Согд</option>
-                    <option value="ГБАО">ГБАО</option>
-                </select>
+
+            <div class="field">
+                <span class="label" data-i18n="lbl-dtype">Тип доставки</span>
+                <div class="choice">
+                    <button type="button" id="dt-pvz" aria-pressed="true" onclick="setDtype('pvz')">
+                        <span class="t" data-i18n="dt-pvz-t">До ПВЗ</span>
+                        <span class="d" data-i18n="dt-pvz-d">Пункт выдачи</span>
+                    </button>
+                    <button type="button" id="dt-door" aria-pressed="false" onclick="setDtype('door')">
+                        <span class="t" data-i18n="dt-door-t">До двери</span>
+                        <span class="d" data-i18n="dt-door-d">Курьер привезёт</span>
+                    </button>
+                </div>
             </div>
-        </div>
 
-        <div class="form-group">
-            <label id="lbl-address-pickup">Адрес забора (Откуда)</label>
-            <input type="text" id="address_pickup" oninput="validateForm()">
-            <div class="prefill-notice" id="prefill-notice">📍 <span id="txt-prefill">Адрес подставлен из профиля</span></div>
-        </div>
-
-        <div class="form-group" id="delivery-address-group" style="display:none;">
-            <label id="lbl-address-delivery">Адрес доставки (Куда)</label>
-            <input type="text" id="address_delivery" oninput="validateForm()">
-        </div>
-        <div class="form-group" id="driver-comment-group" style="display:none;">
-            <label id="lbl-comment">Комментарий курьеру</label>
-            <input type="text" id="driver_comment">
-        </div>
-    </div>
-
-    <div class="card">
-        <h3 class="card-title">👤 <span id="txt-title-receiver">Получатель</span></h3>
-        <div class="form-group">
-            <label id="lbl-r-name">ФИО Получателя</label>
-            <input type="text" id="r_name" oninput="validateForm()">
-        </div>
-        <div class="form-group">
-            <label id="lbl-r-phone">Телефон Получателя</label>
-            <input type="tel" id="r_phone" placeholder="+992XXXXXXXXX" oninput="validateForm()">
-        </div>
-    </div>
-
-    <div class="card">
-        <h3 class="card-title">📦 <span id="txt-title-parcel">Параметры посылки</span></h3>
-        <div class="form-group">
-            <label id="lbl-weight">Вес (кг)</label>
-            <input type="number" id="weight" step="0.1" min="0.1" max="10" value="1" oninput="calculatePrice(); validateForm()">
-        </div>
-        <div class="form-group">
-            <label id="lbl-sizes">Габариты Д / Ш / В (см)</label>
-            <div class="grid-3">
-                <input type="number" id="size_l" min="1" max="200" value="10" oninput="calculatePrice(); validateForm()">
-                <input type="number" id="size_w" min="1" max="200" value="10" oninput="calculatePrice(); validateForm()">
-                <input type="number" id="size_h" min="1" max="200" value="10" oninput="calculatePrice(); validateForm()">
+            <div class="field">
+                <div class="route">
+                    <div class="field">
+                        <label class="label" for="city_pickup" data-i18n="lbl-from">Откуда</label>
+                        <select class="select" id="city_pickup" onchange="calculatePrice()"></select>
+                    </div>
+                    <svg class="ic arrow"><use href="#i-arrow-right"></use></svg>
+                    <div class="field">
+                        <label class="label" for="city_delivery" data-i18n="lbl-to">Куда</label>
+                        <select class="select" id="city_delivery" onchange="calculatePrice()"></select>
+                    </div>
+                </div>
             </div>
-            <div class="size-hint">
-                <span id="txt-size-l">Длина</span>
-                <span id="txt-size-w">Ширина</span>
-                <span id="txt-size-h">Высота</span>
+
+            <div class="field">
+                <label class="label" for="address_pickup" data-i18n="lbl-addr-from">Адрес забора</label>
+                <input class="input" type="text" id="address_pickup" oninput="validateForm()">
+                <span class="hint" id="prefill-notice" style="display:none;font-size:12px" data-i18n="prefill">Адрес подставлен из профиля</span>
             </div>
-        </div>
-        <div id="large-warning" class="warning"><span id="txt-large-warning">⚠️ Отправление крупногабаритное! Оформление только через сайт.</span></div>
-        <div class="price-box" id="price-box">
-            <div class="price-label" id="txt-price-label">Стоимость доставки</div>
-            <div class="price-value" id="txt-price-value">20.80 TJS</div>
-        </div>
-    </div>
 
-    <button class="btn btn-primary" id="submit-btn" disabled onclick="requestConfirm()"><span id="txt-btn-submit">Оформить доставку</span></button>
-    <button class="btn btn-success" id="large-submit-btn" style="display:none;" onclick="window.open('https://www.mavsim.com/Home/QuickRequest','_blank')"><span id="txt-btn-large">Быстрый запрос на сайте</span></button>
-</div>
+            <div class="field" id="grp-addr-to" style="display:none">
+                <label class="label" for="address_delivery" data-i18n="lbl-addr-to">Адрес доставки</label>
+                <input class="input" type="text" id="address_delivery" oninput="validateForm()">
+            </div>
 
-<!-- ─── TAB 2: Профиль ─── -->
-<div id="tab-profile" class="container">
-    <div class="card">
-        <h3 class="card-title">👤 <span id="txt-profile-data">Мои личные данные</span></h3>
-        <div class="profile-info-row">
-            <span class="p-label" id="txt-phone-label">Телефон</span>
-            <span class="p-value" id="prof-phone-view">-</span>
-        </div>
-        <div class="form-group">
-            <label id="lbl-prof-fio">Ваше ФИО (Имя отправителя)</label>
-            <input type="text" id="prof_fio_input" placeholder="Введите ФИО">
-        </div>
-        <div class="form-group">
-            <label id="lbl-prof-addr">Постоянный адрес забора</label>
-            <input type="text" id="prof_address" placeholder="ул. Рудаки, дом 15, кв 4" oninput="localStorage.setItem('prof_address', this.value)">
-        </div>
-        <div class="save-feedback" id="save-feedback">✅ <span id="txt-save-ok">Данные сохранены! Приложение закроется...</span></div>
-        <button class="btn btn-success" id="btn-save-profile" onclick="saveProfileData()"><span id="txt-btn-save">Сохранить изменения</span></button>
-    </div>
+            <div class="field" id="grp-comment" style="display:none">
+                <label class="label" for="driver_comment" data-i18n="lbl-comment">Комментарий курьеру</label>
+                <input class="input" type="text" id="driver_comment">
+            </div>
+        </section>
 
-    <div class="card">
-        <h3 class="card-title">📋 <span id="txt-orders-history">История моих заказов</span></h3>
-        <p class="history-hint">← <span id="txt-swipe-hint">Смахните влево для удаления</span></p>
-        <div id="history-container"></div>
+        <section class="card">
+            <div class="card-head">
+                <svg class="ic" style="color:var(--accent)"><use href="#i-user"></use></svg>
+                <div class="card-title" data-i18n="sec-receiver">Получатель</div>
+            </div>
+            <div class="field">
+                <label class="label" for="r_name" data-i18n="lbl-r-name">ФИО получателя</label>
+                <input class="input" type="text" id="r_name" oninput="validateForm()">
+            </div>
+            <div class="field">
+                <label class="label" for="r_phone" data-i18n="lbl-r-phone">Телефон получателя</label>
+                <input class="input" type="tel" id="r_phone" placeholder="+992XXXXXXXXX" oninput="validateForm()">
+            </div>
+        </section>
+
+        <section class="card">
+            <div class="card-head">
+                <svg class="ic" style="color:var(--accent)"><use href="#i-box"></use></svg>
+                <div class="card-title" data-i18n="sec-parcel">Параметры посылки</div>
+            </div>
+            <div class="field">
+                <label class="label" for="weight" data-i18n="lbl-weight">Вес, кг</label>
+                <input class="input mono" type="number" id="weight" step="0.1" min="0.1" max="10" value="1" oninput="calculatePrice()">
+            </div>
+            <div class="field">
+                <span class="label" data-i18n="lbl-dims">Габариты, см</span>
+                <div class="dims">
+                    <input class="input mono" type="number" id="size_l" min="1" max="200" value="10" oninput="calculatePrice()">
+                    <input class="input mono" type="number" id="size_w" min="1" max="200" value="10" oninput="calculatePrice()">
+                    <input class="input mono" type="number" id="size_h" min="1" max="200" value="10" oninput="calculatePrice()">
+                </div>
+                <div class="dims-hint">
+                    <span data-i18n="dim-l">Длина</span>
+                    <span data-i18n="dim-w">Ширина</span>
+                    <span data-i18n="dim-h">Высота</span>
+                </div>
+            </div>
+
+            <div class="note" id="large-warning" style="display:none;margin-top:14px">
+                <svg class="ic ic-sm"><use href="#i-alert"></use></svg>
+                <span data-i18n="large-warn">Отправление крупногабаритное — оформление только через сайт.</span>
+            </div>
+
+            <div class="price" id="price-box">
+                <svg class="ic" style="color:var(--accent)"><use href="#i-wallet"></use></svg>
+                <span class="p-label" data-i18n="price-label">Стоимость доставки</span>
+                <span class="p-value mono" id="price-value">20.80 TJS</span>
+            </div>
+        </section>
+
+        <button class="btn btn-primary btn-block" id="submit-btn" disabled onclick="requestConfirm()">
+            <svg class="ic"><use href="#i-send"></use></svg><span data-i18n="btn-submit">Оформить доставку</span>
+        </button>
+        <button class="btn btn-outline btn-block" id="large-submit-btn" style="display:none"
+                onclick="window.open('https://www.mavsim.com/Home/QuickRequest','_blank')">
+            <svg class="ic"><use href="#i-external"></use></svg><span data-i18n="btn-large">Быстрый запрос на сайте</span>
+        </button>
     </div>
-</div>
+</main>
+
+<!-- ─── Кабинет ─── -->
+<main id="pane-profile" class="pane container">
+    <div class="stack">
+        <section class="card">
+            <div class="card-head">
+                <svg class="ic" style="color:var(--accent)"><use href="#i-user"></use></svg>
+                <div class="card-title" data-i18n="sec-profile">Мои данные</div>
+            </div>
+            <div class="kv">
+                <span class="k" data-i18n="lbl-phone">Телефон</span>
+                <span class="v mono" id="prof-phone">—</span>
+            </div>
+            <div class="field" style="margin-top:14px">
+                <label class="label" for="prof_fio" data-i18n="lbl-prof-fio">Ваше ФИО (имя отправителя)</label>
+                <input class="input" type="text" id="prof_fio" placeholder="Введите ФИО">
+            </div>
+            <div class="field">
+                <label class="label" for="prof_address" data-i18n="lbl-prof-addr">Постоянный адрес забора</label>
+                <input class="input" type="text" id="prof_address" placeholder="ул. Рудаки, дом 15, кв 4">
+            </div>
+            <div class="note" id="save-ok" style="display:none;margin-top:13px">
+                <svg class="ic ic-sm" style="color:var(--ok)"><use href="#i-check"></use></svg>
+                <span data-i18n="save-ok">Данные сохранены, приложение закроется…</span>
+            </div>
+            <button class="btn btn-primary btn-block" id="btn-save" style="margin-top:14px" onclick="saveProfile()">
+                <svg class="ic"><use href="#i-check"></use></svg><span data-i18n="btn-save">Сохранить изменения</span>
+            </button>
+        </section>
+
+        <section class="card">
+            <div class="card-head">
+                <svg class="ic" style="color:var(--accent)"><use href="#i-list"></use></svg>
+                <div class="card-title" data-i18n="sec-history">История заказов</div>
+                <span class="card-note" data-i18n="swipe-hint">Смахните влево, чтобы удалить</span>
+            </div>
+            <div id="history"></div>
+        </section>
+    </div>
+</main>
 
 <script>
-    let currentLang = 'ru';
-
-    const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : {
-        ready: () => {}, expand: () => {}, sendData: () => {}, close: () => {},
-        showConfirm: (msg, cb) => cb(confirm(msg)),
-        initDataUnsafe: {}, initData: ''
+    var tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : {
+        ready: function () {}, expand: function () {}, sendData: function () {}, close: function () {},
+        showConfirm: function (m, cb) { cb(confirm(m)); }, initDataUnsafe: {}, initData: ''
     };
     tg.ready(); tg.expand();
 
-    let verifiedFio = 'Пользователь';
-    let verifiedPhone = '+992920000000';
+    var currentLang = 'ru';
+    var verifiedFio = 'Пользователь';
+    var verifiedPhone = '+992920000000';
+    var dtype = 'pvz';
 
-    const userObj = tg.initDataUnsafe && tg.initDataUnsafe.user;
+    var userObj = tg.initDataUnsafe && tg.initDataUnsafe.user;
     if (userObj) {
         verifiedFio = [userObj.first_name, userObj.last_name].filter(Boolean).join(' ') || userObj.username || 'Telegram User';
     }
-    const urlParams = new URLSearchParams(window.location.search);
+    var urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('fio')) verifiedFio = urlParams.get('fio');
     if (urlParams.get('phone')) verifiedPhone = urlParams.get('phone');
 
-    // ─── Живой статус заказов (приходит от бота при каждом открытии меню) ────
+    // ── живые статусы заказов из ?d= накатываем на локальную историю ──
     try {
-        const raw = urlParams.get('d');
+        var raw = urlParams.get('d');
         if (raw) {
-            const b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
-            const pad = '='.repeat((4 - b64.length % 4) % 4);
-            const bytes = Uint8Array.from(atob(b64 + pad), c => c.charCodeAt(0));
-            const liveData = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-            const liveOrders = liveData.orders || [];
-            if (liveOrders.length) {
-                const statusById = {};
-                liveOrders.forEach(o => { statusById[o.id] = o.status; });
-                const history = JSON.parse(localStorage.getItem('user_orders') || '[]');
-                let changed = false;
-                history.forEach(o => {
-                    if (statusById[o.id] && statusById[o.id] !== o.status) {
-                        o.status = statusById[o.id];
-                        changed = true;
-                    }
+            var b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+            var pad = '='.repeat((4 - b64.length % 4) % 4);
+            var bytes = Uint8Array.from(atob(b64 + pad), function (c) { return c.charCodeAt(0); });
+            var live = JSON.parse(new TextDecoder('utf-8').decode(bytes)).orders || [];
+            if (live.length) {
+                var byId = {};
+                live.forEach(function (o) { byId[o.id] = o.status; });
+                var hist = JSON.parse(localStorage.getItem('user_orders') || '[]');
+                var changed = false;
+                hist.forEach(function (o) {
+                    if (byId[o.id] && byId[o.id] !== o.status) { o.status = byId[o.id]; changed = true; }
                 });
-                if (changed) localStorage.setItem('user_orders', JSON.stringify(history));
+                if (changed) localStorage.setItem('user_orders', JSON.stringify(hist));
             }
         }
-    } catch (e) {
-        console.error('Ошибка обновления статусов заказов:', e);
-    }
+    } catch (e) { console.error('Статусы заказов:', e); }
 
-    function escapeHtml(str) {
-        const d = document.createElement('div');
-        d.appendChild(document.createTextNode(String(str || '')));
+    function esc(s) {
+        var d = document.createElement('div');
+        d.appendChild(document.createTextNode(String(s == null ? '' : s)));
         return d.innerHTML;
     }
 
-    const T = {
+    var CITIES = ['Душанбе', 'Худжанд', 'Бохтар', 'Хорог', 'РРП', 'Хатлонская область', 'Согдийская область', 'ГБАО'];
+    var CITY_SHORT = { 'Хатлонская область': 'Хатлон', 'Согдийская область': 'Согд' };
+    ['city_pickup', 'city_delivery'].forEach(function (id) {
+        document.getElementById(id).innerHTML = CITIES.map(function (c) {
+            return '<option value="' + esc(c) + '">' + esc(CITY_SHORT[c] || c) + '</option>';
+        }).join('');
+    });
+
+    var T = {
         ru: {
-            'tab-order-btn': '📦 Новый заказ',
-            'tab-profile-btn': '👤 Личный кабинет',
-            'txt-title-route': 'Маршрут и доставка',
+            'brand-sub': 'Доставка по Таджикистану',
+            'tab-order': 'Новый заказ', 'tab-profile': 'Кабинет',
+            'sec-route': 'Маршрут и доставка',
             'lbl-dtype': 'Тип доставки',
-            'txt-pvz': 'До ПВЗ 🏢',
-            'txt-door': 'До двери 🚪',
-            'lbl-city-pickup': 'Откуда',
-            'lbl-city-delivery': 'Куда',
-            'lbl-address-pickup': 'Адрес забора (Откуда)',
-            'lbl-address-delivery': 'Адрес доставки (Куда)',
+            'dt-pvz-t': 'До ПВЗ', 'dt-pvz-d': 'Пункт выдачи',
+            'dt-door-t': 'До двери', 'dt-door-d': 'Курьер привезёт',
+            'lbl-from': 'Откуда', 'lbl-to': 'Куда',
+            'lbl-addr-from': 'Адрес забора', 'lbl-addr-to': 'Адрес доставки',
+            'prefill': 'Адрес подставлен из профиля',
             'lbl-comment': 'Комментарий курьеру',
-            'txt-prefill': 'Адрес подставлен из профиля',
-            'txt-title-receiver': 'Получатель',
-            'lbl-r-name': 'ФИО Получателя',
-            'lbl-r-phone': 'Телефон Получателя',
-            'txt-title-parcel': 'Параметры посылки',
-            'lbl-weight': 'Вес (кг)',
-            'lbl-sizes': 'Габариты Д / Ш / В (см)',
-            'txt-size-l': 'Длина',
-            'txt-size-w': 'Ширина',
-            'txt-size-h': 'Высота',
-            'txt-large-warning': '⚠️ Крупногабаритное! Оформление только через сайт.',
-            'txt-price-label': 'Стоимость доставки',
-            'txt-btn-submit': 'Оформить доставку',
-            'txt-btn-large': 'Быстрый запрос на сайте',
-            'txt-profile-data': 'Мои личные данные',
-            'txt-phone-label': 'Телефон',
-            'lbl-prof-fio': 'Ваше ФИО (Имя отправителя)',
-            'lbl-prof-addr': 'Постоянный адрес забора',
-            'txt-btn-save': 'Сохранить изменения',
-            'txt-save-ok': 'Данные сохранены! Приложение закроется...',
-            'txt-orders-history': 'История моих заказов',
-            'txt-swipe-hint': 'Смахните влево для удаления',
+            'sec-receiver': 'Получатель',
+            'lbl-r-name': 'ФИО получателя', 'lbl-r-phone': 'Телефон получателя',
+            'sec-parcel': 'Параметры посылки',
+            'lbl-weight': 'Вес, кг', 'lbl-dims': 'Габариты, см',
+            'dim-l': 'Длина', 'dim-w': 'Ширина', 'dim-h': 'Высота',
+            'large-warn': 'Отправление крупногабаритное — оформление только через сайт.',
+            'price-label': 'Стоимость доставки',
+            'btn-submit': 'Оформить доставку', 'btn-large': 'Быстрый запрос на сайте',
+            'sec-profile': 'Мои данные', 'lbl-phone': 'Телефон',
+            'lbl-prof-fio': 'Ваше ФИО (имя отправителя)', 'lbl-prof-addr': 'Постоянный адрес забора',
+            'save-ok': 'Данные сохранены, приложение закроется…', 'btn-save': 'Сохранить изменения',
+            'sec-history': 'История заказов', 'swipe-hint': 'Смахните влево, чтобы удалить',
+            'empty-history': 'У вас пока нет оформленных заказов',
+            'del': 'Удалить', 'to-door': 'До двери', 'to-pvz': 'ПВЗ',
+            'fio-required': 'Пожалуйста, введите ФИО',
+            'confirm': 'Подтвердите заказ:',
+            'st-NEW': 'Новый', 'st-READY_FOR_DRIVERS': 'Ищем курьера', 'st-TAKEN': 'Курьер принял',
+            'st-IN_TRANSIT': 'В пути', 'st-DELIVERED': 'Доставлен', 'st-CANCELLED': 'Отменён'
         },
         tj: {
-            'tab-order-btn': '📦 Дархости нав',
-            'tab-profile-btn': '👤 Кабинет',
-            'txt-title-route': 'Хатсайр ва расонидан',
+            'brand-sub': 'Расонидан дар Тоҷикистон',
+            'tab-order': 'Дархости нав', 'tab-profile': 'Кабинет',
+            'sec-route': 'Хатсайр ва расонидан',
             'lbl-dtype': 'Намуди расонидан',
-            'txt-pvz': 'Ба ПВЗ 🏢',
-            'txt-door': 'То дар 🚪',
-            'lbl-city-pickup': 'Аз куҷо',
-            'lbl-city-delivery': 'Ба куҷо',
-            'lbl-address-pickup': 'Суроғаи гирифтан',
-            'lbl-address-delivery': 'Суроғаи расонидан',
+            'dt-pvz-t': 'Ба ПВЗ', 'dt-pvz-d': 'Нуқтаи додан',
+            'dt-door-t': 'То дар', 'dt-door-d': 'Курьер меорад',
+            'lbl-from': 'Аз куҷо', 'lbl-to': 'Ба куҷо',
+            'lbl-addr-from': 'Суроғаи гирифтан', 'lbl-addr-to': 'Суроғаи расонидан',
+            'prefill': 'Суроға аз профил гузошта шуд',
             'lbl-comment': 'Шарҳ барои курьер',
-            'txt-prefill': 'Суроға аз профил гузошта шуд',
-            'txt-title-receiver': 'Қабулкунанда',
-            'lbl-r-name': 'Ному насаби қабулкунанда',
-            'lbl-r-phone': 'Телефони қабулкунанда',
-            'txt-title-parcel': 'Хусусиятҳои бор',
-            'lbl-weight': 'Вазн (кг)',
-            'lbl-sizes': 'Андозаҳо Д / Ш / В (см)',
-            'txt-size-l': 'Дарозӣ',
-            'txt-size-w': 'Паҳнӣ',
-            'txt-size-h': 'Баландӣ',
-            'txt-large-warning': '⚠️ Бори калонҳаҷм! Танҳо тавассути сайт.',
-            'txt-price-label': 'Нархи расонидан',
-            'txt-btn-submit': 'Ороиши дархост',
-            'txt-btn-large': 'Дархости фаврӣ дар сайт',
-            'txt-profile-data': 'Маълумоти шахсии ман',
-            'txt-phone-label': 'Телефон',
-            'lbl-prof-fio': 'Ному Насаби шумо',
-            'lbl-prof-addr': 'Суроғаи доимии гирифтан',
-            'txt-btn-save': 'Захира кардан',
-            'txt-save-ok': 'Захира шуд! Барнома мебандад...',
-            'txt-orders-history': 'Таърихи дархостҳо',
-            'txt-swipe-hint': 'Барои нест кардан чап кашед',
+            'sec-receiver': 'Қабулкунанда',
+            'lbl-r-name': 'Ному насаби қабулкунанда', 'lbl-r-phone': 'Телефони қабулкунанда',
+            'sec-parcel': 'Хусусиятҳои бор',
+            'lbl-weight': 'Вазн, кг', 'lbl-dims': 'Андозаҳо, см',
+            'dim-l': 'Дарозӣ', 'dim-w': 'Паҳнӣ', 'dim-h': 'Баландӣ',
+            'large-warn': 'Бори калонҳаҷм — танҳо тавассути сайт.',
+            'price-label': 'Нархи расонидан',
+            'btn-submit': 'Ороиши дархост', 'btn-large': 'Дархости фаврӣ дар сайт',
+            'sec-profile': 'Маълумоти ман', 'lbl-phone': 'Телефон',
+            'lbl-prof-fio': 'Ному Насаби шумо', 'lbl-prof-addr': 'Суроғаи доимии гирифтан',
+            'save-ok': 'Захира шуд, барнома мебандад…', 'btn-save': 'Захира кардан',
+            'sec-history': 'Таърихи дархостҳо', 'swipe-hint': 'Барои нест кардан чап кашед',
+            'empty-history': 'Шумо то ҳол дархост надодаед',
+            'del': 'Нест', 'to-door': 'То дар', 'to-pvz': 'ПВЗ',
+            'fio-required': 'Лутфан, Ному Насабро ворид кунед',
+            'confirm': 'Дархостро тасдиқ кунед:',
+            'st-NEW': 'Нав', 'st-READY_FOR_DRIVERS': 'Ҷустуҷӯи курьер', 'st-TAKEN': 'Курьер қабул кард',
+            'st-IN_TRANSIT': 'Дар роҳ', 'st-DELIVERED': 'Расонида шуд', 'st-CANCELLED': 'Бекор шуд'
         }
     };
+    function t(key) { return (T[currentLang] && T[currentLang][key]) || T.ru[key] || key; }
 
-    function setLang(lang, persist = true) {
-        currentLang = lang;
-        document.getElementById('lang-ru-btn').classList.toggle('active', lang === 'ru');
-        document.getElementById('lang-tj-btn').classList.toggle('active', lang === 'tj');
-        const items = T[lang];
-        for (const key in items) {
-            const el = document.getElementById(key);
-            if (el) el.innerText = items[key];
-        }
+    function setLang(lang, persist) {
+        currentLang = (lang === 'tj') ? 'tj' : 'ru';
+        document.getElementById('lang-ru').setAttribute('aria-pressed', String(currentLang === 'ru'));
+        document.getElementById('lang-tj').setAttribute('aria-pressed', String(currentLang === 'tj'));
+        document.querySelectorAll('[data-i18n]').forEach(function (el) {
+            var v = t(el.dataset.i18n);
+            if (v) el.textContent = v;
+        });
         calculatePrice();
-        if (persist) localStorage.setItem('lang', lang);
+        if (document.getElementById('pane-profile').classList.contains('on')) renderHistory();
+        if (persist !== false) localStorage.setItem('lang', currentLang);
     }
 
-    function switchTab(tabName) {
-        document.querySelectorAll('.container').forEach(c => c.classList.remove('active'));
-        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        document.getElementById('tab-' + tabName).classList.add('active');
-        document.getElementById('tab-' + tabName + '-btn').classList.add('active');
-        if (tabName === 'profile') renderOrdersHistory();
+    function switchTab(name) {
+        var isOrder = name === 'order';
+        document.getElementById('pane-order').classList.toggle('on', isOrder);
+        document.getElementById('pane-profile').classList.toggle('on', !isOrder);
+        document.getElementById('tab-order-btn').setAttribute('aria-selected', String(isOrder));
+        document.getElementById('tab-profile-btn').setAttribute('aria-selected', String(!isOrder));
+        if (!isOrder) renderHistory();
+        window.scrollTo(0, 0);
     }
 
-    function syncRadioStyle() {
-        const dtype = document.querySelector('input[name="dtype"]:checked').value;
-        document.getElementById('lbl-pvz').classList.toggle('selected', dtype === 'pvz');
-        document.getElementById('lbl-door').classList.toggle('selected', dtype === 'door');
+    function setDtype(v) {
+        dtype = v;
+        document.getElementById('dt-pvz').setAttribute('aria-pressed', String(v === 'pvz'));
+        document.getElementById('dt-door').setAttribute('aria-pressed', String(v === 'door'));
+        document.getElementById('grp-addr-to').style.display = v === 'door' ? '' : 'none';
+        document.getElementById('grp-comment').style.display = v === 'door' ? '' : 'none';
+        calculatePrice();
     }
 
     function initProfile() {
-        document.getElementById('prof-phone-view').innerText = verifiedPhone || '—';
-        document.getElementById('prof_fio_input').value = verifiedFio || '';
-        const savedAddr = localStorage.getItem('prof_address') || '';
-        document.getElementById('prof_address').value = savedAddr;
-        if (savedAddr) {
-            document.getElementById('address_pickup').value = savedAddr;
-            document.getElementById('prefill-notice').style.display = 'flex';
+        document.getElementById('prof-phone').textContent = verifiedPhone || '—';
+        document.getElementById('prof_fio').value = verifiedFio || '';
+        var addr = localStorage.getItem('prof_address') || '';
+        document.getElementById('prof_address').value = addr;
+        if (addr) {
+            document.getElementById('address_pickup').value = addr;
+            document.getElementById('prefill-notice').style.display = '';
         }
     }
 
-    function saveProfileData() {
-        const updatedFio = document.getElementById('prof_fio_input').value.trim();
-        const updatedAddr = document.getElementById('prof_address').value.trim();
-        if (!updatedFio) {
-            alert(currentLang === 'tj' ? 'Лутфан, Ному Насабро ворид кунед!' : 'Пожалуйста, введите ФИО!');
-            return;
-        }
-        verifiedFio = updatedFio;
-        localStorage.setItem('prof_address', updatedAddr);
-
-        const el = document.getElementById('save-feedback');
-        el.style.display = 'block';
-        document.getElementById('btn-save-profile').disabled = true;
-
-        setTimeout(() => {
-            tg.sendData(JSON.stringify({ action: 'update_profile', fio: updatedFio, address: updatedAddr, lang: currentLang }));
+    function saveProfile() {
+        var fio = document.getElementById('prof_fio').value.trim();
+        var addr = document.getElementById('prof_address').value.trim();
+        if (!fio) { alert(t('fio-required')); return; }
+        verifiedFio = fio;
+        localStorage.setItem('prof_address', addr);
+        document.getElementById('save-ok').style.display = '';
+        document.getElementById('btn-save').disabled = true;
+        setTimeout(function () {
+            tg.sendData(JSON.stringify({ action: 'update_profile', fio: fio, address: addr, lang: currentLang }));
             tg.close();
-        }, 1500);
+        }, 1200);
     }
 
     function getZone(city) {
-        if (['Душанбе', 'Худжанд', 'Бохтар'].includes(city)) return 1;
-        if (['Хорог', 'РРП', 'Хатлонская область'].includes(city)) return 2;
+        if (['Душанбе', 'Худжанд', 'Бохтар'].indexOf(city) !== -1) return 1;
+        if (['Хорог', 'РРП', 'Хатлонская область'].indexOf(city) !== -1) return 2;
         return 3;
     }
 
     function calculatePrice() {
-        const cityPickup = document.getElementById('city_pickup').value;
-        const cityDelivery = document.getElementById('city_delivery').value;
-        const dtype = document.querySelector('input[name="dtype"]:checked').value;
-        const w = parseFloat(document.getElementById('weight').value) || 0;
-        const l = parseInt(document.getElementById('size_l').value) || 0;
-        const sw = parseInt(document.getElementById('size_w').value) || 0;
-        const h = parseInt(document.getElementById('size_h').value) || 0;
+        var w = parseFloat(document.getElementById('weight').value) || 0;
+        var l = parseInt(document.getElementById('size_l').value, 10) || 0;
+        var sw = parseInt(document.getElementById('size_w').value, 10) || 0;
+        var h = parseInt(document.getElementById('size_h').value, 10) || 0;
+        var isLarge = w > 10 || Math.max(l, sw, h) > 35 || (l + sw + h) > 65;
 
-        const isLarge = w > 10 || Math.max(l, sw, h) > 35 || (l + sw + h) > 65;
-
-        document.getElementById('large-warning').style.display = isLarge ? 'block' : 'none';
-        document.getElementById('price-box').style.display = isLarge ? 'none' : 'block';
-        document.getElementById('submit-btn').style.display = isLarge ? 'none' : 'block';
-        document.getElementById('large-submit-btn').style.display = isLarge ? 'block' : 'none';
-
+        document.getElementById('large-warning').style.display = isLarge ? '' : 'none';
+        document.getElementById('price-box').style.display = isLarge ? 'none' : '';
+        document.getElementById('submit-btn').style.display = isLarge ? 'none' : '';
+        document.getElementById('large-submit-btn').style.display = isLarge ? '' : 'none';
         if (isLarge) return { isLarge: true };
 
-        const zone = String(Math.max(getZone(cityPickup), getZone(cityDelivery)));
-        const tarifs = {
+        var zone = String(Math.max(
+            getZone(document.getElementById('city_pickup').value),
+            getZone(document.getElementById('city_delivery').value)
+        ));
+        var tarifs = {
             '1': { pvz: 20.80, door: 31.20 },
             '2': { pvz: 27.30, door: 35.10 },
             '3': { pvz: 31.20, door: 37.70 }
         };
-        const finalPrice = tarifs[zone][dtype];
-        document.getElementById('txt-price-value').innerText = finalPrice.toFixed(2) + ' TJS';
+        var price = tarifs[zone][dtype];
+        document.getElementById('price-value').textContent = price.toFixed(2) + ' TJS';
         validateForm();
-        return { isLarge: false, price: finalPrice };
+        return { isLarge: false, price: price };
     }
 
     function validateForm() {
-        const addressPickup = document.getElementById('address_pickup').value.trim();
-        const rName = document.getElementById('r_name').value.trim();
-        const rPhone = document.getElementById('r_phone').value.trim();
-        const dtype = document.querySelector('input[name="dtype"]:checked').value;
-        const addressDelivery = document.getElementById('address_delivery').value.trim();
-        const w = parseFloat(document.getElementById('weight').value) || 0;
-        const l = parseInt(document.getElementById('size_l').value) || 0;
-        const sw = parseInt(document.getElementById('size_w').value) || 0;
-        const h = parseInt(document.getElementById('size_h').value) || 0;
+        var addrFrom = document.getElementById('address_pickup').value.trim();
+        var rName = document.getElementById('r_name').value.trim();
+        var rPhone = document.getElementById('r_phone').value.trim();
+        var addrTo = document.getElementById('address_delivery').value.trim();
+        var w = parseFloat(document.getElementById('weight').value) || 0;
+        var l = parseInt(document.getElementById('size_l').value, 10) || 0;
+        var sw = parseInt(document.getElementById('size_w').value, 10) || 0;
+        var h = parseInt(document.getElementById('size_h').value, 10) || 0;
 
-        let valid = addressPickup && rName && rPhone && w > 0 && l > 0 && sw > 0 && h > 0;
-        if (dtype === 'door' && !addressDelivery) valid = false;
+        var valid = !!(addrFrom && rName && rPhone && w > 0 && l > 0 && sw > 0 && h > 0);
+        if (dtype === 'door' && !addrTo) valid = false;
         document.getElementById('submit-btn').disabled = !valid;
     }
 
-    function toggleAddress() {
-        const dtype = document.querySelector('input[name="dtype"]:checked').value;
-        document.getElementById('delivery-address-group').style.display = dtype === 'door' ? 'block' : 'none';
-        document.getElementById('driver-comment-group').style.display = dtype === 'door' ? 'block' : 'none';
-        validateForm();
-    }
-
     function requestConfirm() {
-        const res = calculatePrice();
+        var res = calculatePrice();
         if (res.isLarge) return;
-        const cityPickup = document.getElementById('city_pickup').value;
-        const cityDelivery = document.getElementById('city_delivery').value;
-        const rName = document.getElementById('r_name').value;
-        const msg = currentLang === 'tj'
-            ? `Тасдиқ кунед:\n📍 ${cityPickup} → ${cityDelivery}\n👤 ${rName}`
-            : `Подтвердите заказ:\n📍 ${cityPickup} → ${cityDelivery}\n👤 Получатель: ${rName}`;
-        tg.showConfirm(msg, ok => { if (ok) sendDataToBot(res); });
+        var from = document.getElementById('city_pickup').value;
+        var to = document.getElementById('city_delivery').value;
+        var rName = document.getElementById('r_name').value;
+        tg.showConfirm(t('confirm') + '\n' + from + ' → ' + to + '\n' + rName, function (ok) {
+            if (ok) sendDataToBot(res);
+        });
     }
 
     function sendDataToBot(res) {
-        const dtype = document.querySelector('input[name="dtype"]:checked').value;
-        const now = new Date();
-        const dd = String(now.getDate()).padStart(2, '0');
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        // Тот же формат ID, что генерирует сервер (Z-ддмм-XXXX) — передаём его серверу,
-        // чтобы карточка в локальной "Истории" совпадала с реальным ID заказа в таблице.
-        const ID_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-        let suffix = '';
-        for (let i = 0; i < 4; i++) suffix += ID_ALPHABET[Math.floor(Math.random() * ID_ALPHABET.length)];
-        const localId = `Z-${dd}${mm}-${suffix}`;
-        const dateStr = `${dd}.${mm}.${now.getFullYear()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        var now = new Date();
+        var dd = String(now.getDate()).padStart(2, '0');
+        var mm = String(now.getMonth() + 1).padStart(2, '0');
+        // Тот же формат ID, что и на сервере (Z-ддмм-XXXX): передаём его боту,
+        // чтобы карточка в локальной истории совпала с реальным ID заказа.
+        var AL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', suffix = '';
+        for (var i = 0; i < 4; i++) suffix += AL[Math.floor(Math.random() * AL.length)];
+        var localId = 'Z-' + dd + mm + '-' + suffix;
+        var dateStr = dd + '.' + mm + '.' + now.getFullYear() + ' ' +
+            String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
 
-        const data = {
+        var data = {
             lang: currentLang,
             order_id: localId,
             s_name: verifiedFio, s_phone: verifiedPhone,
@@ -639,133 +506,116 @@
             r_name: document.getElementById('r_name').value,
             r_phone: document.getElementById('r_phone').value,
             weight: document.getElementById('weight').value,
-            sizes: `${document.getElementById('size_l').value}x${document.getElementById('size_w').value}x${document.getElementById('size_h').value}`,
+            sizes: document.getElementById('size_l').value + 'x' +
+                   document.getElementById('size_w').value + 'x' +
+                   document.getElementById('size_h').value,
             price: res.price.toFixed(2)
         };
 
-        const history = JSON.parse(localStorage.getItem('user_orders') || '[]');
-        history.push({
+        var hist = JSON.parse(localStorage.getItem('user_orders') || '[]');
+        hist.push({
             id: localId, timestamp: Date.now(), date_str: dateStr, status: 'NEW',
             city_pickup: data.city_pickup, city_delivery: data.city_delivery,
             type: dtype, r_name: data.r_name, price: data.price
         });
-        localStorage.setItem('user_orders', JSON.stringify(history));
+        localStorage.setItem('user_orders', JSON.stringify(hist));
 
         tg.sendData(JSON.stringify(data));
         tg.close();
     }
 
-    const STATUS_CLASS = {
-        'NEW': 's-new', 'READY_FOR_DRIVERS': 's-ready', 'TAKEN': 's-taken',
-        'IN_TRANSIT': 's-transit', 'DELIVERED': 's-delivered', 'CANCELLED': 's-cancelled'
+    var STATUS_TONE = {
+        NEW: 'badge', READY_FOR_DRIVERS: 'badge badge-warn', TAKEN: 'badge badge-info',
+        IN_TRANSIT: 'badge badge-violet', DELIVERED: 'badge badge-ok', CANCELLED: 'badge badge-bad'
     };
 
-    function renderOrdersHistory() {
-        const container = document.getElementById('history-container');
-        const orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
-
+    function renderHistory() {
+        var box = document.getElementById('history');
+        var orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
         if (!orders.length) {
-            container.innerHTML = `<div class="no-orders"><span style="font-size:38px">📦</span><span>${currentLang === 'tj' ? 'Шумо то ҳол дархост надодаед.' : 'У вас пока нет оформленных заказов.'}</span></div>`;
+            box.innerHTML = '<div class="empty"><svg class="ic"><use href="#i-inbox"></use></svg>' +
+                '<div>' + esc(t('empty-history')) + '</div></div>';
             return;
         }
+        orders.sort(function (a, b) { return b.timestamp - a.timestamp; });
+        box.innerHTML = orders.map(function (o) {
+            var st = o.status || 'NEW';
+            return '<div class="swipe">' +
+                '<button class="del" data-del="' + esc(o.id) + '">' +
+                    '<svg class="ic ic-sm"><use href="#i-trash"></use></svg>' + esc(t('del')) + '</button>' +
+                '<div class="order" id="card-' + esc(o.id) + '">' +
+                    '<div class="order-top">' +
+                        '<span class="order-id mono">' + esc(o.id) + '</span>' +
+                        '<span class="' + (STATUS_TONE[st] || 'badge') + '"><i class="dot"></i>' + esc(t('st-' + st)) + '</span>' +
+                    '</div>' +
+                    '<div class="order-line"><svg class="ic ic-sm"><use href="#i-calendar"></use></svg>' +
+                        '<span class="muted mono">' + esc(o.date_str) + '</span></div>' +
+                    '<div class="order-line"><svg class="ic ic-sm"><use href="#i-pin"></use></svg>' +
+                        '<span class="truncate"><b>' + esc(o.city_pickup) + '</b> → <b>' + esc(o.city_delivery) + '</b></span>' +
+                        '<span class="hint" style="flex:none">· ' + esc(o.type === 'pvz' ? t('to-pvz') : t('to-door')) + '</span></div>' +
+                    '<div class="order-line"><svg class="ic ic-sm"><use href="#i-user"></use></svg>' +
+                        '<span class="truncate">' + esc(o.r_name) + '</span></div>' +
+                '</div></div>';
+        }).join('');
 
-        orders.sort((a, b) => b.timestamp - a.timestamp);
-        container.innerHTML = '';
-
-        orders.forEach(order => {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'order-swipe-wrapper';
-
-            const del = document.createElement('button');
-            del.className = 'swipe-delete-btn';
-            del.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg><span style="font-size:10px">${currentLang === 'tj' ? 'Нест' : 'Удалить'}</span>`;
-            del.onclick = () => confirmDeleteOrder(order.id);
-
-            const card = document.createElement('div');
-            card.className = 'order-card';
-            card.id = 'card-' + escapeHtml(order.id);
-
-            const hdr = document.createElement('div');
-            hdr.className = 'order-card-header';
-
-            const idEl = document.createElement('span');
-            idEl.className = 'order-id';
-            idEl.textContent = '🆔 ' + order.id;
-
-            const status = order.status || 'NEW';
-            const badge = document.createElement('span');
-            badge.className = 'status-badge ' + (STATUS_CLASS[status] || 's-new');
-            badge.textContent = status;
-
-            hdr.appendChild(idEl);
-            hdr.appendChild(badge);
-
-            const body = document.createElement('div');
-            body.className = 'order-card-body';
-            body.innerHTML =
-                `<span style="font-size:11px;color:var(--hint)">📅 ${escapeHtml(order.date_str)}</span><br>` +
-                `📍 <b>${escapeHtml(order.city_pickup)}</b> → <b>${escapeHtml(order.city_delivery)}</b> <span style="color:var(--hint)">(${order.type === 'pvz' ? 'ПВЗ' : 'До двери'})</span><br>` +
-                `👤 <b>${escapeHtml(order.r_name)}</b>`;
-
-            card.appendChild(hdr);
-            card.appendChild(body);
-            wrapper.appendChild(del);
-            wrapper.appendChild(card);
-            container.appendChild(wrapper);
-            bindSwipe(order.id);
+        box.querySelectorAll('[data-del]').forEach(function (btn) {
+            btn.addEventListener('click', function () { confirmDelete(btn.dataset.del); });
         });
+        orders.forEach(function (o) { bindSwipe(o.id); });
     }
 
     function bindSwipe(orderId) {
-        const card = document.getElementById('card-' + orderId);
+        var card = document.getElementById('card-' + orderId);
         if (!card) return;
-        let dragging = false, startX = 0, curX = 0, baseX = 0;
-        const SNAP = 68;
+        var dragging = false, startX = 0, curX = 0, baseX = 0;
+        var SNAP = 76;
 
-        const start = x => { dragging = true; startX = x; card.style.transition = 'none'; };
-        const move = x => {
+        function start(x) { dragging = true; startX = x; card.style.transition = 'none'; }
+        function move(x) {
             if (!dragging) return;
             curX = Math.min(0, Math.max(-SNAP, baseX + (x - startX)));
-            card.style.transform = `translateX(${curX}px)`;
-        };
-        const end = () => {
+            card.style.transform = 'translateX(' + curX + 'px)';
+        }
+        function end() {
             if (!dragging) return;
             dragging = false;
-            card.style.transition = 'transform 0.2s ease-out';
+            card.style.transition = 'transform .2s ease-out';
             baseX = curX < -(SNAP / 2) ? -SNAP : 0;
-            card.style.transform = `translateX(${baseX}px)`;
-        };
+            card.style.transform = 'translateX(' + baseX + 'px)';
+        }
 
-        card.addEventListener('touchstart', e => start(e.touches[0].clientX), { passive: true });
-        card.addEventListener('touchmove', e => move(e.touches[0].clientX), { passive: true });
+        card.addEventListener('touchstart', function (e) { start(e.touches[0].clientX); }, { passive: true });
+        card.addEventListener('touchmove', function (e) { move(e.touches[0].clientX); }, { passive: true });
         card.addEventListener('touchend', end, { passive: true });
-        card.addEventListener('mousedown', e => {
+        card.addEventListener('mousedown', function (e) {
             start(e.clientX);
-            const onMove = m => move(m.clientX);
-            const onUp = () => { end(); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+            var onMove = function (m) { move(m.clientX); };
+            var onUp = function () {
+                end();
+                window.removeEventListener('mousemove', onMove);
+                window.removeEventListener('mouseup', onUp);
+            };
             window.addEventListener('mousemove', onMove);
             window.addEventListener('mouseup', onUp);
         });
     }
 
-    function confirmDeleteOrder(orderId) {
-        const msg = currentLang === 'tj'
-            ? `Дархости ${orderId}-ро аз таърих нест кунед?`
-            : `Удалить заказ ${orderId} из истории?`;
-        tg.showConfirm(msg, ok => {
+    function confirmDelete(orderId) {
+        tg.showConfirm(t('del') + ' ' + orderId + '?', function (ok) {
             if (ok) {
-                let orders = JSON.parse(localStorage.getItem('user_orders') || '[]');
-                orders = orders.filter(o => o.id !== orderId);
+                var orders = JSON.parse(localStorage.getItem('user_orders') || '[]')
+                    .filter(function (o) { return o.id !== orderId; });
                 localStorage.setItem('user_orders', JSON.stringify(orders));
-                renderOrdersHistory();
+                renderHistory();
             } else {
-                const c = document.getElementById('card-' + orderId);
-                if (c) { c.style.transition = 'transform 0.2s ease-out'; c.style.transform = 'translateX(0)'; }
+                var c = document.getElementById('card-' + orderId);
+                if (c) { c.style.transition = 'transform .2s ease-out'; c.style.transform = 'translateX(0)'; }
             }
         });
     }
 
     initProfile();
+    setDtype('pvz');
     setLang(localStorage.getItem('lang') || 'ru', false);
 </script>
 </body>

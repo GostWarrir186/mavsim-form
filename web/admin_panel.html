@@ -1,670 +1,459 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Панель управления</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="theme.css?v=1">
-    <script>
-    // Тема: явный выбор Telegram важнее системной; см. web/theme.css
-    (function () {
-        var d = document.documentElement, s = null;
-        try { s = Telegram.WebApp.colorScheme; } catch (e) {}
-        if (!s) s = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
-        d.setAttribute('data-theme', s);
-        try { Telegram.WebApp.onEvent('themeChanged', function () {
-            d.setAttribute('data-theme', Telegram.WebApp.colorScheme || 'light');
-        }); } catch (e) {}
-    })();
-    </script>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--sec-bg); color: var(--text);
-            padding-bottom: 32px; overflow-x: hidden;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Панель управления</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="theme.css?v=2">
+<script>
+// Тема: явный выбор Telegram важнее системной; палитра — в theme.css
+(function () {
+    var d = document.documentElement, s = null;
+    try { s = Telegram.WebApp.colorScheme; } catch (e) {}
+    if (!s) s = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    d.setAttribute('data-theme', s);
+    try { Telegram.WebApp.onEvent('themeChanged', function () {
+        d.setAttribute('data-theme', Telegram.WebApp.colorScheme || 'light');
+    }); } catch (e) {}
+})();
+</script>
+<style>
+    .pane { display: none; padding-top: 14px; }
+    .pane.on { display: block; }
 
-        /* Header */
-        .header { background: var(--primary-grad); padding: 14px 16px 16px; }
-        .header-sub  { font-size: 10px; font-weight: 600; color: rgba(255,255,255,.6); letter-spacing: .8px; text-transform: uppercase; margin-bottom: 2px; }
-        .header-title{ font-size: 17px; font-weight: 700; color: #fff; }
+    .oc { border-left: 3px solid var(--border-strong); }
+    .oc-TAKEN      { border-left-color: var(--s-taken); }
+    .oc-IN_TRANSIT { border-left-color: var(--s-transit); }
+    .oc-DELIVERED  { border-left-color: var(--s-delivered); }
+    .oc-NEW        { border-left-color: var(--s-new); }
+    .oc-READY      { border-left-color: var(--s-ready); }
 
-        /* Stats */
-        .stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; padding: 12px 12px 4px; }
-        .stat { background: var(--bg); border-radius: var(--radius-sm); padding: 11px 8px; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.08); }
-        .stat-val { font-size: 22px; font-weight: 800; line-height: 1; }
-        .stat-val.blue   { color: var(--primary); }
-        .stat-val.green  { color: var(--success); }
-        .stat-val.orange { color: var(--warning); }
-        .stat-lbl { font-size: 9px; font-weight: 600; color: var(--hint); text-transform: uppercase; letter-spacing: .3px; margin-top: 3px; }
+    .oc-top { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .oc-id { font-size: 12.5px; font-weight: 650; letter-spacing: .01em; }
+    .oc-top .badge { margin-left: auto; }
+    .oc-route { display: flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 650; letter-spacing: -.01em; min-width: 0; }
+    .oc-route .c { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .oc-route .ic { color: var(--ink-3); flex: none; }
+    .oc-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 9px; font-size: 12.5px; color: var(--ink-2); }
+    .oc-meta span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+    .oc-meta .ic { color: var(--ink-3); }
 
-        /* Tabs */
-        .tabs { display: flex; gap: 0; padding: 12px 12px 0; overflow-x: auto; }
-        .tab {
-            flex: 1; min-width: 0; padding: 9px 4px; text-align: center;
-            font-size: 11px; font-weight: 600; color: var(--hint);
-            border-bottom: 2px solid transparent; cursor: pointer;
-            transition: all .15s; white-space: nowrap;
-        }
-        .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .week-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .week-nav .lbl { flex: 1; text-align: center; font-size: 13.5px; font-weight: 650; }
 
-        /* Content */
-        .pane { display: none; padding: 10px 12px; }
-        .pane.active { display: block; }
-
-        /* Order card */
-        .order-card {
-            background: var(--bg); border-radius: var(--radius);
-            margin-bottom: 8px; padding: 12px 14px;
-            box-shadow: 0 1px 6px rgba(0,0,0,.05);
-            border-left: 3px solid var(--primary);
-        }
-        .order-card.s-TAKEN     { border-left-color: var(--primary); }
-        .order-card.s-IN_TRANSIT{ border-left-color: var(--success); }
-
-        .card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
-        .order-id { font-size: 12px; font-weight: 700; color: var(--text); }
-        .status-pill {
-            font-size: 9.5px; font-weight: 700; padding: 3px 8px;
-            border-radius: 20px; text-transform: uppercase; letter-spacing: .3px;
-        }
-        .sp-TAKEN      { background: #fff3e0; color: #ef6c00; }
-        .sp-IN_TRANSIT { background: #e8f5e9; color: #2e7d32; }
-        .sp-DELIVERED  { background: #e8f5e9; color: #1b5e20; }
-
-        .card-route { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-        .card-route .arr { color: var(--hint); margin: 0 4px; font-size: 11px; }
-        .card-meta { font-size: 11px; color: var(--hint); margin-bottom: 8px; }
-
-        .btn-manage {
-            width: 100%; padding: 9px; cursor: pointer; transition: background .15s;
-            border: 1.5px solid var(--primary); border-radius: var(--radius-sm);
-            background: var(--primary-light); color: var(--primary);
-            font-size: 12px; font-weight: 700;
-        }
-        .btn-manage:active { background: rgba(242,113,28,.22); }
-
-        /* Manage modal sections */
-        .manage-section { padding: 14px 16px; border-bottom: 1px solid var(--sec-bg); }
-        .manage-section:last-child { border-bottom: none; }
-        .manage-section-title {
-            font-size: 10px; font-weight: 700; color: var(--hint);
-            text-transform: uppercase; letter-spacing: .6px; margin-bottom: 10px;
-        }
-        .manage-danger .manage-section-title { color: var(--danger); }
-        .status-pills { display: flex; flex-wrap: wrap; gap: 6px; }
-        .st-pill {
-            padding: 7px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
-            border: 1.5px solid rgba(0,0,0,.1); background: var(--sec-bg); color: var(--text);
-            cursor: pointer; transition: all .15s;
-        }
-        .st-pill.current { background: var(--primary-light); border-color: var(--primary); color: var(--primary); cursor: default; }
-        .st-pill.done { background: rgba(43,202,128,.1); border-color: var(--success); color: var(--success); cursor: default; }
-        .st-pill:not(.current):not(.done):active { opacity: .7; }
-        .btn-cancel-r {
-            display: block; width: 100%; padding: 11px 14px; text-align: left;
-            background: rgba(229,57,53,.07); border: none; border-radius: var(--radius-sm);
-            font-size: 13px; font-weight: 500; color: var(--danger);
-            cursor: pointer; margin-bottom: 6px; transition: background .15s;
-        }
-        .btn-cancel-r:active { background: rgba(229,57,53,.18); }
-        .btn-cancel-custom {
-            background: none; color: var(--hint);
-            border: 1.5px dashed rgba(0,0,0,.15); border-radius: var(--radius-sm);
-        }
-        .custom-cancel-wrap { display: none; margin-top: 8px; }
-        .custom-cancel-input {
-            width: 100%; padding: 10px 12px; border: 1.5px solid var(--danger);
-            border-radius: var(--radius-sm); font-size: 14px; background: var(--sec-bg); color: var(--text);
-            margin-bottom: 6px;
-        }
-        .btn-cancel-confirm {
-            width: 100%; padding: 11px; border: none; border-radius: var(--radius-sm);
-            background: var(--danger); color: #fff;
-            font-size: 13px; font-weight: 700; cursor: pointer;
-        }
-
-        /* New order */
-        .new-card {
-            background: var(--bg); border-radius: var(--radius);
-            margin-bottom: 8px; padding: 11px 14px;
-            box-shadow: 0 1px 6px rgba(0,0,0,.05);
-            border-left: 3px solid var(--danger);
-        }
-        .new-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
-        .new-order-id { font-size: 12px; font-weight: 700; }
-        .new-pill { background: rgba(229,57,53,.1); color: var(--danger); font-size: 9.5px; font-weight: 700; padding: 3px 8px; border-radius: 20px; }
-        .new-route { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
-        .new-route .arr { color: var(--hint); font-size: 10px; margin: 0 3px; }
-        .new-meta { font-size: 10.5px; color: var(--hint); margin-bottom: 8px; }
-        .btn-accept {
-            width: 100%; padding: 9px; border: none; border-radius: var(--radius-sm);
-            background: rgba(43,202,128,.15); color: var(--success);
-            font-size: 12px; font-weight: 700; cursor: pointer; transition: background .15s;
-        }
-        .btn-accept:active { background: rgba(43,202,128,.3); }
-
-        /* Free order */
-        .free-card {
-            background: var(--bg); border-radius: var(--radius);
-            margin-bottom: 8px; padding: 11px 14px;
-            box-shadow: 0 1px 6px rgba(0,0,0,.05);
-            border-left: 3px solid #ccc;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .free-route { font-size: 12px; font-weight: 600; }
-        .free-route .arr { color: var(--hint); font-size: 10px; margin: 0 3px; }
-        .free-meta { font-size: 10.5px; color: var(--hint); margin-top: 2px; }
-        .free-price { font-size: 14px; font-weight: 800; color: var(--primary); white-space: nowrap; margin-left: 8px; }
-
-        /* Courier card */
-        .courier-card {
-            background: var(--bg); border-radius: var(--radius);
-            margin-bottom: 8px; padding: 11px 14px;
-            box-shadow: 0 1px 6px rgba(0,0,0,.05);
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .courier-name  { font-size: 13px; font-weight: 600; }
-        .courier-order { font-size: 11px; color: var(--hint); margin-top: 2px; }
-        .badge-busy { background: #fff8e1; color: #e65100; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
-        .badge-free { background: #e8f5e9; color: #2e7d32; font-size: 10px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
-
-        /* Week nav */
-        .week-nav {
-            display: flex; align-items: center; justify-content: space-between;
-            background: var(--bg); border-radius: var(--radius);
-            padding: 10px 14px; margin-bottom: 10px;
-            box-shadow: 0 1px 6px rgba(0,0,0,.05);
-        }
-        .week-btn {
-            background: var(--sec-bg); border: none; border-radius: 8px;
-            width: 34px; height: 34px; font-size: 17px; cursor: pointer; color: var(--text);
-            display: flex; align-items: center; justify-content: center;
-        }
-        .week-btn:disabled { opacity: .3; cursor: default; }
-        .week-lbl { font-size: 13px; font-weight: 600; }
-
-        /* Report all button */
-        .btn-report-all {
-            width: 100%; padding: 13px; border: none; border-radius: var(--radius);
-            background: var(--success-grad); color: #fff;
-            font-size: 14px; font-weight: 700; cursor: pointer; margin-bottom: 10px;
-        }
-        .btn-report-all:active { opacity: .85; }
-
-        /* Section label */
-        .section-lbl {
-            font-size: 11px; font-weight: 700; color: var(--hint);
-            text-transform: uppercase; letter-spacing: .6px;
-            margin: 2px 2px 8px;
-        }
-
-        /* Report row */
-        .report-row {
-            background: var(--bg); border-radius: var(--radius);
-            margin-bottom: 8px; padding: 11px 14px;
-            box-shadow: 0 1px 6px rgba(0,0,0,.05);
-            display: flex; justify-content: space-between; align-items: center; gap: 8px;
-        }
-        .btn-report {
-            background: var(--primary-light); color: var(--primary);
-            border: 1px solid rgba(242,113,28,.2); border-radius: var(--radius-sm);
-            padding: 7px 12px; font-size: 12px; font-weight: 700;
-            cursor: pointer; white-space: nowrap; flex-shrink: 0;
-        }
-        .btn-report:active { background: rgba(242,113,28,.2); }
-
-        /* Empty */
-        .empty { text-align: center; padding: 40px 20px; color: var(--hint); }
-        .empty-icon { font-size: 40px; margin-bottom: 8px; }
-        .empty-text { font-size: 13px; }
-
-        /* Error */
-        .err-screen { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:80vh; text-align:center; padding:20px; }
-
-        /* Modal */
-        .modal-overlay {
-            display: none; position: fixed; inset: 0;
-            background: rgba(0,0,0,.5); z-index: 100;
-            align-items: flex-end; justify-content: center;
-        }
-        .modal-overlay.open { display: flex; }
-        .modal {
-            background: var(--bg); border-radius: 20px 20px 0 0;
-            width: 100%; max-height: 75vh; overflow-y: auto;
-            padding: 0 0 24px;
-        }
-        .modal-header {
-            position: sticky; top: 0; background: var(--bg);
-            padding: 16px 16px 10px;
-            border-bottom: 1px solid var(--sec-bg);
-        }
-        .modal-title { font-size: 15px; font-weight: 700; }
-        .modal-sub   { font-size: 12px; color: var(--hint); margin-top: 2px; }
-        .modal-close {
-            position: absolute; top: 12px; right: 14px;
-            background: var(--sec-bg); border: none; border-radius: 50%;
-            width: 28px; height: 28px; font-size: 15px; cursor: pointer; color: var(--hint);
-        }
-        .modal-courier {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 13px 16px; border-bottom: 1px solid var(--sec-bg);
-            cursor: pointer;
-        }
-        .modal-courier:active { background: var(--sec-bg); }
-        .modal-courier-name { font-size: 13px; font-weight: 600; }
-        .modal-courier-status { font-size: 11px; color: var(--hint); margin-top: 2px; }
-        .modal-courier-arrow { color: var(--hint); font-size: 16px; }
-    </style>
+    /* ── шторка управления ── */
+    .sheet-bg {
+        position: fixed; inset: 0; z-index: 60; display: none;
+        background: rgba(10, 13, 18, .5); backdrop-filter: blur(2px);
+        align-items: flex-end; justify-content: center;
+    }
+    .sheet-bg.on { display: flex; }
+    .sheet {
+        width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto;
+        background: var(--surface); border-radius: var(--r-xl) var(--r-xl) 0 0;
+        padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
+        box-shadow: var(--shadow-lg); animation: sheet-up .26s cubic-bezier(.2,.7,.2,1);
+    }
+    @keyframes sheet-up { from { transform: translateY(14px); opacity: .6; } to { transform: none; opacity: 1; } }
+    .sheet-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 6px; }
+    .sheet-head h2 { font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
+    .sheet-head .sub { font-size: 12.5px; color: var(--ink-3); }
+    .sheet-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .sheet-cour {
+        display: flex; align-items: center; gap: 10px; width: 100%;
+        padding: 11px 12px; margin-top: 7px; min-height: var(--tap);
+        background: var(--surface-2); border: 1px solid transparent;
+        border-radius: var(--r); cursor: pointer; font: inherit; text-align: left; color: var(--ink);
+    }
+    .sheet-cour:active { border-color: var(--accent); }
+    .danger-zone { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 16px; }
+</style>
 </head>
 <body>
+<svg class="sprite" aria-hidden="true" focusable="false"><defs><symbol id="i-package" viewBox="0 0 24 24"><path d="M21 8v8a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol><symbol id="i-box" viewBox="0 0 24 24"><path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M2 5h20v4H2z"/><path d="M10 13h4"/></symbol><symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 17V5a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1"/><path d="M14 8h4l3 3v5a1 1 0 0 1-1 1h-1"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><path d="M9 17h6"/></symbol><symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol><symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol><symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></symbol><symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></symbol><symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h6a4 4 0 0 0 0-8H9a4 4 0 0 1 0-8h3"/></symbol><symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M16 12h.01"/></symbol><symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M7 15v-3"/><path d="M12 15V8"/><path d="M17 15v-6"/></symbol><symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol><symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol><symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></symbol><symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol><symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol><symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></symbol><symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol><symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></symbol><symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></symbol><symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12 19"/></symbol><symbol id="i-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></symbol><symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol><symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol><symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol></defs></svg>
 <div id="app"></div>
 
-<!-- Модалка управления заказом -->
-<div class="modal-overlay" id="manageModal" onclick="closeManageModal(event)">
-    <div class="modal">
-        <div class="modal-header">
-            <div>
-                <div class="modal-title" id="manageTitle"></div>
-                <div class="modal-sub" id="manageSubtitle"></div>
-            </div>
-            <button class="modal-close" onclick="closeManageModal()">✕</button>
-        </div>
-        <div id="manageContent"></div>
-    </div>
+<div class="sheet-bg" id="sheetBg">
+    <div class="sheet" id="sheet"></div>
 </div>
 
 <script>
-    const tg = (window.Telegram && window.Telegram.WebApp)
+    var tg = (window.Telegram && window.Telegram.WebApp)
         ? window.Telegram.WebApp
-        : { ready:()=>{}, expand:()=>{}, sendData:()=>{} };
+        : { ready: function () {}, expand: function () {}, sendData: function () {} };
     tg.ready(); tg.expand();
 
-    let DATA = null;
+    var DATA = null;
     try {
-        const raw = new URLSearchParams(window.location.search).get('d');
+        var raw = new URLSearchParams(window.location.search).get('d');
         if (raw) {
-            const b64   = raw.replace(/-/g,'+').replace(/_/g,'/');
-            const pad   = '='.repeat((4 - b64.length % 4) % 4);
-            const bytes = Uint8Array.from(atob(b64+pad), c => c.charCodeAt(0));
+            var b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+            var pad = '='.repeat((4 - b64.length % 4) % 4);
+            var bytes = Uint8Array.from(atob(b64 + pad), function (c) { return c.charCodeAt(0); });
             DATA = JSON.parse(new TextDecoder('utf-8').decode(bytes));
         }
-    } catch(e) { console.error(e); }
+    } catch (e) { console.error(e); }
 
-    const app = document.getElementById('app');
+    var app = document.getElementById('app');
+    var sheetBg = document.getElementById('sheetBg');
+    var sheet = document.getElementById('sheet');
+    var activeTab = 0;
+    var weekOffset = 0;
+    var manageOrder = null;
 
-    let activeTab = 0;
-    let weekOffset = 0; // 0 = текущая, -1 = прошлая и т.д.
+    function esc(s) {
+        var d = document.createElement('div');
+        d.appendChild(document.createTextNode(String(s == null ? '' : s)));
+        return d.innerHTML;
+    }
+    function icon(n, cls) { return '<svg class="ic ' + (cls || '') + '"><use href="#i-' + n + '"></use></svg>'; }
 
-    const STATUS_LABEL = {
-        TAKEN: 'Принял', IN_TRANSIT: 'В пути', DELIVERED: 'Доставил',
-    };
-
-    const RU_MONTHS_GEN = [
-        'января','февраля','марта','апреля','мая','июня',
-        'июля','августа','сентября','октября','ноября','декабря'
+    var STATUS_LABEL = { TAKEN: 'Принял', IN_TRANSIT: 'В пути', DELIVERED: 'Доставил' };
+    var STATUS_TONE = { TAKEN: 'badge badge-info', IN_TRANSIT: 'badge badge-violet', DELIVERED: 'badge badge-ok' };
+    var STATUSES = [
+        { key: 'TAKEN',      label: 'Принял' },
+        { key: 'IN_TRANSIT', label: 'В пути' },
+        { key: 'DELIVERED',  label: 'Доставил' }
     ];
+    var STATUS_ORDER = STATUSES.map(function (s) { return s.key; });
+    var CANCEL_REASONS = ['Курьер не приехал за посылкой', 'Получатель недоступен', 'Форс-мажор'];
+    var MONTHS_GEN = ['января','февраля','марта','апреля','мая','июня',
+                      'июля','августа','сентября','октября','ноября','декабря'];
 
-    // ─── Неделя ───────────────────────────────────────────────────────────────
-    function getWeekDates(offset) {
-        const now = new Date();
-        const dow = now.getDay();
-        const mon = new Date(now);
+    // ─── неделя ───
+    function weekDates(offset) {
+        var now = new Date(), dow = now.getDay();
+        var mon = new Date(now);
         mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1) + offset * 7);
         mon.setHours(0, 0, 0, 0);
-        const sun = new Date(mon);
+        var sun = new Date(mon);
         sun.setDate(mon.getDate() + 6);
         return { start: mon, end: sun };
     }
-
     function fmtDate(d) {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+               '-' + String(d.getDate()).padStart(2, '0');
     }
-
     function weekLabel(s, e) {
-        if (s.getMonth() === e.getMonth())
-            return `${s.getDate()}–${e.getDate()} ${RU_MONTHS_GEN[s.getMonth()]} ${s.getFullYear()}`;
-        return `${s.getDate()} ${RU_MONTHS_GEN[s.getMonth()]} – ${e.getDate()} ${RU_MONTHS_GEN[e.getMonth()]} ${e.getFullYear()}`;
+        return s.getMonth() === e.getMonth()
+            ? s.getDate() + '–' + e.getDate() + ' ' + MONTHS_GEN[s.getMonth()] + ' ' + s.getFullYear()
+            : s.getDate() + ' ' + MONTHS_GEN[s.getMonth()] + ' – ' + e.getDate() + ' ' + MONTHS_GEN[e.getMonth()] + ' ' + e.getFullYear();
     }
 
-    function changeWeek(delta) {
-        const next = weekOffset + delta;
-        if (next > 0) return;
-        weekOffset = next;
-        const { start, end } = getWeekDates(weekOffset);
-        document.getElementById('weekLbl').textContent = weekLabel(start, end);
-        const btnNext = document.getElementById('weekBtnNext');
-        if (btnNext) btnNext.disabled = weekOffset >= 0;
-    }
-
-    // ─── Модалка управления заказом ──────────────────────────────────────────
-    let _manageOrder = null;
-
-    const STATUSES = [
-        { key: 'TAKEN',      label: 'Принял' },
-        { key: 'IN_TRANSIT', label: 'В пути' },
-        { key: 'DELIVERED',  label: 'Доставил' },
-    ];
-    const STATUS_ORDER = STATUSES.map(s => s.key);
-
-    const CANCEL_REASONS = [
-        'Курьер не приехал за посылкой',
-        'Получатель недоступен',
-        'Форс-мажор',
-    ];
-
+    // ─── шторка управления заказом ───
     function openManage(idx) {
-        _manageOrder = DATA.orders[idx];
-        if (!_manageOrder) return;
-        document.getElementById('manageTitle').textContent = '№ ' + _manageOrder.id;
-        document.getElementById('manageSubtitle').textContent =
-            _manageOrder.city_from + ' → ' + _manageOrder.city_to +
-            ' · ' + (STATUS_LABEL[_manageOrder.status] || _manageOrder.status);
-        document.getElementById('manageContent').innerHTML = renderManageContent();
-        document.getElementById('manageModal').classList.add('open');
-    }
+        manageOrder = (DATA.orders || [])[idx];
+        if (!manageOrder) return;
+        var o = manageOrder;
+        var curIdx = STATUS_ORDER.indexOf(o.status);
 
-    function closeManageModal(e) {
-        if (!e || e.target === document.getElementById('manageModal')) {
-            document.getElementById('manageModal').classList.remove('open');
-            _manageOrder = null;
-        }
-    }
-
-    function renderManageContent() {
-        const o = _manageOrder;
-        const curIdx = STATUS_ORDER.indexOf(o.status);
-
-        const pillsHtml = STATUSES.map((s, i) => {
-            const isCurrent = s.key === o.status;
-            const isDone = i < curIdx;
-            const cls = isCurrent ? 'current' : isDone ? 'done' : '';
-            const disabled = (isCurrent || isDone) ? 'disabled' : '';
-            return `<button class="st-pill ${cls}" ${disabled} onclick="doChangeStatus('${s.key}')">${s.label}</button>`;
+        var pills = STATUSES.map(function (s, i) {
+            var disabled = (s.key === o.status || i < curIdx);
+            return '<button class="btn ' + (s.key === o.status ? 'btn-primary' : 'btn-outline') + ' btn-sm"' +
+                (disabled ? ' disabled' : ' data-status="' + s.key + '"') + '>' + esc(s.label) + '</button>';
         }).join('');
 
-        const couriersHtml = (DATA.couriers || []).length
-            ? (DATA.couriers).map(c => `
-                <div class="modal-courier" onclick="doReassign('${c.tid}','${c.fio.replace(/'/g, "\\'")}')">
-                    <div>
-                        <div class="modal-courier-name">${c.fio}</div>
-                        <div class="modal-courier-status">${c.busy ? '🔴 Занят' : '🟢 Свободен'}</div>
-                    </div>
-                    <span class="modal-courier-arrow">›</span>
-                </div>`).join('')
-            : '<div style="padding:12px;font-size:13px;color:var(--hint)">Нет активных курьеров</div>';
+        var couriers = (DATA.couriers || []).map(function (c) {
+            return '<button class="sheet-cour" data-tid="' + esc(c.tid) + '" data-name="' + esc(c.fio) + '">' +
+                '<span class="avatar">' + esc(initials(c.fio)) + '</span>' +
+                '<span class="spacer"><span class="truncate" style="display:block;font-weight:600">' + esc(c.fio) + '</span>' +
+                '<span class="' + (c.busy ? 'badge badge-warn' : 'badge badge-ok') + '" style="margin-top:3px">' +
+                '<i class="dot"></i>' + (c.busy ? 'Занят' : 'Свободен') + '</span></span>' +
+                icon('chevron-right', 'ic-sm') + '</button>';
+        }).join('') || '<div class="empty">' + icon('users') + '<div>Нет активных курьеров</div></div>';
 
-        const cancelHtml = CANCEL_REASONS.map(r =>
-            `<button class="btn-cancel-r" onclick="doCancelActive('${r}')">${r}</button>`
-        ).join('');
+        var cancels = CANCEL_REASONS.map(function (r) {
+            return '<button class="btn btn-danger btn-block btn-sm" style="margin-top:7px" data-reason="' + esc(r) + '">' +
+                esc(r) + '</button>';
+        }).join('');
 
-        return `
-        <div class="manage-section">
-            <div class="manage-section-title">Сменить статус</div>
-            <div class="status-pills">${pillsHtml}</div>
-        </div>
-        <div class="manage-section">
-            <div class="manage-section-title">Переназначить курьера</div>
-            ${couriersHtml}
-        </div>
-        <div class="manage-section manage-danger">
-            <div class="manage-section-title">Отменить заказ</div>
-            ${cancelHtml}
-            <div class="custom-cancel-wrap" id="customCancelWrap">
-                <input class="custom-cancel-input" id="customCancelInput" type="text" placeholder="Введите причину...">
-                <button class="btn-cancel-confirm" onclick="confirmCustomCancel()">Подтвердить отмену</button>
-            </div>
-            <button class="btn-cancel-r btn-cancel-custom" onclick="showCustomCancel()">✏️ Своя причина</button>
-        </div>`;
+        sheet.innerHTML =
+            '<div class="sheet-head">' +
+                '<div class="spacer"><h2 class="mono">' + esc(o.id) + '</h2>' +
+                '<div class="sub">' + esc(o.city_from) + ' → ' + esc(o.city_to) + ' · ' +
+                    esc(STATUS_LABEL[o.status] || o.status) + '</div></div>' +
+                '<button class="icon-btn" id="sheetClose">' + icon('x') + '</button>' +
+            '</div>' +
+
+            '<div class="section-label" style="margin-top:16px">Сменить статус</div>' +
+            '<div class="sheet-grid" style="margin-top:8px">' + pills + '</div>' +
+
+            '<div class="section-label" style="margin-top:20px">Переназначить курьера</div>' +
+            couriers +
+
+            '<div class="danger-zone">' +
+                '<div class="section-label" style="color:var(--bad)">Отменить заказ</div>' +
+                cancels +
+                '<div id="customWrap" style="display:none;margin-top:9px">' +
+                    '<input class="input" id="customReason" type="text" placeholder="Причина отмены">' +
+                    '<button class="btn btn-danger btn-block" id="customGo" style="margin-top:8px">' +
+                        'Подтвердить отмену</button>' +
+                '</div>' +
+                '<button class="btn btn-ghost btn-block btn-sm" id="customShow" style="margin-top:7px">' +
+                    icon('edit', 'ic-sm') + 'Своя причина</button>' +
+            '</div>';
+
+        sheetBg.classList.add('on');
+        wireSheet();
     }
 
-    function doChangeStatus(newStatus) {
-        if (!_manageOrder) return;
-        const label = STATUSES.find(s => s.key === newStatus)?.label || newStatus;
-        tg.sendData(JSON.stringify({
-            action: 'change_status',
-            order_id: _manageOrder.id,
-            order_row: _manageOrder.row,
-            courier_id: _manageOrder.courier_id,
-            new_status: newStatus,
-            new_status_label: label,
-        }));
+    function closeSheet() { sheetBg.classList.remove('on'); manageOrder = null; }
+
+    function wireSheet() {
+        document.getElementById('sheetClose').addEventListener('click', closeSheet);
+        sheet.querySelectorAll('[data-status]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var key = b.dataset.status;
+                var found = STATUSES.filter(function (s) { return s.key === key; })[0];
+                send({
+                    action: 'change_status',
+                    order_id: manageOrder.id,
+                    order_row: manageOrder.row,
+                    courier_id: manageOrder.courier_id,
+                    new_status: key,
+                    new_status_label: found ? found.label : key
+                });
+            });
+        });
+        sheet.querySelectorAll('[data-tid]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                send({
+                    action: 'reassign_confirm',
+                    order_row: manageOrder.row,
+                    order_id: manageOrder.id,
+                    courier_tid: b.dataset.tid,
+                    courier_name: b.dataset.name
+                });
+            });
+        });
+        sheet.querySelectorAll('[data-reason]').forEach(function (b) {
+            b.addEventListener('click', function () { cancelActive(b.dataset.reason); });
+        });
+        document.getElementById('customShow').addEventListener('click', function () {
+            document.getElementById('customWrap').style.display = '';
+            document.getElementById('customReason').focus();
+        });
+        document.getElementById('customGo').addEventListener('click', function () {
+            var r = (document.getElementById('customReason').value || '').trim();
+            if (r) cancelActive(r);
+        });
     }
 
-    function doReassign(courierTid, courierName) {
-        if (!_manageOrder) return;
-        tg.sendData(JSON.stringify({
-            action: 'reassign_confirm',
-            order_row: _manageOrder.row,
-            order_id: _manageOrder.id,
-            courier_tid: courierTid,
-            courier_name: courierName,
-        }));
-    }
-
-    function doCancelActive(reason) {
-        if (!_manageOrder) return;
-        tg.sendData(JSON.stringify({
+    function cancelActive(reason) {
+        send({
             action: 'cancel_active',
-            order_id: _manageOrder.id,
-            order_row: _manageOrder.row,
-            courier_id: _manageOrder.courier_id,
-            reason: reason,
-        }));
+            order_id: manageOrder.id,
+            order_row: manageOrder.row,
+            courier_id: manageOrder.courier_id,
+            reason: reason
+        });
     }
 
-    function showCustomCancel() {
-        document.getElementById('customCancelWrap').style.display = 'block';
-        document.getElementById('customCancelInput').focus();
+    function send(payload) { tg.sendData(JSON.stringify(payload)); }
+
+    function initials(name) {
+        return String(name || '?').trim().split(/\s+/).slice(0, 2)
+            .map(function (w) { return w[0] || ''; }).join('').toUpperCase() || '?';
     }
 
-    function confirmCustomCancel() {
-        const reason = (document.getElementById('customCancelInput').value || '').trim();
-        if (!reason) return;
-        doCancelActive(reason);
+    // ─── карточки ───
+    function orderCard(o, idx) {
+        return '<div class="card oc oc-' + esc(o.status) + '" style="margin-bottom:10px">' +
+            '<div class="oc-top"><span class="oc-id mono">' + esc(o.id) + '</span>' +
+                '<span class="' + (STATUS_TONE[o.status] || 'badge') + '"><i class="dot"></i>' +
+                esc(STATUS_LABEL[o.status] || o.status) + '</span></div>' +
+            '<div class="oc-route"><span class="c">' + esc(o.city_from) + '</span>' +
+                icon('arrow-right', 'ic-sm') + '<span class="c">' + esc(o.city_to) + '</span></div>' +
+            '<div class="oc-meta">' +
+                '<span>' + icon('truck', 'ic-sm') + '<span class="truncate">' + esc(o.courier || '—') + '</span></span>' +
+                '<span>' + icon('wallet', 'ic-sm') + '<span class="mono">' + esc(o.price) + ' TJS</span></span>' +
+                '<span>' + icon('phone', 'ic-sm') + '<span class="mono">' + esc(o.r_phone) + '</span></span>' +
+            '</div>' +
+            '<button class="btn btn-outline btn-block btn-sm" style="margin-top:12px" data-manage="' + idx + '">' +
+                icon('settings', 'ic-sm') + 'Управление</button></div>';
     }
 
-    function reportCourier(tid, name) {
-        const { start } = getWeekDates(weekOffset);
-        tg.sendData(JSON.stringify({
-            action: 'manager_report',
-            courier_tid: tid,
-            courier_name: name,
-            week_start: fmtDate(start)
-        }));
+    function newCard(o) {
+        return '<div class="card oc oc-NEW" style="margin-bottom:10px">' +
+            '<div class="oc-top"><span class="oc-id mono">' + esc(o.id) + '</span>' +
+                '<span class="badge badge-warn"><i class="dot"></i>Новый</span></div>' +
+            '<div class="oc-route"><span class="c">' + esc(o.city_from) + '</span>' +
+                icon('arrow-right', 'ic-sm') + '<span class="c">' + esc(o.city_to) + '</span></div>' +
+            '<div class="oc-meta">' +
+                '<span>' + icon('user', 'ic-sm') + '<span class="truncate">' + esc(o.s_name || '—') + '</span></span>' +
+                '<span>' + icon('wallet', 'ic-sm') + '<span class="mono">' + esc(o.price) + ' TJS</span></span>' +
+            '</div>' +
+            '<button class="btn btn-primary btn-block btn-sm" style="margin-top:12px" ' +
+                'data-accept="' + esc(o.id) + '" data-row="' + esc(o.row) + '">' +
+                icon('check', 'ic-sm') + 'Принять в доставку</button></div>';
     }
 
-    function reportAll() {
-        const { start } = getWeekDates(weekOffset);
-        tg.sendData(JSON.stringify({
-            action: 'manager_report_all',
-            week_start: fmtDate(start)
-        }));
+    function freeCard(o) {
+        return '<div class="card oc oc-READY" style="margin-bottom:10px">' +
+            '<div class="oc-top"><span class="oc-id mono">' + esc(o.id) + '</span>' +
+                '<span class="badge badge-warn"><i class="dot"></i>На бирже</span></div>' +
+            '<div class="oc-route"><span class="c">' + esc(o.city_from) + '</span>' +
+                icon('arrow-right', 'ic-sm') + '<span class="c">' + esc(o.city_to) + '</span></div>' +
+            '<div class="oc-meta">' +
+                '<span>' + icon('user', 'ic-sm') + '<span class="truncate">' + esc(o.s_name || '—') + '</span></span>' +
+                '<span>' + icon('wallet', 'ic-sm') + '<span class="mono">' + esc(o.price) + ' TJS</span></span>' +
+            '</div></div>';
     }
 
-    // ─── Рендер карточек ──────────────────────────────────────────────────────
-    function renderOrderCard(o, idx) {
-        return `
-        <div class="order-card s-${o.status}">
-            <div class="card-top">
-                <span class="order-id">№ ${o.id}</span>
-                <span class="status-pill sp-${o.status}">${STATUS_LABEL[o.status] || o.status}</span>
-            </div>
-            <div class="card-route">
-                ${o.city_from}<span class="arr">→</span>${o.city_to}
-            </div>
-            <div class="card-meta">
-                🚗 ${o.courier || '—'} &nbsp;·&nbsp; 💰 ${o.price} TJS &nbsp;·&nbsp; 📞 ${o.r_phone}
-            </div>
-            <button class="btn-manage" onclick="openManage(${idx})">⚙️ Управление</button>
-        </div>`;
+    function courierRow(c, withReport) {
+        return '<div class="list-row">' +
+            '<span class="avatar' + (c.busy ? '' : ' avatar-accent') + '">' + esc(initials(c.fio)) + '</span>' +
+            '<span class="body"><span class="name truncate" style="display:block">' + esc(c.fio) + '</span>' +
+            '<span class="' + (c.busy ? 'badge badge-warn' : 'badge badge-ok') + '" style="margin-top:3px">' +
+            '<i class="dot"></i>' + (c.busy ? 'Занят' : 'Свободен') + '</span></span>' +
+            (withReport
+                ? '<button class="btn btn-outline btn-sm" data-report="' + esc(c.tid) + '" data-name="' + esc(c.fio) + '">' +
+                  icon('download', 'ic-sm') + 'Отчёт</button>'
+                : '') +
+            '</div>';
     }
 
-    function renderNewCard(o) {
-        return `
-        <div class="new-card">
-            <div class="new-card-top">
-                <span class="new-order-id">№ ${o.id}</span>
-                <span class="new-pill">⏳ Новый</span>
-            </div>
-            <div class="new-route">${o.city_from}<span class="arr">→</span>${o.city_to}</div>
-            <div class="new-meta">👤 ${o.s_name || '—'} &nbsp;·&nbsp; 💰 ${o.price} TJS</div>
-            <button class="btn-accept" onclick="acceptOrder(${o.row},'${o.id}')">✅ Принять в доставку</button>
-        </div>`;
+    function empty(ic, text) {
+        return '<div class="card"><div class="empty">' + icon(ic) + '<div>' + esc(text) + '</div></div></div>';
     }
 
-    function acceptOrder(orderRow, orderId) {
-        tg.sendData(JSON.stringify({ action: 'set_ready', order_id: orderId, order_row: orderRow }));
-    }
-
-    function renderFreeCard(o) {
-        return `
-        <div class="free-card">
-            <div>
-                <div class="free-route">${o.city_from}<span class="arr">→</span>${o.city_to}</div>
-                <div class="free-meta">👤 ${o.s_name || '—'} &nbsp;·&nbsp; № ${o.id}</div>
-            </div>
-            <div class="free-price">${o.price} TJS</div>
-        </div>`;
-    }
-
-    function renderCourierCard(c) {
-        let orderInfo = '';
-        if (c.busy) {
-            const ord = DATA.orders.find(o => o.courier_id === c.tid);
-            orderInfo = ord
-                ? `${ord.city_from} → ${ord.city_to} · ${STATUS_LABEL[ord.status] || ord.status}`
-                : 'В работе';
-        }
-        return `
-        <div class="courier-card">
-            <div style="min-width:0">
-                <div class="courier-name">${c.fio}</div>
-                ${c.busy ? `<div class="courier-order">${orderInfo}</div>` : ''}
-            </div>
-            <span class="${c.busy ? 'badge-busy' : 'badge-free'}">${c.busy ? 'Занят' : 'Свободен'}</span>
-        </div>`;
-    }
-
-    function renderReportRow(c) {
-        const safeName = c.fio.replace(/'/g, "\\'");
-        return `
-        <div class="report-row">
-            <div style="min-width:0">
-                <div class="courier-name">${c.fio}</div>
-                <div class="courier-order">${c.busy ? 'Сейчас в работе' : 'Свободен'}</div>
-            </div>
-            <button class="btn-report" onclick="reportCourier('${c.tid}','${safeName}')">📄 Отчёт</button>
-        </div>`;
-    }
-
-    // ─── Вкладки ──────────────────────────────────────────────────────────────
-    function selectTab(i) {
-        activeTab = i;
-        document.querySelectorAll('.tab').forEach((t, idx) => t.classList.toggle('active', idx === i));
-        document.querySelectorAll('.pane').forEach((p, idx) => p.classList.toggle('active', idx === i));
-    }
-
-    // ─── Главный рендер ───────────────────────────────────────────────────────
+    // ─── рендер ───
     function render() {
-        const orders   = DATA.orders   || [];
-        const free     = DATA.free     || [];
-        const newOrds  = DATA.new      || [];
-        const couriers = DATA.couriers || [];
-        const busy     = couriers.filter(c => c.busy).length;
+        var orders = DATA.orders || [], free = DATA.free || [], news = DATA.new || [];
+        var couriers = DATA.couriers || [];
+        var busy = couriers.filter(function (c) { return c.busy; }).length;
+        var w = weekDates(weekOffset);
 
-        const { start, end } = getWeekDates(weekOffset);
-        const wLabel = weekLabel(start, end);
-
-        const birzhaCount = newOrds.length + free.length;
-
-        let birzhaHtml = '';
-        if (!newOrds.length && !free.length) {
-            birzhaHtml = '<div class="empty"><div class="empty-icon">🕳️</div><div class="empty-text">Нет заказов</div></div>';
+        var birzha = '';
+        if (!news.length && !free.length) {
+            birzha = empty('inbox', 'Нет заказов');
         } else {
-            if (newOrds.length) {
-                birzhaHtml += `<div class="section-lbl">⏳ Ожидают подтверждения (${newOrds.length})</div>`;
-                birzhaHtml += newOrds.map(renderNewCard).join('');
+            if (news.length) {
+                birzha += '<div class="section-label" style="margin-bottom:8px">Ожидают подтверждения · ' + news.length + '</div>';
+                birzha += news.map(newCard).join('');
             }
             if (free.length) {
-                birzhaHtml += `<div class="section-lbl" style="margin-top:${newOrds.length ? 12 : 2}px">📋 На бирже (${free.length})</div>`;
-                birzhaHtml += free.map(renderFreeCard).join('');
+                birzha += '<div class="section-label" style="margin:16px 0 8px">На бирже · ' + free.length + '</div>';
+                birzha += free.map(freeCard).join('');
             }
         }
 
-        app.innerHTML = `
-        <div class="header">
-            <div class="header-sub">Mavsimi Rason</div>
-            <div class="header-title">🎛 Панель управления</div>
-        </div>
+        app.innerHTML =
+        '<header class="topbar"><div class="topbar-inner" style="display:block;padding-bottom:0">' +
+            '<div class="row" style="padding-bottom:10px">' +
+                '<span class="glyph"><svg class="ic"><use href="#i-sliders"></use></svg></span>' +
+                '<div class="spacer"><h1>Панель управления</h1>' +
+                '<div class="sub">Mavsimi Rason</div></div>' +
+            '</div>' +
+            '<nav class="tabs">' +
+                '<button data-tab="0" aria-selected="true">В работе</button>' +
+                '<button data-tab="1" aria-selected="false">Заказы</button>' +
+                '<button data-tab="2" aria-selected="false">Курьеры</button>' +
+                '<button data-tab="3" aria-selected="false">Отчёты</button>' +
+            '</nav>' +
+        '</div></header>' +
 
-        <div class="stats">
-            <div class="stat">
-                <div class="stat-val orange">${orders.length}</div>
-                <div class="stat-lbl">В работе</div>
-            </div>
-            <div class="stat">
-                <div class="stat-val" style="color:var(--danger)">${newOrds.length}</div>
-                <div class="stat-lbl">Новых</div>
-            </div>
-            <div class="stat">
-                <div class="stat-val green">${busy}/${couriers.length}</div>
-                <div class="stat-lbl">Курьеров</div>
-            </div>
-        </div>
+        '<main class="container">' +
+            '<div class="stat-grid stat-grid-3" style="margin-top:14px">' +
+                '<div class="stat"><div class="stat-label">' + icon('truck', 'ic-sm') + '<span>В работе</span></div>' +
+                    '<div class="stat-value mono">' + orders.length + '</div></div>' +
+                '<div class="stat"><div class="stat-label">' + icon('inbox', 'ic-sm') + '<span>Новых</span></div>' +
+                    '<div class="stat-value mono" style="color:var(--accent)">' + news.length + '</div></div>' +
+                '<div class="stat"><div class="stat-label">' + icon('users', 'ic-sm') + '<span>Курьеров</span></div>' +
+                    '<div class="stat-value mono">' + busy + '<span class="stat-unit">/ ' + couriers.length + '</span></div></div>' +
+            '</div>' +
 
-        <div class="tabs">
-            <div class="tab active" onclick="selectTab(0)">🚚 В работе (${orders.length})</div>
-            <div class="tab" onclick="selectTab(1)">📦 Заказы (${birzhaCount})</div>
-            <div class="tab" onclick="selectTab(2)">👤 Курьеры (${couriers.length})</div>
-            <div class="tab" onclick="selectTab(3)">📊 Отчёты</div>
-        </div>
+            '<div class="pane on" data-pane="0">' +
+                (orders.length
+                    ? orders.map(orderCard).join('')
+                    : empty('check', 'Нет активных заказов')) +
+            '</div>' +
 
-        <div class="pane active">
-            ${orders.length
-                ? orders.map((o, i) => renderOrderCard(o, i)).join('')
-                : '<div class="empty"><div class="empty-icon">✅</div><div class="empty-text">Нет активных заказов</div></div>'
-            }
-        </div>
+            '<div class="pane" data-pane="1">' + birzha + '</div>' +
 
-        <div class="pane">
-            ${birzhaHtml}
-        </div>
+            '<div class="pane" data-pane="2">' +
+                (couriers.length
+                    ? '<div class="card"><div class="list">' +
+                      couriers.map(function (c) { return courierRow(c, false); }).join('') + '</div></div>'
+                    : empty('users', 'Нет активных курьеров')) +
+            '</div>' +
 
-        <div class="pane">
-            ${couriers.length
-                ? couriers.map(renderCourierCard).join('')
-                : '<div class="empty"><div class="empty-icon">🚗</div><div class="empty-text">Нет активных курьеров</div></div>'
-            }
-        </div>
+            '<div class="pane" data-pane="3"><div class="stack">' +
+                '<section class="card">' +
+                    '<div class="week-nav">' +
+                        '<button class="icon-btn" id="wPrev">' + icon('chevron-left') + '</button>' +
+                        '<span class="lbl" id="weekLbl">' + esc(weekLabel(w.start, w.end)) + '</span>' +
+                        '<button class="icon-btn" id="wNext"' + (weekOffset >= 0 ? ' disabled' : '') + '>' +
+                            icon('chevron-right') + '</button>' +
+                    '</div>' +
+                    '<button class="btn btn-primary btn-block" id="reportAll">' +
+                        icon('chart') + 'Сводный отчёт на всех курьеров</button>' +
+                '</section>' +
+                (couriers.length
+                    ? '<section class="card"><div class="card-head"><div class="card-title">Отчёт по курьеру</div></div>' +
+                      '<div class="list">' + couriers.map(function (c) { return courierRow(c, true); }).join('') +
+                      '</div></section>'
+                    : empty('users', 'Нет активных курьеров')) +
+            '</div></div>' +
+        '</main>';
 
-        <div class="pane">
-            <div class="week-nav">
-                <button class="week-btn" onclick="changeWeek(-1)">&#8592;</button>
-                <span class="week-lbl" id="weekLbl">${wLabel}</span>
-                <button class="week-btn" id="weekBtnNext" onclick="changeWeek(1)" ${weekOffset >= 0 ? 'disabled' : ''}>&#8594;</button>
-            </div>
-
-            <button class="btn-report-all" onclick="reportAll()">
-                📊 Сводный отчёт на всех курьеров
-            </button>
-
-            <div class="section-lbl">Отчёт по курьеру</div>
-
-            ${couriers.length
-                ? couriers.map(renderReportRow).join('')
-                : '<div class="empty"><div class="empty-icon">🚗</div><div class="empty-text">Нет активных курьеров</div></div>'
-            }
-        </div>`;
+        wire();
     }
 
+    function wire() {
+        app.querySelectorAll('[data-tab]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                activeTab = +b.dataset.tab;
+                app.querySelectorAll('[data-tab]').forEach(function (x) {
+                    x.setAttribute('aria-selected', String(+x.dataset.tab === activeTab));
+                });
+                app.querySelectorAll('[data-pane]').forEach(function (p) {
+                    p.classList.toggle('on', +p.dataset.pane === activeTab);
+                });
+                window.scrollTo(0, 0);
+            });
+        });
+        app.querySelectorAll('[data-manage]').forEach(function (b) {
+            b.addEventListener('click', function () { openManage(+b.dataset.manage); });
+        });
+        app.querySelectorAll('[data-accept]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                send({ action: 'set_ready', order_id: b.dataset.accept, order_row: +b.dataset.row });
+            });
+        });
+        app.querySelectorAll('[data-report]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                send({
+                    action: 'manager_report',
+                    courier_tid: b.dataset.report,
+                    courier_name: b.dataset.name,
+                    week_start: fmtDate(weekDates(weekOffset).start)
+                });
+            });
+        });
+        var reportAll = document.getElementById('reportAll');
+        if (reportAll) reportAll.addEventListener('click', function () {
+            send({ action: 'manager_report_all', week_start: fmtDate(weekDates(weekOffset).start) });
+        });
+        var changeWeek = function (delta) {
+            var next = weekOffset + delta;
+            if (next > 0) return;
+            weekOffset = next;
+            var w = weekDates(weekOffset);
+            document.getElementById('weekLbl').textContent = weekLabel(w.start, w.end);
+            document.getElementById('wNext').disabled = weekOffset >= 0;
+        };
+        var wPrev = document.getElementById('wPrev'), wNext = document.getElementById('wNext');
+        if (wPrev) wPrev.addEventListener('click', function () { changeWeek(-1); });
+        if (wNext) wNext.addEventListener('click', function () { changeWeek(1); });
+    }
+
+    sheetBg.addEventListener('click', function (e) { if (e.target === sheetBg) closeSheet(); });
+
     if (!DATA) {
-        app.innerHTML = `<div class="err-screen"><div style="font-size:48px">🔗</div><div style="font-size:17px;font-weight:700;margin-top:12px">Нет данных</div><div style="font-size:13px;color:var(--hint);margin-top:6px">Откройте панель через бота</div></div>`;
+        app.innerHTML = '<main class="container" style="padding-top:40px">' +
+            empty('link', 'Нет данных. Откройте панель через бота.') + '</main>';
     } else {
         render();
     }

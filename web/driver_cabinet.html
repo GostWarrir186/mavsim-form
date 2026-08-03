@@ -1,499 +1,362 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Кабинет курьера</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <link rel="stylesheet" href="theme.css?v=1">
-    <script>
-    // Тема: явный выбор Telegram важнее системной; см. web/theme.css
-    (function () {
-        var d = document.documentElement, s = null;
-        try { s = Telegram.WebApp.colorScheme; } catch (e) {}
-        if (!s) s = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
-        d.setAttribute('data-theme', s);
-        try { Telegram.WebApp.onEvent('themeChanged', function () {
-            d.setAttribute('data-theme', Telegram.WebApp.colorScheme || 'light');
-        }); } catch (e) {}
-    })();
-    </script>
-    <style>
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: var(--sec-bg); color: var(--text);
-            overflow-x: hidden; padding-bottom: 24px;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Кабинет курьера</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="theme.css?v=2">
+<script>
+// Тема: явный выбор Telegram важнее системной; палитра — в theme.css
+(function () {
+    var d = document.documentElement, s = null;
+    try { s = Telegram.WebApp.colorScheme; } catch (e) {}
+    if (!s) s = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    d.setAttribute('data-theme', s);
+    try { Telegram.WebApp.onEvent('themeChanged', function () {
+        d.setAttribute('data-theme', Telegram.WebApp.colorScheme || 'light');
+    }); } catch (e) {}
+})();
+</script>
+<style>
+    .lang { display: flex; gap: 4px; margin-left: auto; flex: none; }
+    .lang button {
+        font: inherit; font-size: 12px; font-weight: 650; padding: 5px 10px;
+        border-radius: 999px; border: 1px solid var(--border); cursor: pointer;
+        background: var(--surface); color: var(--ink-3); transition: all .16s;
+    }
+    .lang button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
 
-        /* ─── Header ─── */
-        .header {
-            background: var(--primary-grad);
-            padding: 12px 16px 18px;
-            position: relative;
-        }
-        .header-title { font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 2px; }
-        .header-name  { font-size: 16px; font-weight: 700; color: white; margin-bottom: 1px; }
-        .header-month { font-size: 12px; color: rgba(255,255,255,0.75); font-weight: 500; }
+    /* ── неделя ── */
+    .week-nav { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .week-nav .lbl { flex: 1; text-align: center; font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
+    .days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+    .day {
+        display: flex; flex-direction: column; align-items: center; gap: 2px;
+        padding: 8px 2px 7px; border-radius: var(--r-sm); cursor: pointer;
+        border: 1px solid transparent; background: var(--surface-2);
+        transition: background .16s, border-color .16s, color .16s;
+    }
+    .day .dn { font-size: 10px; font-weight: 650; color: var(--ink-3); }
+    .day .dd { font-size: 15px; font-weight: 650; letter-spacing: -.02em; }
+    .day .dc {
+        height: 15px; min-width: 15px; padding: 0 4px; border-radius: 999px;
+        font-size: 9.5px; font-weight: 700; line-height: 15px;
+        background: var(--accent-soft); color: var(--accent);
+    }
+    .day .dc.none { background: none; }
+    .day.today { border-color: var(--border-strong); }
+    .day.sel { background: var(--accent); border-color: var(--accent); }
+    .day.sel .dn, .day.sel .dd { color: var(--on-accent); }
+    .day.sel .dc { background: rgba(255,255,255,.24); color: var(--on-accent); }
+    :root[data-theme="dark"] .day.sel .dc { background: rgba(0,0,0,.22); }
 
-        /* ─── Stats Cards ─── */
-        .stats-row {
-            display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
-            padding: 0 14px; margin-top: 10px; margin-bottom: 14px;
-        }
-        .stat-card {
-            background: var(--bg); border-radius: var(--radius-sm);
-            padding: 13px 10px; text-align: center;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-        }
-        .stat-value { font-size: 20px; font-weight: 800; color: var(--primary); line-height: 1; }
-        .stat-label { font-size: 10px; color: var(--hint); font-weight: 600; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
-
-        /* ─── Section ─── */
-        .section { padding: 0 14px; margin-bottom: 14px; }
-        .section-title {
-            font-size: 12px; font-weight: 700; color: var(--hint); text-transform: uppercase;
-            letter-spacing: 0.6px; margin-bottom: 10px; padding-left: 2px;
-        }
-
-        /* ─── Week Calendar ─── */
-        .week-card { background: var(--bg); border-radius: var(--radius); padding: 14px; box-shadow: 0 1px 8px rgba(0,0,0,0.05); }
-        .week-nav {
-            display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 12px;
-        }
-        .week-label { font-size: 14px; font-weight: 700; color: var(--text); }
-        .week-btn {
-            width: 32px; height: 32px; border-radius: 50%; border: none;
-            background: var(--sec-bg); color: var(--primary); cursor: pointer;
-            font-size: 16px; display: flex; align-items: center; justify-content: center;
-            font-weight: 700; transition: background 0.15s;
-        }
-        .week-btn:active { background: var(--primary-light); }
-
-        .days-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-        .day-cell {
-            display: flex; flex-direction: column; align-items: center; gap: 3px;
-            padding: 8px 2px; border-radius: 10px; cursor: pointer;
-            transition: background 0.15s; position: relative;
-        }
-        .day-cell:active { background: var(--primary-light); }
-        .day-cell.selected { background: var(--primary); }
-        .day-cell.today:not(.selected) { border: 2px solid var(--primary); }
-        .day-name { font-size: 9px; font-weight: 700; color: var(--hint); text-transform: uppercase; letter-spacing: 0.3px; }
-        .day-cell.selected .day-name { color: rgba(255,255,255,0.75); }
-        .day-num { font-size: 15px; font-weight: 700; color: var(--text); line-height: 1; }
-        .day-cell.selected .day-num { color: white; }
-        .day-cell.other-month .day-num { color: var(--hint); opacity: 0.5; }
-        .day-dot {
-            width: 5px; height: 5px; border-radius: 50%; background: var(--primary);
-        }
-        .day-cell.selected .day-dot { background: white; }
-        .day-count {
-            font-size: 9px; font-weight: 700; color: white;
-            background: var(--primary); border-radius: 10px; padding: 1px 5px;
-            min-width: 16px; text-align: center;
-        }
-        .day-cell.selected .day-count { background: rgba(255,255,255,0.3); }
-
-        /* ─── Filter Chips ─── */
-        .chips { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 2px; margin-bottom: 10px; }
-        .chips::-webkit-scrollbar { display: none; }
-        .chip {
-            flex-shrink: 0; padding: 6px 13px; border-radius: 20px; font-size: 12px; font-weight: 600;
-            border: 1.5px solid rgba(0,0,0,0.08); background: var(--bg); color: var(--hint);
-            cursor: pointer; transition: all 0.15s; white-space: nowrap;
-        }
-        .chip.active { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
-
-        /* ─── Delivery Cards ─── */
-        .delivery-card {
-            background: var(--bg); border-radius: var(--radius-sm);
-            padding: 13px 14px; margin-bottom: 8px;
-            box-shadow: 0 1px 6px rgba(0,0,0,0.04);
-            border-left: 3px solid var(--primary);
-            display: flex; gap: 12px; align-items: flex-start;
-        }
-        .delivery-card.delivered { border-left-color: var(--success); }
-        .delivery-card.in-progress { border-left-color: var(--warning); }
-
-        .time-col { flex-shrink: 0; text-align: center; }
-        .time-badge {
-            font-size: 13px; font-weight: 800; color: var(--primary); display: block; line-height: 1;
-        }
-        .delivery-card.delivered .time-badge { color: var(--success); }
-        .time-date { font-size: 10px; color: var(--hint); margin-top: 3px; }
-
-        .card-body { flex: 1; min-width: 0; }
-        .card-route {
-            display: flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 700;
-            margin-bottom: 4px; flex-wrap: wrap;
-        }
-        .card-route .city { color: var(--text); }
-        .card-route .arrow { color: var(--hint); font-size: 11px; }
-        .card-meta { font-size: 11.5px; color: var(--hint); display: flex; gap: 8px; flex-wrap: wrap; }
-        .meta-tag {
-            display: inline-flex; align-items: center; gap: 3px; background: var(--sec-bg);
-            padding: 2px 7px; border-radius: 5px; font-size: 10.5px; font-weight: 600;
-        }
-
-        .status-pill {
-            display: inline-block; padding: 2px 8px; border-radius: 6px;
-            font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; margin-top: 5px;
-        }
-        .s-delivered  { background: #e8f5e9; color: #2e7d32; }
-        .s-transit    { background: #fff3e0; color: #e65100; }
-        .s-taken      { background: #fff3e0; color: #ef6c00; }
-
-        /* ─── Report Button ─── */
-        .btn-report {
-            width: 100%; padding: 14px; border: none; border-radius: var(--radius);
-            background: var(--success-grad); color: #fff;
-            font-size: 14px; font-weight: 700; cursor: pointer; margin-bottom: 14px;
-            display: flex; align-items: center; justify-content: center; gap: 8px;
-        }
-        .btn-report:active { opacity: .85; }
-
-        /* ─── Empty ─── */
-        .empty {
-            text-align: center; padding: 40px 20px; color: var(--hint);
-            display: flex; flex-direction: column; align-items: center; gap: 10px;
-        }
-        .empty-icon { font-size: 44px; }
-        .empty-text { font-size: 14px; font-weight: 500; }
-
-        /* ─── Error ─── */
-        .error-screen {
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            min-height: 80vh; text-align: center; padding: 20px; color: var(--hint);
-        }
-        .error-icon { font-size: 52px; margin-bottom: 14px; }
-        .error-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
-        .error-sub { font-size: 13px; }
-    </style>
+    /* ── доставки ── */
+    .trip {
+        display: flex; gap: 12px; padding: 12px 0;
+        border-top: 1px solid var(--border); min-width: 0;
+    }
+    .trip:first-child { border-top: none; padding-top: 2px; }
+    .trip .when { flex: none; width: 46px; text-align: center; }
+    .trip .when .hm { font-size: 13.5px; font-weight: 700; letter-spacing: -.01em; }
+    .trip .when .dm { font-size: 10.5px; color: var(--ink-3); }
+    .trip .body { flex: 1; min-width: 0; }
+    .trip .route { display: flex; align-items: center; gap: 6px; font-size: 14px; min-width: 0; }
+    .trip .route .c { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .trip .route .ic { color: var(--ink-3); flex: none; }
+    .trip .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+</style>
 </head>
 <body>
-
+<svg class="sprite" aria-hidden="true" focusable="false"><defs><symbol id="i-package" viewBox="0 0 24 24"><path d="M21 8v8a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol><symbol id="i-box" viewBox="0 0 24 24"><path d="M3 9h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M2 5h20v4H2z"/><path d="M10 13h4"/></symbol><symbol id="i-truck" viewBox="0 0 24 24"><path d="M14 17V5a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h1"/><path d="M14 8h4l3 3v5a1 1 0 0 1-1 1h-1"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/><path d="M9 17h6"/></symbol><symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol><symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol><symbol id="i-phone" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></symbol><symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></symbol><symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h6a4 4 0 0 0 0-8H9a4 4 0 0 1 0-8h3"/></symbol><symbol id="i-wallet" viewBox="0 0 24 24"><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5"/><path d="M16 12h.01"/></symbol><symbol id="i-chart" viewBox="0 0 24 24"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M7 15v-3"/><path d="M12 15V8"/><path d="M17 15v-6"/></symbol><symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol><symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol><symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol><symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol><symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></symbol><symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol><symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol><symbol id="i-inbox" viewBox="0 0 24 24"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/></symbol><symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol><symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></symbol><symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol><symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></symbol><symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol><symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></symbol><symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 7l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol><symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/><path d="M1 14h6M9 8h6M17 16h6"/></symbol><symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7L12 19"/></symbol><symbol id="i-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></symbol><symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol><symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol><symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol><symbol id="i-chevron-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol></defs></svg>
 <div id="app"></div>
 
 <script>
-    const tg = (window.Telegram && window.Telegram.WebApp)
+    var tg = (window.Telegram && window.Telegram.WebApp)
         ? window.Telegram.WebApp
-        : { ready: () => {}, expand: () => {}, close: () => {} };
+        : { ready: function () {}, expand: function () {}, close: function () {}, sendData: function () {} };
     tg.ready(); tg.expand();
 
-    // ─── Загрузка данных из URL hash ────────────────────────────────────────
-    let DATA = null;
+    var DATA = null;
     try {
-        const raw = new URLSearchParams(window.location.search).get('d');
+        var raw = new URLSearchParams(window.location.search).get('d');
         if (raw) {
-            const b64  = raw.replace(/-/g, '+').replace(/_/g, '/');
-            const pad  = '='.repeat((4 - b64.length % 4) % 4);
-            const bytes = Uint8Array.from(atob(b64 + pad), c => c.charCodeAt(0));
+            var b64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+            var pad = '='.repeat((4 - b64.length % 4) % 4);
+            var bytes = Uint8Array.from(atob(b64 + pad), function (c) { return c.charCodeAt(0); });
             DATA = JSON.parse(new TextDecoder('utf-8').decode(bytes));
         }
-    } catch(e) {
-        console.error('Ошибка парсинга данных:', e);
+    } catch (e) { console.error('Ошибка парсинга данных:', e); }
+
+    var app = document.getElementById('app');
+
+    function esc(s) {
+        var d = document.createElement('div');
+        d.appendChild(document.createTextNode(String(s == null ? '' : s)));
+        return d.innerHTML;
     }
+    function icon(n, cls) { return '<svg class="ic ' + (cls || '') + '"><use href="#i-' + n + '"></use></svg>'; }
 
-    const app = document.getElementById('app');
-
-    if (!DATA) {
-        app.innerHTML = `
-            <div class="error-screen">
-                <div class="error-icon">🔗</div>
-                <div class="error-title">Нет данных</div>
-                <div class="error-sub">Откройте кабинет через бота Mavsimi Rason.</div>
-            </div>`;
-    } else {
-
-    // ─── Локализация ────────────────────────────────────────────────────────
-    const T = {
+    var T = {
         ru: {
-            cabinet_title: 'Кабинет курьера', stat_deliveries: 'Доставок',
-            stat_week: 'За неделю', week_title: 'Неделя', report_btn: 'Скачать отчёт за',
-            all_deliveries: 'Все доставки', reset: 'Сбросить', all_label: 'Все',
-            empty_month: 'Нет доставок за месяц', empty_day: l => `Нет доставок за ${l}`,
-            status_delivered: '✓ Доставил', status_transit: 'В пути', status_taken: 'Принял',
-            pvz: '🏢 ПВЗ', door: '🚪 До двери',
-            profile_hint: 'Смена ФИО требует подтверждения менеджера', save: 'Сохранить',
-            no_data_title: 'Нет данных', no_data_sub: 'Откройте кабинет через бота Mavsimi Rason.',
-            months_short: ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
-            days_short: ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'],
+            title: 'Кабинет курьера',
+            stat_total: 'Доставок всего', stat_week: 'За эту неделю',
+            report: 'Скачать отчёт за неделю',
+            all: 'Все доставки', reset: 'Сбросить',
+            empty_all: 'Доставок за месяц нет', empty_day: 'В этот день доставок нет',
+            st_DELIVERED: 'Доставлен', st_IN_TRANSIT: 'В пути', st_TAKEN: 'Принят',
+            pvz: 'ПВЗ', door: 'До двери',
+            profile: 'Профиль', fio: 'ФИО',
+            profile_hint: 'Смена ФИО требует подтверждения менеджера',
+            save: 'Сохранить', lang_label: 'Язык интерфейса',
+            no_data: 'Нет данных', no_data_sub: 'Откройте кабинет через бота Mavsimi Rason.',
+            months: ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
+            days: ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
         },
         tj: {
-            cabinet_title: 'Кабинети курьер', stat_deliveries: 'Фармоишҳо',
-            stat_week: 'Дар як ҳафта', week_title: 'Ҳафта', report_btn: 'Боргирии ҳисобот барои',
-            all_deliveries: 'Ҳамаи фармоишҳо', reset: 'Бекор кардан', all_label: 'Ҳама',
-            empty_month: 'Дар ин моҳ фармоише нест', empty_day: l => `Дар ${l} фармоише нест`,
-            status_delivered: '✓ Расонид', status_transit: 'Дар роҳ', status_taken: 'Гирифт',
-            pvz: '🏢 ПВЗ', door: '🚪 То дар',
-            profile_hint: 'Тағйири ном тасдиқи менеҷерро талаб мекунад', save: 'Нигоҳ доштан',
-            no_data_title: 'Маълумот нест', no_data_sub: 'Кабинетро тавассути боти Mavsimi Rason кушоед.',
-            months_short: ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
-            days_short: ['Яш','Дш','Сш','Чш','Пш','Ҷм','Ша'],
-        },
+            title: 'Кабинети курьер',
+            stat_total: 'Ҳамаи фармоишҳо', stat_week: 'Дар ин ҳафта',
+            report: 'Боргирии ҳисобот барои ҳафта',
+            all: 'Ҳамаи фармоишҳо', reset: 'Бекор кардан',
+            empty_all: 'Дар ин моҳ фармоише нест', empty_day: 'Дар ин рӯз фармоише нест',
+            st_DELIVERED: 'Расонида шуд', st_IN_TRANSIT: 'Дар роҳ', st_TAKEN: 'Гирифта шуд',
+            pvz: 'ПВЗ', door: 'То дар',
+            profile: 'Профил', fio: 'Ному насаб',
+            profile_hint: 'Тағйири ном тасдиқи менеҷерро талаб мекунад',
+            save: 'Нигоҳ доштан', lang_label: 'Забони барнома',
+            no_data: 'Маълумот нест', no_data_sub: 'Кабинетро тавассути боти Mavsimi Rason кушоед.',
+            months: ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек'],
+            days: ['Дш','Сш','Чш','Пш','Ҷм','Ша','Яш']
+        }
     };
 
-    // ─── Утилиты ────────────────────────────────────────────────────────────
+    if (!DATA) {
+        app.innerHTML = '<main class="container" style="padding-top:40px">' +
+            '<div class="card"><div class="empty">' + icon('link') +
+            '<div><b>' + T.ru.no_data + '</b><br>' + T.ru.no_data_sub + '</div></div></div></main>';
+    } else {
 
-    function parseDate(iso) { /* "2026-06-19" → Date */
-        const [y, m, d] = iso.split('-').map(Number);
-        return new Date(y, m - 1, d);
+    var deliveries = DATA.deliveries || [];
+    var driverName = DATA.name || 'Курьер';
+    var monthLabel = DATA.month_label || '';
+    var savedLang = localStorage.getItem('driver_lang');
+    var lang = (savedLang === 'ru' || savedLang === 'tj') ? savedLang
+        : ((DATA.lang === 'ru' || DATA.lang === 'tj') ? DATA.lang : 'ru');
+    var profileOpen = false;
+    var fioDraft = driverName;
+
+    var byDate = {};
+    deliveries.forEach(function (d) { (byDate[d.d] = byDate[d.d] || []).push(d); });
+
+    function iso(d) {
+        return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+               '-' + String(d.getDate()).padStart(2, '0');
     }
-    function isoFromDate(d) {
-        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    }
-    function getMondayOf(date) {
-        const d = new Date(date);
-        const day = d.getDay() === 0 ? 7 : d.getDay(); // Mon=1..Sun=7
+    function parseIso(s) { var p = s.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); }
+    function getMonday(date) {
+        var d = new Date(date), day = d.getDay() === 0 ? 7 : d.getDay();
         d.setDate(d.getDate() - day + 1);
+        d.setHours(0, 0, 0, 0);
         return d;
     }
-    function addDays(date, n) {
-        const d = new Date(date);
-        d.setDate(d.getDate() + n);
-        return d;
+    function addDays(date, n) { var d = new Date(date); d.setDate(d.getDate() + n); return d; }
+    function sameDay(a, b) {
+        return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
     }
-    function sameDay(a, b) { return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
+    function t() { return T[lang]; }
 
-    // ─── Состояние ──────────────────────────────────────────────────────────
-    const deliveries = DATA.deliveries || [];
-    const driverName = DATA.name || 'Курьер';
-    const monthLabel = DATA.month_label || '';
-    const savedLang = localStorage.getItem('driver_lang');
-    let profileLang = (savedLang === 'ru' || savedLang === 'tj')
-        ? savedLang
-        : (DATA.lang === 'ru' || DATA.lang === 'tj' ? DATA.lang : 'ru');
-    let profileOpen  = false;
-    let profileFioDraft = driverName;
+    var today = new Date();
+    var weekStart = getMonday(today);
+    var selectedDate = iso(today);
 
-    // Группировка по дате
-    const byDate = {};
-    deliveries.forEach(d => {
-        if (!byDate[d.d]) byDate[d.d] = [];
-        byDate[d.d].push(d);
-    });
-
-    const today = new Date();
-    let weekStart = getMondayOf(today);   // Текущая неделя
-    let selectedDate = isoFromDate(today); // Выбранный день
-
-    // ─── Статистика ─────────────────────────────────────────────────────────
-    function calcStats() {
-        const done = deliveries.filter(d => d.s === 'DELIVERED');
-        // Текущая неделя
-        const ws = isoFromDate(weekStart);
-        const we = isoFromDate(addDays(weekStart, 6));
-        const weekDone = done.filter(d => d.d >= ws && d.d <= we);
-        return { total: done.length, weekDone: weekDone.length };
+    function weekLabel() {
+        var end = addDays(weekStart, 6), m = t().months;
+        return weekStart.getMonth() === end.getMonth()
+            ? weekStart.getDate() + '–' + end.getDate() + ' ' + m[end.getMonth()]
+            : weekStart.getDate() + ' ' + m[weekStart.getMonth()] + ' – ' + end.getDate() + ' ' + m[end.getMonth()];
     }
 
-    // ─── Рендер ─────────────────────────────────────────────────────────────
-    function statusClass(s) {
-        return { DELIVERED:'s-delivered', IN_TRANSIT:'s-transit', TAKEN:'s-taken' }[s] || 's-taken';
-    }
-    function statusLabel(s) {
-        const t = T[profileLang];
-        return { DELIVERED:t.status_delivered, IN_TRANSIT:t.status_transit, TAKEN:t.status_taken }[s] || s;
-    }
-    function cardClass(s) {
-        if (s === 'DELIVERED') return 'delivery-card delivered';
-        if (['IN_TRANSIT','TAKEN'].includes(s)) return 'delivery-card in-progress';
-        return 'delivery-card';
+    function stats() {
+        var done = deliveries.filter(function (d) { return d.s === 'DELIVERED'; });
+        var ws = iso(weekStart), we = iso(addDays(weekStart, 6));
+        return {
+            total: done.length,
+            week: done.filter(function (d) { return d.d >= ws && d.d <= we; }).length
+        };
     }
 
-    function renderWeekLabel() {
-        const end = addDays(weekStart, 6);
-        const sm = T[profileLang].months_short[weekStart.getMonth()];
-        const em = T[profileLang].months_short[end.getMonth()];
-        if (weekStart.getMonth() === end.getMonth()) {
-            return `${weekStart.getDate()} — ${end.getDate()} ${sm}`;
+    var TONE = { DELIVERED: 'badge badge-ok', IN_TRANSIT: 'badge badge-violet', TAKEN: 'badge badge-info' };
+
+    function daysGrid() {
+        var out = '';
+        for (var i = 0; i < 7; i++) {
+            var d = addDays(weekStart, i), key = iso(d);
+            var n = byDate[key] ? byDate[key].length : 0;
+            var cls = 'day';
+            if (key === selectedDate) cls += ' sel';
+            else if (sameDay(d, today)) cls += ' today';
+            out += '<div class="' + cls + '" data-iso="' + key + '">' +
+                '<span class="dn">' + t().days[i] + '</span>' +
+                '<span class="dd mono">' + d.getDate() + '</span>' +
+                '<span class="dc mono' + (n ? '' : ' none') + '">' + (n || '') + '</span></div>';
         }
-        return `${weekStart.getDate()} ${sm} — ${end.getDate()} ${em}`;
+        return '<div class="days">' + out + '</div>';
     }
 
-    function renderDaysGrid() {
-        let html = '<div class="days-grid">';
-        for (let i = 0; i < 7; i++) {
-            const d = addDays(weekStart, i);
-            const iso = isoFromDate(d);
-            const isToday = sameDay(d, today);
-            const isSelected = iso === selectedDate;
-            const count = byDate[iso] ? byDate[iso].length : 0;
-            const [,mm] = DATA.month ? DATA.month.split('.') : [null, null];
-            const inMonth = !mm || String(d.getMonth() + 1).padStart(2,'0') === mm.padStart(2,'0');
-
-            let cls = 'day-cell';
-            if (isSelected) cls += ' selected';
-            if (isToday && !isSelected) cls += ' today';
-            if (!inMonth) cls += ' other-month';
-
-            const countHtml = count > 0 ? `<span class="day-count">${count}</span>` : `<span style="height:14px"></span>`;
-            html += `<div class="${cls}" onclick="selectDay('${iso}')">
-                <span class="day-name">${T[profileLang].days_short[(i+1)%7]}</span>
-                <span class="day-num">${d.getDate()}</span>
-                ${countHtml}
-            </div>`;
-        }
-        html += '</div>';
-        return html;
-    }
-
-    function renderDeliveryCard(d) {
-        return `
-        <div class="${cardClass(d.s)}">
-            <div class="time-col">
-                <span class="time-badge">${d.t}</span>
-                <div class="time-date">${d.d.slice(8)}.${d.d.slice(5,7)}</div>
-            </div>
-            <div class="card-body">
-                <div class="card-route">
-                    <span class="city">${d.f}</span>
-                    <span class="arrow">→</span>
-                    <span class="city">${d.to}</span>
-                </div>
-                <div class="card-meta">
-                    <span class="meta-tag">${d.tp === 'PVZ' ? T[profileLang].pvz : T[profileLang].door}</span>
-                    <span class="meta-tag">🆔 ${d.i}</span>
-                </div>
-                <span class="status-pill ${statusClass(d.s)}">${statusLabel(d.s)}</span>
-            </div>
-        </div>`;
-    }
-
-    function getFilteredDeliveries() {
-        if (!selectedDate) return deliveries;
-        return (byDate[selectedDate] || []);
+    function tripRow(d) {
+        return '<div class="trip">' +
+            '<div class="when"><div class="hm mono">' + esc(d.t) + '</div>' +
+            '<div class="dm mono">' + esc(String(d.d).slice(8) + '.' + String(d.d).slice(5, 7)) + '</div></div>' +
+            '<div class="body">' +
+                '<div class="route"><span class="c">' + esc(d.f) + '</span>' +
+                icon('arrow-right', 'ic-sm') + '<span class="c">' + esc(d.to) + '</span></div>' +
+                '<div class="tags">' +
+                    '<span class="' + (TONE[d.s] || 'badge') + '"><i class="dot"></i>' +
+                        esc(t()['st_' + d.s] || d.s) + '</span>' +
+                    '<span class="badge">' + esc(d.tp === 'PVZ' ? t().pvz : t().door) + '</span>' +
+                    '<span class="badge mono">' + esc(d.i) + '</span>' +
+                '</div>' +
+            '</div></div>';
     }
 
     function render() {
-        const stats = calcStats();
-        const filtered = getFilteredDeliveries();
-        filtered.sort((a, b) => b.t.localeCompare(a.t)); // Newest first
+        var s = stats();
+        var list = selectedDate ? (byDate[selectedDate] || []).slice() : deliveries.slice();
+        list.sort(function (a, b) { return String(b.t).localeCompare(String(a.t)); });
 
-        const t = T[profileLang];
-        const selDateObj = selectedDate ? parseDate(selectedDate) : null;
-        const selLabel = selDateObj
-            ? `${selDateObj.getDate()} ${t.months_short[selDateObj.getMonth()]}`
-            : t.all_label;
+        var selLabel = selectedDate
+            ? parseIso(selectedDate).getDate() + ' ' + t().months[parseIso(selectedDate).getMonth()]
+            : t().all;
 
-        const deliveriesHtml = filtered.length
-            ? filtered.map(renderDeliveryCard).join('')
-            : `<div class="empty">
-                <span class="empty-icon">📭</span>
-                <span class="empty-text">${selDateObj ? t.empty_day(selLabel) : t.empty_month}</span>
-               </div>`;
+        var listHtml = list.length
+            ? list.map(tripRow).join('')
+            : '<div class="empty">' + icon('inbox') + '<div>' +
+              esc(selectedDate ? t().empty_day : t().empty_all) + '</div></div>';
 
-        app.innerHTML = `
-        <!-- Header -->
-        <div class="header">
-            <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;">
-                <button onclick="setLang('ru')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${profileLang==='ru'?'#fff':'rgba(255,255,255,.35)'};background:${profileLang==='ru'?'rgba(255,255,255,.2)':'transparent'};color:#fff;">🇷🇺 RU</button>
-                <button onclick="setLang('tj')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${profileLang==='tj'?'#fff':'rgba(255,255,255,.35)'};background:${profileLang==='tj'?'rgba(255,255,255,.2)':'transparent'};color:#fff;">🇹🇯 TJ</button>
-            </div>
-            <div class="header-title">${t.cabinet_title}</div>
-            <div class="header-name" onclick="toggleProfile()" style="cursor:pointer;">${driverName}</div>
-            <div class="header-month">${monthLabel}</div>
-        </div>
+        var initials = String(driverName).trim().split(/\s+/).slice(0, 2)
+            .map(function (w) { return w[0] || ''; }).join('').toUpperCase();
 
-        <!-- Profile edit -->
-        <div class="section" style="${profileOpen ? '' : 'display:none;'}">
-            <div class="week-card">
-                <input id="profFioInput" type="text" value="${profileFioDraft}" oninput="profileFioDraft=this.value"
-                    style="width:100%;padding:9px 10px;border-radius:8px;border:1px solid rgba(0,0,0,.1);background:var(--sec-bg);color:var(--text);font-size:14px;margin-bottom:6px;">
-                <div style="font-size:11px;color:var(--hint);margin-bottom:8px;">${t.profile_hint}</div>
-                <button class="btn-report" style="margin-bottom:0;" onclick="saveDriverProfile()">${t.save}</button>
-            </div>
-        </div>
+        app.innerHTML =
+        '<header class="topbar"><div class="topbar-inner">' +
+            '<span class="glyph"><svg class="ic"><use href="#i-truck"></use></svg></span>' +
+            '<div class="spacer"><h1>' + esc(t().title) + '</h1>' +
+            '<div class="sub">' + esc(monthLabel) + '</div></div>' +
+            '<div class="lang">' +
+                '<button data-lang="ru" aria-pressed="' + (lang === 'ru') + '">RU</button>' +
+                '<button data-lang="tj" aria-pressed="' + (lang === 'tj') + '">TJ</button>' +
+            '</div>' +
+        '</div></header>' +
 
-        <!-- Stats -->
-        <div class="stats-row">
-            <div class="stat-card">
-                <div class="stat-value">${stats.total}</div>
-                <div class="stat-label">${t.stat_deliveries}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value">${stats.weekDone}</div>
-                <div class="stat-label">${t.stat_week}</div>
-            </div>
-        </div>
+        '<main class="container" style="padding-top:14px"><div class="stack">' +
 
-        <!-- Calendar -->
-        <div class="section">
-            <div class="section-title">${t.week_title}</div>
-            <div class="week-card">
-                <div class="week-nav">
-                    <button class="week-btn" onclick="prevWeek()">‹</button>
-                    <span class="week-label">${renderWeekLabel()}</span>
-                    <button class="week-btn" onclick="nextWeek()">›</button>
-                </div>
-                ${renderDaysGrid()}
-            </div>
-        </div>
+            '<section class="card">' +
+                '<div class="row">' +
+                    '<span class="avatar avatar-accent">' + esc(initials || '?') + '</span>' +
+                    '<div class="spacer"><div style="font-weight:650" class="truncate">' + esc(driverName) + '</div>' +
+                    '<div class="hint" style="font-size:12.5px">' + esc(t().profile) + '</div></div>' +
+                    '<button class="icon-btn" id="btnProfile" aria-expanded="' + profileOpen + '">' +
+                        icon(profileOpen ? 'chevron-up' : 'edit') + '</button>' +
+                '</div>' +
+                (profileOpen ?
+                '<div style="margin-top:14px">' +
+                    '<div class="field"><label class="label" for="fio">' + esc(t().fio) + '</label>' +
+                    '<input class="input" id="fio" type="text" value="' + esc(fioDraft) + '"></div>' +
+                    '<div class="field"><span class="label">' + esc(t().lang_label) + '</span>' +
+                        '<div class="choice">' +
+                        '<button type="button" data-plang="ru" aria-pressed="' + (lang === 'ru') + '"><span class="t">Русский</span></button>' +
+                        '<button type="button" data-plang="tj" aria-pressed="' + (lang === 'tj') + '"><span class="t">Тоҷикӣ</span></button>' +
+                        '</div></div>' +
+                    '<div class="note" style="margin-top:13px">' + icon('info', 'ic-sm') +
+                        '<span>' + esc(t().profile_hint) + '</span></div>' +
+                    '<button class="btn btn-primary btn-block" id="btnSave" style="margin-top:13px">' +
+                        icon('check') + esc(t().save) + '</button>' +
+                '</div>' : '') +
+            '</section>' +
 
-        <!-- Report Button -->
-        <div class="section">
-            <button class="btn-report" onclick="downloadReport()">
-                📄 ${t.report_btn} ${renderWeekLabel()}
-            </button>
-        </div>
+            '<div class="stat-grid">' +
+                '<div class="stat"><div class="stat-label">' + icon('check', 'ic-sm') +
+                    '<span>' + esc(t().stat_total) + '</span></div>' +
+                    '<div class="stat-value mono">' + s.total + '</div></div>' +
+                '<div class="stat"><div class="stat-label">' + icon('calendar', 'ic-sm') +
+                    '<span>' + esc(t().stat_week) + '</span></div>' +
+                    '<div class="stat-value mono">' + s.week + '</div></div>' +
+            '</div>' +
 
-        <!-- Deliveries -->
-        <div class="section">
-            <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
-                <span>${selectedDate ? selLabel : t.all_deliveries}</span>
-                <span style="font-size:11px;color:var(--primary);cursor:pointer;" onclick="clearDay()">
-                    ${selectedDate ? t.reset : ''}
-                </span>
-            </div>
-            ${deliveriesHtml}
-        </div>`;
+            '<section class="card">' +
+                '<div class="week-nav">' +
+                    '<button class="icon-btn" id="prevWeek">' + icon('chevron-left') + '</button>' +
+                    '<span class="lbl">' + esc(weekLabel()) + '</span>' +
+                    '<button class="icon-btn" id="nextWeek">' + icon('chevron-right') + '</button>' +
+                '</div>' +
+                daysGrid() +
+                '<button class="btn btn-accent-outline btn-block" id="btnReport" style="margin-top:14px">' +
+                    icon('download') + esc(t().report) + '</button>' +
+            '</section>' +
+
+            '<section class="card">' +
+                '<div class="card-head">' +
+                    '<div class="card-title">' + esc(selLabel) + '</div>' +
+                    (selectedDate ? '<button class="btn btn-ghost btn-sm" id="clearDay" style="margin-left:auto">' +
+                        esc(t().reset) + '</button>' : '') +
+                '</div>' + listHtml +
+            '</section>' +
+
+        '</div></main>';
+
+        wire();
     }
 
-    // ─── Отчёт ──────────────────────────────────────────────────────────────
-    function downloadReport() {
-        const ws = isoFromDate(weekStart);
-        tg.sendData(JSON.stringify({ action: 'generate_report', week_start: ws }));
-    }
+    function wire() {
+        app.querySelectorAll('[data-lang]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                lang = b.dataset.lang;
+                localStorage.setItem('driver_lang', lang);
+                render();
+            });
+        });
+        app.querySelectorAll('[data-plang]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var input = document.getElementById('fio');
+                if (input) fioDraft = input.value;
+                lang = b.dataset.plang;
+                localStorage.setItem('driver_lang', lang);
+                render();
+            });
+        });
+        app.querySelectorAll('.day').forEach(function (el) {
+            el.addEventListener('click', function () {
+                selectedDate = (selectedDate === el.dataset.iso) ? null : el.dataset.iso;
+                render();
+            });
+        });
 
-    // ─── Язык / Профиль ─────────────────────────────────────────────────────
-    function setLang(lang) {
-        profileLang = lang;
-        localStorage.setItem('driver_lang', lang);
-        render();
-    }
-    function toggleProfile() {
-        profileOpen = !profileOpen;
-        render();
-    }
-    function saveDriverProfile() {
-        const fio = (document.getElementById('profFioInput').value || '').trim();
-        if (!fio) return;
-        tg.sendData(JSON.stringify({ action: 'update_profile', fio, lang: profileLang }));
-        tg.close();
-    }
+        var on = function (id, fn) {
+            var el = document.getElementById(id);
+            if (el) el.addEventListener('click', fn);
+        };
 
-    // ─── Действия ───────────────────────────────────────────────────────────
-    function selectDay(iso) {
-        selectedDate = (selectedDate === iso) ? null : iso;
-        render();
-    }
-    function clearDay() {
-        selectedDate = null;
-        render();
-    }
-    function prevWeek() {
-        weekStart = addDays(weekStart, -7);
-        render();
-    }
-    function nextWeek() {
-        weekStart = addDays(weekStart, 7);
-        render();
+        on('btnProfile', function () {
+            var input = document.getElementById('fio');
+            if (input) fioDraft = input.value;
+            profileOpen = !profileOpen;
+            render();
+        });
+        on('btnSave', function () {
+            var fio = (document.getElementById('fio').value || '').trim();
+            if (!fio) return;
+            tg.sendData(JSON.stringify({ action: 'update_profile', fio: fio, lang: lang }));
+            tg.close();
+        });
+        on('btnReport', function () {
+            tg.sendData(JSON.stringify({ action: 'generate_report', week_start: iso(weekStart) }));
+        });
+        on('prevWeek', function () { weekStart = addDays(weekStart, -7); render(); });
+        on('nextWeek', function () { weekStart = addDays(weekStart, 7); render(); });
+        on('clearDay', function () { selectedDate = null; render(); });
     }
 
     render();
-    } // end else (DATA exists)
+    }
 </script>
 </body>
 </html>
