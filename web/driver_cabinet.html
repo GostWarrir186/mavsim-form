@@ -49,6 +49,7 @@
     .day.sel { background: var(--accent); border-color: var(--accent); }
     .day.sel .dn, .day.sel .dd { color: var(--on-accent); }
     .day.sel .dc { background: rgba(255,255,255,.24); color: var(--on-accent); }
+    .day.sel .dc.none { background: none; }
     :root[data-theme="dark"] .day.sel .dc { background: rgba(0,0,0,.22); }
 
     /* ── доставки ── */
@@ -342,7 +343,9 @@
             render();
         });
         on('btnSave', function () {
-            var fio = (document.getElementById('fio').value || '').trim();
+            // узел мог быть заменён перерисовкой — читаем через проверку
+            var input = document.getElementById('fio');
+            var fio = ((input && input.value) || '').trim();
             if (!fio) return;
             tg.sendData(JSON.stringify({ action: 'update_profile', fio: fio, lang: lang }));
             tg.close();

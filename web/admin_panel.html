@@ -204,6 +204,7 @@
         document.getElementById('sheetClose').addEventListener('click', closeSheet);
         sheet.querySelectorAll('[data-status]').forEach(function (b) {
             b.addEventListener('click', function () {
+                if (!manageOrder) return;
                 var key = b.dataset.status;
                 var found = STATUSES.filter(function (s) { return s.key === key; })[0];
                 send({
@@ -218,6 +219,7 @@
         });
         sheet.querySelectorAll('[data-tid]').forEach(function (b) {
             b.addEventListener('click', function () {
+                if (!manageOrder) return;
                 send({
                     action: 'reassign_confirm',
                     order_row: manageOrder.row,
@@ -241,6 +243,7 @@
     }
 
     function cancelActive(reason) {
+        if (!manageOrder) return;
         send({
             action: 'cancel_active',
             order_id: manageOrder.id,

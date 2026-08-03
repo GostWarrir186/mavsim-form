@@ -160,7 +160,10 @@
         if (reduce) { out(target); return; }
         var start = performance.now(), dur = 520;
         requestAnimationFrame(function step(t) {
-            var k = Math.min(1, (t - start) / dur);
+            // rAF отдаёт время НАЧАЛА кадра — оно бывает раньше start, и тогда
+            // k < 0 давал отрицательный множитель: на первом кадре мелькали
+            // «-2 686 сом.» вместо нуля. Отсюда обязательный Math.max(0, …).
+            var k = Math.max(0, Math.min(1, (t - start) / dur));
             out(target * (1 - Math.pow(1 - k, 3)));
             if (k < 1) requestAnimationFrame(step);
         });
