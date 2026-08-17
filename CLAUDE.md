@@ -163,12 +163,19 @@ admin_panel.html/driver_cabinet.html их быть не должно. Если �
 
 ## Деплой
 - **`.py`-файлы** (`client_bot.py`, `driver_bot.py`, `manager_bot.py`,
-  `config.py`, `main.py`, `db.py`) — на VPS вручную через **Cyberduck (SFTP)** в
-  `~/automation/mavsim-delivery-bot/`, затем на сервере:
-  `cd ~/automation && docker compose build mavsim-bots && docker compose up -d mavsim-bots`.
-  Git на них НЕ влияет — сервер не делает `git pull`, только читает файлы
-  с диска. Коммитить их в git всё равно стоит (для истории), но это не
-  замена деплою. **Новый файл — не забудь добавить в `COPY` в Dockerfile**
+  `config.py`, `main.py`, `db.py`) — с 2026-08-17 деплой **через git**:
+  `~/automation/mavsim-delivery-bot/` на VPS — это git-клон `origin/main`
+  (публичный репозиторий, HTTPS, ключи не нужны). Порядок: закоммитить и
+  запушить в `main`, затем на сервере `cd ~/automation/mavsim-delivery-bot &&
+  ./deploy.sh` (скрипт делает `git pull --ff-only` → `docker compose build` →
+  `up -d` → показывает логи, и отказывается работать при незакоммиченных
+  правках на сервере). Ручной Cyberduck (SFTP) больше не нужен и вреден —
+  именно частичная заливка одного файла давала `ImportError` → краш-цикл →
+  429. Через git набор файлов приезжает согласованным.
+  **Не в git и только руками через Cyberduck: `.env` и `creds.json`** —
+  репозиторий публичный. Также untracked на сервере: `data/` (volume) и
+  legacy `web_api.py`. `.dockerignore` держит `.git/` и `data/` вне контекста
+  сборки. **Новый файл — не забудь добавить в `COPY` в Dockerfile**
   (db.py там уже есть). `docker-compose.yml` (на рабочем столе / в `~/automation/`):
   сервис `mavsim-bots` монтирует volume `./mavsim-delivery-bot/data:/data` и
   задаёт `SQLITE_DB_PATH=/data/mavsim.db`. Env-переменные (`DASHBOARD_URL`,
