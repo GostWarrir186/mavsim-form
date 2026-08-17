@@ -1,0 +1,17 @@
+# Контекст сборки — только то, что перечислено в COPY Dockerfile.
+# Особенно важно исключить data/: там живёт растущее SQLite-зеркало
+# (volume /data), гонять его демону при каждой сборке незачем.
+.git/
+.gitignore
+data/
+web/
+graphify-out/
+.claude/
+.rtk/
+*.md
+__pycache__/
+*.pyc
+.venv/
+mavsim.db*
+.env
+creds.json
