@@ -21,7 +21,11 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
 fi
 
 echo ">> git pull"
-git pull --ff-only
+# Явно origin main, а не голый `git pull`: клон на сервере заводился через
+# init+fetch+reset, upstream у ветки при этом не настраивается, и `git pull`
+# падает с "no tracking information". Заодно чиним это на будущее.
+git pull --ff-only origin main
+git branch --set-upstream-to=origin/main main >/dev/null 2>&1 || true
 
 echo ">> docker compose build $SERVICE"
 cd "$COMPOSE_DIR"
