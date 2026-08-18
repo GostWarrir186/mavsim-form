@@ -153,6 +153,8 @@ L = {
         ),
         "welcome_back": "👋 **С возвращением, {fio}!**\n\nВыберите действие:",
         "blocked": "⛔ Аккаунт заблокирован. Обратитесь к администратору.",
+        "access_revoked": "⛔ Ваш доступ приостановлен менеджером. Новые заказы принимать нельзя. По вопросам — обратитесь к администратору.",
+        "access_restored": "✅ Доступ восстановлен. Можете снова принимать заказы.",
         "menu_prompt": "Выберите действие:",
         "offer_accepted_ask_fio": "✅ Отлично! Вы принимаете условия оферты.\n\nВведите ваше **ФИО** (Фамилия Имя Отчество):",
         "fio_too_short": "❌ Пожалуйста, введите полное ФИО (минимум 3 символа).",
@@ -235,6 +237,8 @@ L = {
         ),
         "welcome_back": "👋 **Хуш омадед, {fio}!**\n\nАмалро интихоб кунед:",
         "blocked": "⛔ Аккаунти шумо баста шудааст.",
+        "access_revoked": "⛔ Дастрасии шумо аз ҷониби менеҷер боздошта шуд. Қабули фармоишҳои нав манъ аст. Барои саволҳо ба маъмур муроҷиат кунед.",
+        "access_restored": "✅ Дастрасӣ барқарор шуд. Шумо метавонед боз фармоишҳоро қабул кунед.",
         "menu_prompt": "Амалро интихоб кунед:",
         "offer_accepted_ask_fio": "✅ Офертаро қабул кардед!\n\nНоми пурраи худро ворид кунед (Фамилия Ном Насаб):",
         "fio_too_short": "❌ Номи пурраи худро ворид кунед (ҳадди ақал 3 аломат).",
@@ -830,9 +834,10 @@ def _sync_get_drivers_for_dashboard() -> list:
         for idx, row in enumerate(drivers_sheet.get_all_values()):
             if idx == 0 or len(row) < 4:
                 continue
-            if row[0].upper().strip() != "ACTIVE":
+            status = row[0].upper().strip()
+            if status not in ("ACTIVE", "BLOCKED"):
                 continue
-            result.append({"fio": row[2], "tid": row[3], "row": idx + 1})
+            result.append({"fio": row[2], "tid": row[3], "row": idx + 1, "status": status})
     except Exception as e:
         logging.error(f"Ошибка чтения курьеров для дашборда: {e}")
     return result

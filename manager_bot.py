@@ -125,6 +125,31 @@ def _sync_reject_driver(telegram_id: str) -> str | None:
         return None
 
 
+def _sync_set_driver_access(telegram_id: str, new_status: str, allowed_from: tuple) -> tuple[bool, str, str]:
+    """Блокировка/разблокировка курьера. Returns (успех, ФИО, ошибка).
+
+    Раньше отзыв доступа делался правкой листа «Водители» руками — код об этом
+    не знал, и зеркало продолжало отдавать ACTIVE до следующего снапшота.
+    Здесь статус меняется вместе с write-through, поэтому доступ пропадает
+    сразу же (гейт `_get_active_driver` читает то же зеркало)."""
+    if not drivers_sheet:
+        return False, "", "база недоступна"
+    try:
+        cell = drivers_sheet.find(str(telegram_id), in_column=4)
+        if not cell:
+            return False, "", "курьер не найден"
+        row = drivers_sheet.row_values(cell.row)
+        current = row[0].upper().strip() if row else ""
+        if current not in allowed_from:
+            return False, "", f"статус: {current or '—'}"
+        drivers_sheet.update_cell(cell.row, 1, new_status)
+        db.mark_driver_status(telegram_id, new_status)
+        return True, (row[2] if len(row) > 2 else "Курьер"), ""
+    except Exception as e:
+        logging.error(f"Ошибка смены доступа курьера {telegram_id} на {new_status}: {e}")
+        return False, "", str(e)
+
+
 # ─── Google Sheets: заказы ───────────────────────────────────────────────────
 
 def _sync_set_order_ready(order_id: str) -> tuple[bool, str, str]:
@@ -347,8 +372,11 @@ def generate_summary_excel(couriers_stats: list[dict], period_label: str) -> Byt
 def _build_panel_message(data: dict) -> tuple[str, str | None]:
     active_cnt = len(data["orders"])
     free_cnt   = len(data["free"])
-    busy_cnt   = sum(1 for c in data["couriers"] if c["busy"])
-    total_cnt  = len(data["couriers"])
+    # Заблокированные приходят в списке (их надо показать в панели), но в
+    # счётчик «курьеров в работе» не входят.
+    working    = [c for c in data["couriers"] if c.get("status") != "BLOCKED"]
+    busy_cnt   = sum(1 for c in working if c["busy"])
+    total_cnt  = len(working)
     text = (
         f"🎛 <b>Панель управления</b>\n\n"
         f"📦 Активных заказов: <b>{active_cnt}</b>\n"
@@ -535,6 +563,49 @@ async def handle_webapp(message: types.Message):
             types.BufferedInputFile(buf.read(), filename=fname),
             caption=caption,
         )
+        return
+
+    # ── Заблокировать / разблокировать курьера ──────────────────────────────
+    if action in ("block_driver", "unblock_driver"):
+        tid = str(data.get("courier_tid") or "").strip()
+        if not tid.isdigit():
+            return
+        blocking    = action == "block_driver"
+        new_status  = "BLOCKED" if blocking else "ACTIVE"
+        # Блокируем только активного, разблокируем только заблокированного:
+        # иначе панель со старым снимком могла бы «разблокировать» курьера,
+        # которого на самом деле отклонили при регистрации (REJECTED).
+        allowed_from = ("ACTIVE",) if blocking else ("BLOCKED",)
+
+        ok, fio, err = await asyncio.to_thread(
+            _sync_set_driver_access, tid, new_status, allowed_from
+        )
+        if not ok:
+            await message.answer(f"❌ Не удалось изменить доступ курьера. {err}")
+            return
+
+        note = ""
+        if blocking:
+            stuck = await asyncio.to_thread(db.count_active_orders_for_courier, tid)
+            if stuck:
+                note = (f"\n\n⚠️ На нём висит незакрытых заказов: <b>{stuck}</b>. "
+                        f"Переназначьте их через карточку заказа.")
+        await message.answer(
+            (f"⛔ Курьер <b>{html.escape(fio)}</b> заблокирован. Доступ к заказам закрыт.{note}"
+             if blocking else
+             f"✅ Курьер <b>{html.escape(fio)}</b> разблокирован."),
+            parse_mode="HTML"
+        )
+
+        try:
+            driver_data = await asyncio.to_thread(_sync_get_driver, tid)
+            lang = _lang_from_driver_row(driver_data)
+            await driver_bot_instance.send_message(
+                chat_id=int(tid),
+                text=DRIVER_L[lang]["access_revoked" if blocking else "access_restored"],
+            )
+        except Exception as e:
+            logging.error(f"Не удалось уведомить курьера {tid} о смене доступа: {e}")
         return
 
     # ── Сменить статус активного заказа ─────────────────────────────────────

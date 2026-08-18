@@ -408,11 +408,20 @@ def get_orders_for_dashboard() -> tuple[list, list, list]:
 
 
 def get_drivers_for_dashboard() -> list[dict]:
+    """ACTIVE + BLOCKED: заблокированные нужны в панели, иначе их нечем
+    разблокировать. `status` отдаём наружу, чтобы панель не предлагала
+    заблокированного как цель переназначения."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT tg_id, full_name FROM drivers WHERE UPPER(status) = 'ACTIVE' ORDER BY full_name"
+            "SELECT tg_id, full_name, status FROM drivers "
+            "WHERE UPPER(status) IN ('ACTIVE','BLOCKED') ORDER BY full_name"
         ).fetchall()
-    return [{"fio": r["full_name"] or "", "tid": r["tg_id"], "row": 0} for r in rows]
+    return [{
+        "fio":    r["full_name"] or "",
+        "tid":    r["tg_id"],
+        "row":    0,
+        "status": (r["status"] or "").upper().strip(),
+    } for r in rows]
 
 
 def get_active_drivers() -> list[dict]:
@@ -463,6 +472,21 @@ def get_driver_row(chat_id: str) -> list | None:
     row[7] = r["phone"] or ""
     row[8] = r["lang"] or "ru"
     return row
+
+
+def count_active_orders_for_courier(tg_id: str) -> int:
+    """Сколько незакрытых заказов висит на курьере — чтобы при блокировке
+    предупредить менеджера, что их надо переназначить."""
+    try:
+        with _connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM orders WHERE courier_tg_id = ? AND status IN (?,?)",
+                (str(tg_id), *ACTIVE_STATUSES),
+            ).fetchone()
+        return int(row["n"]) if row else 0
+    except Exception as e:
+        logging.warning(f"Не удалось посчитать активные заказы курьера {tg_id}: {e}")
+        return 0
 
 
 def get_client_order_statuses(chat_id: str) -> list[dict]:

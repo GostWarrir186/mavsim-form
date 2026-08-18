@@ -154,7 +154,8 @@
                 (disabled ? ' disabled' : ' data-status="' + s.key + '"') + '>' + esc(s.label) + '</button>';
         }).join('');
 
-        var couriers = (DATA.couriers || []).map(function (c) {
+        // Заблокированный курьер не должен предлагаться как цель переназначения.
+        var couriers = (DATA.couriers || []).filter(function (c) { return !isBlocked(c); }).map(function (c) {
             return '<button class="sheet-cour" data-tid="' + esc(c.tid) + '" data-name="' + esc(c.fio) + '">' +
                 '<span class="avatar">' + esc(initials(c.fio)) + '</span>' +
                 '<span class="spacer"><span class="truncate" style="display:block;font-weight:600">' + esc(c.fio) + '</span>' +
@@ -255,6 +256,16 @@
 
     function send(payload) { tg.sendData(JSON.stringify(payload)); }
 
+    // showConfirm есть не во всех версиях Telegram WebApp (и нет в стабе выше),
+    // поэтому подтверждение опционально: без него действие просто выполняется.
+    function confirmThen(text, fn) {
+        if (typeof tg.showConfirm === 'function') {
+            tg.showConfirm(text, function (ok) { if (ok) fn(); });
+        } else if (window.confirm(text)) {
+            fn();
+        }
+    }
+
     function initials(name) {
         return String(name || '?').trim().split(/\s+/).slice(0, 2)
             .map(function (w) { return w[0] || ''; }).join('').toUpperCase() || '?';
@@ -304,16 +315,26 @@
             '</div></div>';
     }
 
+    function isBlocked(c) { return c.status === 'BLOCKED'; }
+
     function courierRow(c, withReport) {
+        var blocked = isBlocked(c);
+        var badge = blocked
+            ? '<span class="badge badge-bad" style="margin-top:3px"><i class="dot"></i>Заблокирован</span>'
+            : '<span class="' + (c.busy ? 'badge badge-warn' : 'badge badge-ok') + '" style="margin-top:3px">' +
+              '<i class="dot"></i>' + (c.busy ? 'Занят' : 'Свободен') + '</span>';
+        var action = withReport
+            ? '<button class="btn btn-outline btn-sm" data-report="' + esc(c.tid) + '" data-name="' + esc(c.fio) + '">' +
+              icon('download', 'ic-sm') + 'Отчёт</button>'
+            : (blocked
+                ? '<button class="btn btn-outline btn-sm" data-unblock="' + esc(c.tid) + '" data-name="' + esc(c.fio) + '">' +
+                  icon('check', 'ic-sm') + 'Вернуть</button>'
+                : '<button class="btn btn-ghost btn-sm" data-block="' + esc(c.tid) + '" data-name="' + esc(c.fio) + '">' +
+                  icon('x-circle', 'ic-sm') + 'Блок</button>');
         return '<div class="list-row">' +
-            '<span class="avatar' + (c.busy ? '' : ' avatar-accent') + '">' + esc(initials(c.fio)) + '</span>' +
+            '<span class="avatar' + (c.busy || blocked ? '' : ' avatar-accent') + '">' + esc(initials(c.fio)) + '</span>' +
             '<span class="body"><span class="name truncate" style="display:block">' + esc(c.fio) + '</span>' +
-            '<span class="' + (c.busy ? 'badge badge-warn' : 'badge badge-ok') + '" style="margin-top:3px">' +
-            '<i class="dot"></i>' + (c.busy ? 'Занят' : 'Свободен') + '</span></span>' +
-            (withReport
-                ? '<button class="btn btn-outline btn-sm" data-report="' + esc(c.tid) + '" data-name="' + esc(c.fio) + '">' +
-                  icon('download', 'ic-sm') + 'Отчёт</button>'
-                : '') +
+            badge + '</span>' + action +
             '</div>';
     }
 
@@ -423,6 +444,19 @@
         app.querySelectorAll('[data-accept]').forEach(function (b) {
             b.addEventListener('click', function () {
                 send({ action: 'set_ready', order_id: b.dataset.accept, order_row: +b.dataset.row });
+            });
+        });
+        app.querySelectorAll('[data-block]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                confirmThen(
+                    'Заблокировать курьера ' + b.dataset.name + '? Он не сможет брать заказы.',
+                    function () { send({ action: 'block_driver', courier_tid: b.dataset.block }); }
+                );
+            });
+        });
+        app.querySelectorAll('[data-unblock]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                send({ action: 'unblock_driver', courier_tid: b.dataset.unblock });
             });
         });
         app.querySelectorAll('[data-report]').forEach(function (b) {
