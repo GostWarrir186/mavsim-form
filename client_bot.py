@@ -17,6 +17,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import ReplyKeyboardBuilder, InlineKeyboardBuilder
 
 from config import client_bot as bot, client_dp as dp, manager_bot as mgr_bot, sheet, clients_sheet, orders_info_sheet, get_manager_chat_ids, sanitize_for_sheet, md_escape
+import db
 
 class Registration(StatesGroup):
     waiting_for_lang = State()
@@ -191,6 +192,13 @@ def _sync_check_user_by_chat_id(chat_id: str):
 
 def _sync_get_client_order_statuses(chat_id: str) -> list[dict]:
     """Актуальные статусы заказов клиента (Лист1, Chat ID клиента = столбец S = 19), для живого обновления «Истории» в WebApp."""
+    # Читается при каждом открытии главного меню клиента — вычитывать ради
+    # этого весь Лист1 незачем, зеркала достаточно.
+    if db.is_fresh():
+        try:
+            return db.get_client_order_statuses(chat_id)
+        except Exception as e:
+            logging.warning(f"Зеркало не отдало статусы клиента {chat_id} ({e}) — читаем Таблицу")
     if not sheet:
         return []
     try:
@@ -239,6 +247,9 @@ def _lang_from_row(row, fallback: str = "ru") -> str:
 def _sync_append_row(row_data: list):
     if sheet:
         sheet.append_row(row_data, table_range="A1")
+        # Зеркало узнаёт о заказе сразу, а не после следующего снапшота —
+        # иначе панель менеджера какое-то время не показывала бы новый заказ.
+        db.upsert_order_from_row(row_data)
 
 def _sync_register_client(chat_id: str, fio: str, phone: str, lang: str = "ru") -> bool:
     if not clients_sheet:

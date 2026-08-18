@@ -35,9 +35,12 @@ async def start_all():
     tasks = [
         client_dp.start_polling(client_bot, handle_signals=False, drop_pending_updates=True),
         driver_dp.start_polling(driver_bot_instance, handle_signals=False, drop_pending_updates=True),
-        # База-зеркало для статистики: снапшот из Google Таблиц каждые 10 минут.
-        # Не пишет обратно в таблицы; падение снапшота не ронять ботов (см. db.run_sync_loop).
-        db_module.run_sync_loop(interval_sec=600),
+        # База-зеркало: с Фазы 1 из неё читают биржа, кабинет, дашборд и статусы
+        # клиента, поэтому снапшот чаще — 60с (было 600с, когда зеркало обслуживало
+        # только статистику). Плюс write-through после каждой записи, так что 60с —
+        # это потолок расхождения, а не типичное. Не пишет обратно в таблицы;
+        # падение снапшота не роняет ботов (см. db.run_sync_loop).
+        db_module.run_sync_loop(interval_sec=int(os.getenv("SNAPSHOT_INTERVAL_SEC", "60"))),
     ]
     if manager_bot_instance and manager_dp:
         tasks.append(

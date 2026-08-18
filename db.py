@@ -56,6 +56,13 @@ CREATE TABLE IF NOT EXISTS orders (
     courier_tg_id  TEXT,
     client_chat_id TEXT,
     source         TEXT,
+    -- Поля ниже нужны не статистике, а чтению биржи/дашборда из зеркала
+    -- (Фаза 1): без них из SQLite нельзя собрать карточку заказа.
+    addr_from      TEXT,
+    addr_to        TEXT,
+    comment        TEXT,
+    s_name         TEXT,
+    r_phone        TEXT,
     synced_at      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
@@ -94,11 +101,29 @@ def _connect():
         if not _schema_ready:
             with conn:
                 conn.executescript(_SCHEMA_SQL)
+                _migrate(conn)
             _schema_ready = True
         with conn:
             yield conn
     finally:
         conn.close()
+
+
+def _migrate(conn) -> None:
+    """Догоняет схему на уже существующей базе. `CREATE TABLE IF NOT EXISTS`
+    не добавляет столбцы в таблицу, которая уже создана, — а на сервере volume
+    `/data/mavsim.db` переживает пересборку контейнера, так что там лежит база
+    со старой схемой. Идемпотентно: сверяем PRAGMA и добавляем недостающее."""
+    have = {r["name"] for r in conn.execute("PRAGMA table_info(orders)")}
+    added = [c for c in ("addr_from", "addr_to", "comment", "s_name", "r_phone") if c not in have]
+    for col in added:
+        conn.execute(f"ALTER TABLE orders ADD COLUMN {col} TEXT")
+    if added:
+        # Столбцы добавлены пустыми, а synced_at остался свежим — иначе биржа до
+        # первого нового снапшота отдавала бы карточки без адресов. Помечаем
+        # зеркало протухшим, чтобы is_fresh() увёл чтение в Таблицу.
+        conn.execute("UPDATE orders SET synced_at = NULL")
+        logging.info(f"Схема зеркала дополнена: {', '.join(added)}")
 
 
 def init_db() -> None:
@@ -143,6 +168,48 @@ def _pad(row: list, n: int) -> list:
     return (list(row) + [""] * n)[:n]
 
 
+# Порядок столбцов INSERT для orders — держим в одном месте: им пользуются и
+# полный снапшот, и точечный upsert из write-through.
+_ORDER_COLUMNS = (
+    "order_id, status, accepted_at, accepted_date, delivered_at, delivered_date, "
+    "price, city_from, city_to, dtype, weight, courier_name, courier_tg_id, "
+    "client_chat_id, source, addr_from, addr_to, comment, s_name, r_phone, synced_at"
+)
+_ORDER_PLACEHOLDERS = ",".join("?" * 21)
+
+
+def _order_tuple(r: list, now_iso: str) -> tuple | None:
+    """Строка «Лист1» → кортеж для INSERT в orders. None, если строка без ID
+    (пустая/битая) — такие в зеркало не кладём."""
+    r = _pad(r, 21)
+    order_id = (r[1] or "").strip()
+    if not order_id:
+        return None
+    return (
+        order_id,
+        (r[0] or "").strip(),        # status
+        r[2],                         # accepted_at
+        _iso_date(r[2]),              # accepted_date
+        r[3],                         # delivered_at
+        _iso_date(r[3]),              # delivered_date
+        _num(r[4]),                   # price
+        (r[5] or "").strip(),         # city_from
+        (r[7] or "").strip(),         # city_to
+        (r[10] or "").strip(),        # dtype
+        (r[11] or "").strip(),        # weight
+        (r[18] or "").strip(),        # courier_name
+        (r[20] or "").strip(),        # courier_tg_id
+        (r[19] or "").strip(),        # client_chat_id
+        (r[17] or "").strip(),        # source
+        (r[6] or "").strip(),         # addr_from
+        (r[8] or "").strip(),         # addr_to
+        (r[9] or "").strip(),         # comment
+        (r[13] or "").strip(),        # s_name
+        (r[16] or "").strip(),        # r_phone
+        now_iso,
+    )
+
+
 # ─────────────────────────── снапшот из Google Таблиц ───────────────────────────
 
 def snapshot_from_sheets() -> dict:
@@ -162,36 +229,13 @@ def snapshot_from_sheets() -> dict:
         rows = config.sheet.get_all_values()[1:]  # без заголовка
         order_rows = []
         for r in rows:
-            r = _pad(r, 21)
-            order_id = (r[1] or "").strip()
-            if not order_id:
-                continue  # пустые/битые строки пропускаем
-            order_rows.append((
-                order_id,
-                (r[0] or "").strip(),        # status
-                r[2],                         # accepted_at
-                _iso_date(r[2]),              # accepted_date
-                r[3],                         # delivered_at
-                _iso_date(r[3]),              # delivered_date
-                _num(r[4]),                   # price
-                (r[5] or "").strip(),         # city_from
-                (r[7] or "").strip(),         # city_to
-                (r[10] or "").strip(),        # dtype
-                (r[11] or "").strip(),        # weight
-                (r[18] or "").strip(),        # courier_name
-                (r[20] or "").strip(),        # courier_tg_id
-                (r[19] or "").strip(),        # client_chat_id
-                (r[17] or "").strip(),        # source
-                now_iso,
-            ))
+            tpl = _order_tuple(r, now_iso)
+            if tpl:
+                order_rows.append(tpl)
         with _connect() as conn:
             conn.execute("DELETE FROM orders")
             conn.executemany(
-                """INSERT INTO orders
-                   (order_id, status, accepted_at, accepted_date, delivered_at,
-                    delivered_date, price, city_from, city_to, dtype, weight,
-                    courier_name, courier_tg_id, client_chat_id, source, synced_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                f"INSERT INTO orders ({_ORDER_COLUMNS}) VALUES ({_ORDER_PLACEHOLDERS})",
                 order_rows,
             )
         counts["orders"] = len(order_rows)
@@ -227,6 +271,237 @@ def snapshot_from_sheets() -> dict:
 
     logging.info(f"🔄 Снапшот в SQLite: заказов {counts['orders']}, курьеров {counts['drivers']}")
     return counts
+
+
+# ─────────────────── чтение для ботов (Фаза 1) ───────────────────
+#
+# Зачем: раньше биржа, кабинет и дашборд читали Google Таблицу напрямую, и
+# любой чих Google (500/503/RemoteDisconnected) курьер видел как пустой список
+# вместо заказов. Теперь читаем из зеркала, а Таблица остаётся источником
+# истины для ЗАПИСИ: `_sync_take_order` и соседи по-прежнему перепроверяют
+# статус в Таблице под блокировкой, поэтому устаревшая карточка в худшем
+# случае даёт «заказ уже забрали», а не двойной захват.
+#
+# Свежесть: снапшот раз в 60с плюс write-through после каждой записи.
+# Гонка «снапшот стартовал до записи и перетёр её» возможна, но самовосстановима
+# — следующий снапшот вернёт правильное значение, а захват валидируется по
+# Таблице в любом случае.
+
+MIRROR_MAX_AGE_SEC = 900  # старше — считаем зеркало протухшим и идём в Таблицу
+
+
+def is_fresh(max_age_sec: int = MIRROR_MAX_AGE_SEC) -> bool:
+    """Есть ли в зеркале данные и достаточно ли они свежие. False → вызывающий
+    код должен сходить в Google Таблицу (холодный старт, сдохший снапшот)."""
+    try:
+        with _connect() as conn:
+            row = conn.execute("SELECT MAX(synced_at) AS ts FROM orders").fetchone()
+        if not row or not row["ts"]:
+            return False
+        age = (datetime.now(DUSHANBE_TZ) - datetime.fromisoformat(row["ts"])).total_seconds()
+        return age <= max_age_sec
+    except Exception as e:
+        logging.warning(f"Зеркало недоступно ({e}) — читаем из Таблицы")
+        return False
+
+
+def get_free_orders() -> list[dict]:
+    """Свободные заказы для биржи. Форма словаря — как у driver_bot._sync_get_free_orders.
+    `row_num` больше не несёт смысла (в зеркале нет номеров строк) и всё равно
+    нигде не используется: действия над заказом идут по ID."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT order_id, price, city_from, city_to, addr_from, addr_to,
+                      comment, dtype, s_name, r_phone
+               FROM orders WHERE status = 'READY_FOR_DRIVERS'
+               ORDER BY accepted_at"""
+        ).fetchall()
+    return [{
+        "row_num":          0,
+        "id":               r["order_id"],
+        "price":            _price_str(r["price"]),
+        "city_pickup":      r["city_from"] or "",
+        "address_pickup":   r["addr_from"] or "",
+        "city_delivery":    r["city_to"] or "",
+        "address_delivery": r["addr_to"] or "",
+        "driver_comment":   r["comment"] or "—",
+        "delivery_type":    r["dtype"] or "DOOR",
+        "s_name":           r["s_name"] or "—",
+        "r_phone":          r["r_phone"] or "—",
+    } for r in rows]
+
+
+def _price_str(value) -> str:
+    """В зеркале цена/ставка — число, а боты и шаблоны карточек ждут строку, как
+    в Таблице. Целые печатаем без '.0'.
+
+    Ноль отдаём ПУСТОЙ строкой, а не '0': в Таблице пустая ячейка ставки
+    означает «ставка по умолчанию», и вызывающий код проверяет её на
+    истинность (`float(row[4]) if row[4] else DEFAULT_DRIVER_RATE`). Строка
+    '0' прошла бы эту проверку и обнулила курьеру заработок в отчёте."""
+    if value is None:
+        return ""
+    value = float(value)
+    if value == 0:
+        return ""
+    return str(int(value)) if value.is_integer() else str(value)
+
+
+def get_orders_for_dashboard() -> tuple[list, list, list]:
+    """(active, free, new) — форма как у driver_bot._sync_get_orders_for_dashboard."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT order_id, status, courier_name, courier_tg_id, city_from,
+                      city_to, addr_from, addr_to, price, r_phone, s_name, accepted_at
+               FROM orders
+               WHERE status IN ('TAKEN','IN_TRANSIT','READY_FOR_DRIVERS','NEW')
+               ORDER BY accepted_at"""
+        ).fetchall()
+    active, free, new = [], [], []
+    for r in rows:
+        status = (r["status"] or "").upper().strip()
+        if status in ACTIVE_STATUSES:
+            active.append({
+                "row":        0,
+                "id":         r["order_id"],
+                "status":     status,
+                "courier":    r["courier_name"] or "",
+                "courier_id": r["courier_tg_id"] or "",
+                "city_from":  r["city_from"] or "",
+                "city_to":    r["city_to"] or "",
+                "addr_from":  r["addr_from"] or "",
+                "addr_to":    r["addr_to"] or "",
+                "price":      _price_str(r["price"]),
+                "r_phone":    r["r_phone"] or "",
+                "s_name":     r["s_name"] or "",
+            })
+        else:
+            item = {
+                "row":       0,
+                "id":        r["order_id"],
+                "city_from": r["city_from"] or "",
+                "city_to":   r["city_to"] or "",
+                "price":     _price_str(r["price"]),
+                "s_name":    r["s_name"] or "",
+            }
+            if status == "READY_FOR_DRIVERS":
+                free.append(item)
+            else:
+                new.append({**item, "date": r["accepted_at"] or ""})
+    return active, free, new
+
+
+def get_drivers_for_dashboard() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT tg_id, full_name FROM drivers WHERE UPPER(status) = 'ACTIVE' ORDER BY full_name"
+        ).fetchall()
+    return [{"fio": r["full_name"] or "", "tid": r["tg_id"], "row": 0} for r in rows]
+
+
+def get_active_drivers() -> list[dict]:
+    """Для авторассылки новых заказов — форма как у _sync_get_all_active_drivers."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT tg_id, full_name, lang FROM drivers WHERE UPPER(status) = 'ACTIVE'"
+        ).fetchall()
+    return [{
+        "row_num":     0,
+        "fio":         r["full_name"] or "",
+        "telegram_id": r["tg_id"],
+        "lang":        r["lang"] if r["lang"] in ("ru", "tj") else "ru",
+    } for r in rows]
+
+
+# Ширина строки листа «Водители» и позиции полей в ней — зеркало отдаёт строку
+# той же формы, потому что вызывающий код индексирует её по номерам столбцов.
+_DRIVER_ROW_WIDTH = 10
+
+
+def get_driver_row(chat_id: str) -> list | None:
+    """Строка курьера в форме листа «Водители»: [status, registered_at, fio,
+    tg_id, rate, '', '', phone, lang, ''].
+
+    Столбцы 6 (support_topic) и 9 (заявка на смену ФИО) в зеркале не хранятся —
+    они нужны только редким операциям (поддержка, одобрение смены имени),
+    которые продолжают ходить в Таблицу напрямую."""
+    with _connect() as conn:
+        r = conn.execute(
+            "SELECT status, registered_at, full_name, tg_id, rate, phone, lang "
+            "FROM drivers WHERE tg_id = ?", (str(chat_id),)
+        ).fetchone()
+    if not r:
+        return None
+    row = [""] * _DRIVER_ROW_WIDTH
+    row[0] = r["status"] or ""
+    row[1] = r["registered_at"] or ""
+    row[2] = r["full_name"] or ""
+    row[3] = r["tg_id"] or ""
+    row[4] = _price_str(r["rate"])
+    row[7] = r["phone"] or ""
+    row[8] = r["lang"] or "ru"
+    return row
+
+
+def get_client_order_statuses(chat_id: str) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT order_id, status FROM orders WHERE client_chat_id = ?", (str(chat_id),)
+        ).fetchall()
+    return [{"id": r["order_id"], "status": (r["status"] or "").upper().strip()} for r in rows]
+
+
+# ─────────────────── write-through (Фаза 1) ───────────────────
+#
+# Вызывается ПОСЛЕ успешной записи в Google Таблицу, чтобы зеркало не отставало
+# на целый интервал снапшота. Всё обёрнуто в try/except: зеркало — не источник
+# истины, его сбой не должен ронять операцию, которая в Таблице уже прошла.
+
+def _safe_write(sql: str, params: tuple) -> None:
+    try:
+        with _connect() as conn:
+            conn.execute(sql, params)
+    except Exception as e:
+        logging.warning(f"Write-through в зеркало не удался (поправится снапшотом): {e}")
+
+
+def mark_order_status(order_id: str, status: str) -> None:
+    _safe_write("UPDATE orders SET status = ? WHERE order_id = ?", (status, str(order_id)))
+
+
+def mark_order_taken(order_id: str, courier_name: str, courier_tg_id: str) -> None:
+    _safe_write(
+        "UPDATE orders SET status = 'TAKEN', courier_name = ?, courier_tg_id = ? WHERE order_id = ?",
+        (courier_name, str(courier_tg_id), str(order_id)),
+    )
+
+
+def mark_order_released(order_id: str) -> None:
+    _safe_write(
+        "UPDATE orders SET status = 'READY_FOR_DRIVERS', courier_name = '', courier_tg_id = '' "
+        "WHERE order_id = ?", (str(order_id),),
+    )
+
+
+def mark_driver_status(tg_id: str, status: str) -> None:
+    _safe_write("UPDATE drivers SET status = ? WHERE tg_id = ?", (status, str(tg_id)))
+
+
+def upsert_order_from_row(row: list) -> None:
+    """Кладёт заказ в зеркало целиком из строки «Лист1». Нужен там, где заказа
+    в зеркале может ещё не быть (менеджер отдал в работу заказ, созданный после
+    последнего снапшота) — одним `UPDATE` такой не поймать."""
+    try:
+        tpl = _order_tuple(row, datetime.now(DUSHANBE_TZ).isoformat(timespec="seconds"))
+        if not tpl:
+            return
+        with _connect() as conn:
+            conn.execute(
+                f"INSERT OR REPLACE INTO orders ({_ORDER_COLUMNS}) VALUES ({_ORDER_PLACEHOLDERS})",
+                tpl,
+            )
+    except Exception as e:
+        logging.warning(f"Write-through (upsert) в зеркало не удался: {e}")
 
 
 # ─────────────────────────── статистика ───────────────────────────

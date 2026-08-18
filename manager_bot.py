@@ -100,6 +100,7 @@ def _sync_approve_driver(telegram_id: str) -> str | None:
         if row[0].upper().strip() != "PENDING":
             return None  # уже обработан (повторный тап/дублирующий callback) — не шлём уведомление снова
         drivers_sheet.update_cell(cell.row, 1, "ACTIVE")
+        db.mark_driver_status(telegram_id, "ACTIVE")
         return row[2] if len(row) > 2 else "Курьер"
     except Exception as e:
         logging.error(f"Ошибка одобрения курьера {telegram_id}: {e}")
@@ -117,6 +118,7 @@ def _sync_reject_driver(telegram_id: str) -> str | None:
         if row[0].upper().strip() != "PENDING":
             return None  # уже обработан (повторный тап/дублирующий callback) — не шлём уведомление снова
         drivers_sheet.update_cell(cell.row, 1, "REJECTED")
+        db.mark_driver_status(telegram_id, "REJECTED")
         return row[2] if len(row) > 2 else "Курьер"
     except Exception as e:
         logging.error(f"Ошибка отклонения курьера {telegram_id}: {e}")
@@ -139,6 +141,10 @@ def _sync_set_order_ready(order_id: str) -> tuple[bool, str, str]:
             return False, "", f"статус: {status}"
         sheet.update_cell(cell.row, 1, "READY_FOR_DRIVERS")
         sync_update_order_info_status(order_id, "READY_FOR_DRIVERS")
+        # upsert, а не UPDATE: заказ мог быть создан после последнего снапшота,
+        # и тогда в зеркале его ещё нет — биржа не увидела бы его до снапшота.
+        row[0] = "READY_FOR_DRIVERS"
+        db.upsert_order_from_row(row)
         return True, row[19], ""
     except Exception as e:
         logging.error(f"Ошибка перевода заказа {order_id} в READY: {e}")
@@ -158,6 +164,8 @@ def _sync_change_order_status(order_id: str, new_status: str) -> tuple[bool, str
         row = _pad_row(sheet.row_values(cell.row))
         sheet.update_cell(cell.row, 1, new_status)
         sync_update_order_info_status(order_id, new_status)
+        row[0] = new_status
+        db.upsert_order_from_row(row)
         return True, row[19], row[20], ""
     except Exception as e:
         logging.error(f"Ошибка смены статуса заказа {order_id}: {e}")
@@ -178,6 +186,7 @@ def _sync_cancel_order(order_id: str) -> tuple[bool, str, str]:
             return False, "", f"статус: {status}"
         sheet.update_cell(cell.row, 1, "CANCELLED")
         sync_update_order_info_status(order_id, "CANCELLED")
+        db.mark_order_status(order_id, "CANCELLED")
         return True, row[19], ""
     except Exception as e:
         logging.error(f"Ошибка отмены заказа {order_id}: {e}")

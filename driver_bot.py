@@ -20,6 +20,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from config import driver_bot as bot, client_bot, manager_bot as mgr_bot, driver_dp as dp, sheet, drivers_sheet, clients_sheet, get_manager_chat_ids, sync_update_order_info_status, sync_set_delivery_time, sanitize_for_sheet, md_escape
+import db
 
 # ─── Конфигурация ───────────────────────────────────────────────────────────
 DRIVER_WEBAPP_URL   = os.getenv("DRIVER_WEBAPP_URL", "")
@@ -381,6 +382,16 @@ def _month_range(now: datetime) -> tuple[datetime, datetime]:
 
 # ─── Google Sheets: Водители ─────────────────────────────────────────────────
 def _sync_get_driver(chat_id: str) -> list | None:
+    # Самое частое чтение вообще: дёргается на каждое действие курьера.
+    # Зеркало отдаёт строку той же формы, что и лист «Водители».
+    if db.is_fresh():
+        try:
+            row = db.get_driver_row(chat_id)
+            if row:
+                return row
+            # Нет в зеркале — возможно, только что зарегистрировался. Идём в Таблицу.
+        except Exception as e:
+            logging.warning(f"Зеркало не отдало курьера {chat_id} ({e}) — читаем Таблицу")
     if not drivers_sheet:
         return None
     try:
@@ -524,6 +535,14 @@ def _lang_from_driver_row(row) -> str:
 
 
 def _sync_get_all_active_drivers() -> list[dict]:
+    # Дёргается на каждой авторассылке нового заказа — как раз тогда, когда
+    # Google уже мог начать отдавать 503. Промах здесь означал бы, что заказ
+    # не увидел никто.
+    if db.is_fresh():
+        try:
+            return db.get_active_drivers()
+        except Exception as e:
+            logging.warning(f"Зеркало не отдало активных курьеров ({e}) — читаем Таблицу")
     if not drivers_sheet:
         return []
     try:
@@ -580,6 +599,14 @@ def _sync_get_driver_deliveries(chat_id: str, date_from: datetime, date_to: date
 
 # ─── Google Sheets: Заказы ───────────────────────────────────────────────────
 def _sync_get_free_orders() -> list:
+    # Сначала зеркало: сбой Google (500/503/RemoteDisconnected) не должен
+    # оборачиваться для курьера пустой биржей. Захват всё равно валидируется
+    # по Таблице внутри _sync_take_order, так что устаревшая карточка безопасна.
+    if db.is_fresh():
+        try:
+            return db.get_free_orders()
+        except Exception as e:
+            logging.warning(f"Зеркало не отдало свободные заказы ({e}) — читаем Таблицу")
     if not sheet:
         return []
     try:
@@ -631,6 +658,7 @@ def _sync_take_order(order_id: str, courier_name: str, courier_id: str) -> bool:
                 {"range": f"S{row_num}", "values": [[courier_name]]},
                 {"range": f"U{row_num}", "values": [[str(courier_id)]]},
             ])
+            db.mark_order_taken(order_id, courier_name, courier_id)
             return True
         except Exception as e:
             logging.error(f"Ошибка захвата заказа {order_id}: {e}")
@@ -656,6 +684,7 @@ def _sync_release_order(order_id: str, courier_id: str) -> bool:
                 {"range": f"S{row_num}", "values": [[""]]},
                 {"range": f"U{row_num}", "values": [[""]]},
             ])
+            db.mark_order_released(order_id)
             return True
         except Exception as e:
             logging.error(f"Ошибка освобождения заказа {order_id}: {e}")
@@ -679,6 +708,7 @@ def _sync_update_status(order_id: str, status: str, courier_id=None, allowed_fro
             if allowed_from and row[0].upper().strip() not in allowed_from:
                 return False
             sheet.update_cell(row_num, 1, status)
+            db.mark_order_status(order_id, status)
             return True
         except Exception as e:
             logging.error(f"Ошибка обновления статуса заказа {order_id} на {status}: {e}")
@@ -718,6 +748,7 @@ def _sync_reassign_order(order_id: str, new_courier_name: str, new_courier_id: s
                 {"range": f"U{row_num}", "values": [[str(new_courier_id)]]},
             ])
             sync_update_order_info_status(order_id, "TAKEN")
+            db.mark_order_taken(order_id, new_courier_name, new_courier_id)
             return True, old_courier_id, order_id
         except Exception as e:
             logging.error(f"Ошибка переназначения заказа {order_id}: {e}")
@@ -726,6 +757,11 @@ def _sync_reassign_order(order_id: str, new_courier_name: str, new_courier_id: s
 
 def _sync_get_orders_for_dashboard() -> tuple[list, list, list]:
     """Читает Лист1, возвращает (active_orders, free_orders, new_orders)."""
+    if db.is_fresh():
+        try:
+            return db.get_orders_for_dashboard()
+        except Exception as e:
+            logging.warning(f"Зеркало не отдало заказы дашборда ({e}) — читаем Таблицу")
     active, free, new = [], [], []
     if not sheet:
         return active, free, new
@@ -776,6 +812,11 @@ def _sync_get_orders_for_dashboard() -> tuple[list, list, list]:
 
 def _sync_get_drivers_for_dashboard() -> list:
     """Читает лист Водители, возвращает список ACTIVE курьеров."""
+    if db.is_fresh():
+        try:
+            return db.get_drivers_for_dashboard()
+        except Exception as e:
+            logging.warning(f"Зеркало не отдало курьеров дашборда ({e}) — читаем Таблицу")
     result = []
     if not drivers_sheet:
         return result
