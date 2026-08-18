@@ -14,6 +14,7 @@ import os
 import re
 import logging
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 
@@ -82,6 +83,7 @@ CREATE TABLE IF NOT EXISTS drivers (
 """
 
 _schema_ready = False
+_schema_lock = threading.Lock()
 
 
 @contextmanager
@@ -99,10 +101,18 @@ def _connect():
     conn.row_factory = sqlite3.Row
     try:
         if not _schema_ready:
-            with conn:
-                conn.executescript(_SCHEMA_SQL)
-                _migrate(conn)
-            _schema_ready = True
+            # Под блокировкой: боты и снапшот лезут в базу из РАЗНЫХ потоков, и
+            # на старте они входили сюда одновременно — оба видели _schema_ready
+            # == False, оба шли мигрировать, второй падал на ALTER уже
+            # добавленного столбца ("duplicate column name"), и вызов уходил
+            # читать Google Таблицу. Проверку повторяем внутри — победитель
+            # гонки мог накатить схему, пока мы ждали.
+            with _schema_lock:
+                if not _schema_ready:
+                    with conn:
+                        conn.executescript(_SCHEMA_SQL)
+                        _migrate(conn)
+                    _schema_ready = True
         with conn:
             yield conn
     finally:
@@ -115,9 +125,19 @@ def _migrate(conn) -> None:
     `/data/mavsim.db` переживает пересборку контейнера, так что там лежит база
     со старой схемой. Идемпотентно: сверяем PRAGMA и добавляем недостающее."""
     have = {r["name"] for r in conn.execute("PRAGMA table_info(orders)")}
-    added = [c for c in ("addr_from", "addr_to", "comment", "s_name", "r_phone") if c not in have]
-    for col in added:
-        conn.execute(f"ALTER TABLE orders ADD COLUMN {col} TEXT")
+    added = []
+    for col in ("addr_from", "addr_to", "comment", "s_name", "r_phone"):
+        if col in have:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE orders ADD COLUMN {col} TEXT")
+            added.append(col)
+        except sqlite3.OperationalError as e:
+            # Столбец мог появиться между PRAGMA и ALTER — например, если рядом
+            # запустили `python db.py --sync` через docker exec (это ОТДЕЛЬНЫЙ
+            # процесс, блокировка выше его не покрывает). Такой ALTER не ошибка.
+            if "duplicate column name" not in str(e):
+                raise
     if added:
         # Столбцы добавлены пустыми, а synced_at остался свежим — иначе биржа до
         # первого нового снапшота отдавала бы карточки без адресов. Помечаем
