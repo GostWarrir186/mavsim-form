@@ -289,13 +289,29 @@ def snapshot_from_sheets() -> dict:
 
 MIRROR_MAX_AGE_SEC = 900  # старше — считаем зеркало протухшим и идём в Таблицу
 
+# Отдельный, НАМНОГО более узкий порог для данных, по которым решается доступ
+# (статус курьера: ACTIVE / PENDING / REJECTED). Отзыв доступа у активного
+# курьера делается правкой листа «Водители» руками, и write-through этот путь
+# не ловит — значит, отозванный курьер работает ровно столько, сколько живёт
+# кэш. С общими 900с это до 15 минут (и именно при сбоях Google, когда снапшот
+# не проходит). Три интервала снапшота — потолок расхождения в норме, а при
+# протухании чтение уходит в Таблицу, как было до Фазы 1.
+AUTH_MAX_AGE_SEC = int(os.getenv("AUTH_MIRROR_MAX_AGE_SEC", "180"))
 
-def is_fresh(max_age_sec: int = MIRROR_MAX_AGE_SEC) -> bool:
+_FRESHNESS_TABLES = {"orders", "drivers"}
+
+
+def is_fresh(max_age_sec: int = MIRROR_MAX_AGE_SEC, table: str = "orders") -> bool:
     """Есть ли в зеркале данные и достаточно ли они свежие. False → вызывающий
-    код должен сходить в Google Таблицу (холодный старт, сдохший снапшот)."""
+    код должен сходить в Google Таблицу (холодный старт, сдохший снапшот).
+
+    `table` сверяется с белым списком: имя таблицы подставляется в SQL как
+    идентификатор, параметризовать его нельзя."""
+    if table not in _FRESHNESS_TABLES:
+        raise ValueError(f"неизвестная таблица зеркала: {table}")
     try:
         with _connect() as conn:
-            row = conn.execute("SELECT MAX(synced_at) AS ts FROM orders").fetchone()
+            row = conn.execute(f"SELECT MAX(synced_at) AS ts FROM {table}").fetchone()
         if not row or not row["ts"]:
             return False
         age = (datetime.now(DUSHANBE_TZ) - datetime.fromisoformat(row["ts"])).total_seconds()
@@ -416,6 +432,12 @@ def get_active_drivers() -> list[dict]:
 # Ширина строки листа «Водители» и позиции полей в ней — зеркало отдаёт строку
 # той же формы, потому что вызывающий код индексирует её по номерам столбцов.
 _DRIVER_ROW_WIDTH = 10
+
+
+def is_auth_fresh() -> bool:
+    """Годится ли зеркало для решения о ДОСТУПЕ курьера. Отдельно от is_fresh():
+    узкий порог + смотрим синхронизацию именно листа «Водители»."""
+    return is_fresh(AUTH_MAX_AGE_SEC, table="drivers")
 
 
 def get_driver_row(chat_id: str) -> list | None:

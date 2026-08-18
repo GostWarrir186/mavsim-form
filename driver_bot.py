@@ -335,7 +335,9 @@ class DriverSupport(StatesGroup):
 
 # ─── Вспомогательные функции ────────────────────────────────────────────────
 async def _get_active_driver(user_id: int) -> list | None:
-    data = await asyncio.to_thread(_sync_get_driver, str(user_id))
+    """Единственный гейт доступа курьера — поэтому читаем с авторизационным
+    порогом свежести, а не с общим."""
+    data = await asyncio.to_thread(_sync_get_driver, str(user_id), True)
     return data if (data and data[0].upper() == "ACTIVE") else None
 
 
@@ -381,10 +383,14 @@ def _month_range(now: datetime) -> tuple[datetime, datetime]:
 
 
 # ─── Google Sheets: Водители ─────────────────────────────────────────────────
-def _sync_get_driver(chat_id: str) -> list | None:
+def _sync_get_driver(chat_id: str, for_auth: bool = False) -> list | None:
+    """Строка курьера. `for_auth=True` — когда по ней решается ДОСТУП: тогда
+    зеркало годится только совсем свежее (db.is_auth_fresh), иначе идём в
+    Таблицу. Иначе отзыв доступа, сделанный правкой листа «Водители» руками,
+    вступал бы в силу лишь через 15 минут — как раз при сбоях Google."""
     # Самое частое чтение вообще: дёргается на каждое действие курьера.
     # Зеркало отдаёт строку той же формы, что и лист «Водители».
-    if db.is_fresh():
+    if db.is_auth_fresh() if for_auth else db.is_fresh(table="drivers"):
         try:
             row = db.get_driver_row(chat_id)
             if row:
@@ -964,7 +970,8 @@ def generate_excel_report(driver_name: str, rate: float, deliveries: list[dict],
 
 # ─── Клавиатура главного меню водителя ──────────────────────────────────────
 async def build_driver_main_menu(driver_id: int):
-    driver_data = await asyncio.to_thread(_sync_get_driver, str(driver_id))
+    # Решает, показывать ли кнопку кабинета (там заработок) — тоже про доступ.
+    driver_data = await asyncio.to_thread(_sync_get_driver, str(driver_id), True)
     lang = _lang_from_driver_row(driver_data)
     b = ReplyKeyboardBuilder()
     b.button(text=JOBS_BTN[lang])
@@ -1048,7 +1055,8 @@ async def driver_go_main_menu(message: types.Message, state: FSMContext):
 async def cmd_start_driver(message: types.Message, state: FSMContext):
     await state.clear()
     await _try_delete(message)
-    driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id))
+    # Развилка PENDING / ACTIVE / заблокирован — читаем с порогом доступа.
+    driver_data = await asyncio.to_thread(_sync_get_driver, str(message.from_user.id), True)
 
     if not driver_data:
         b = InlineKeyboardBuilder()
