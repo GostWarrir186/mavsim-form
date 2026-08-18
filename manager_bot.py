@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+import traceback
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -76,6 +77,20 @@ class ManagerCancelOrder(StatesGroup):
 _managers_cache: dict = {"ids": set(), "ts": 0.0}
 _MANAGERS_CACHE_TTL = 60  # секунд, чтобы не дёргать Google Sheets на каждое сообщение
 
+# Панель на чат: {chat_id: {msg_id, sig, last_seen}}. Нужен msg_id, чтобы стирать
+# предыдущую панель, и sig — чтобы не слать одно и то же.
+_panel_state: dict[int, dict] = {}
+PANEL_AUTOREFRESH_SECONDS   = int(os.getenv("PANEL_AUTOREFRESH_SECONDS", "60"))
+PANEL_ACTIVE_WINDOW_SECONDS = int(os.getenv("PANEL_ACTIVE_WINDOW_SECONDS", "900"))
+
+
+def _touch_panel(chat_id) -> None:
+    """Отмечает активность менеджера: панель обновляется только у тех, кто
+    недавно что-то делал, иначе бот слал бы сообщения в молчащие чаты."""
+    st = _panel_state.get(int(chat_id)) if str(chat_id).lstrip("-").isdigit() else None
+    if st is not None:
+        st["last_seen"] = time.time()
+
 
 async def _is_manager(chat_id) -> bool:
     if time.time() - _managers_cache["ts"] > _MANAGERS_CACHE_TTL:
@@ -84,7 +99,11 @@ async def _is_manager(chat_id) -> bool:
             _managers_cache["ts"] = time.time()
         except Exception as e:
             logging.error(f"Ошибка обновления списка менеджеров: {e}")
-    return str(chat_id) in _managers_cache["ids"]
+    ok = str(chat_id) in _managers_cache["ids"]
+    if ok:
+        # Любое действие менеджера продлевает окно автообновления панели.
+        _touch_panel(chat_id)
+    return ok
 
 
 # ─── Google Sheets: курьеры ──────────────────────────────────────────────────
@@ -414,23 +433,82 @@ async def cmd_start_manager(message: types.Message):
     await _send_panel(message.chat.id, bot)
 
 
-async def _send_panel(chat_id: int, bot_instance):
+async def _panel_view() -> tuple[str, str | None, str | None, str]:
+    """Текст панели, ссылки и подпись содержимого. Подпись — чтобы не пересылать
+    панель, когда данные не менялись."""
     data = await _async_get_admin_dashboard_data()
     text, webapp_url = _build_panel_message(data)
     dashboard_url = await _build_dashboard_url()
+    return text, webapp_url, dashboard_url, (webapp_url or text)
+
+
+async def _send_panel(chat_id: int, bot_instance, view=None, silent: bool = False):
+    """Шлёт панель, стирая предыдущую. Кнопка WebApp несёт данные прямо в URL и
+    после отправки не обновляется — значит «освежить» панель можно только новым
+    сообщением. Чтобы чат не зарастал, старое удаляем (тот же приём, что в
+    driver_bot/client_bot).
+
+    Инлайн-кнопкой это не решается: Telegram отдаёт `sendData` обратно боту
+    ТОЛЬКО для WebApp, запущенных с reply-клавиатуры, а на нём держатся все
+    действия панели."""
+    text, webapp_url, dashboard_url, sig = view if view else await _panel_view()
     rows = []
     if webapp_url:
         rows.append([KeyboardButton(text="🎛 Открыть панель", web_app=types.WebAppInfo(url=webapp_url))])
     if dashboard_url:
         rows.append([KeyboardButton(text="📊 Статистика", web_app=types.WebAppInfo(url=dashboard_url))])
-    rows.append([KeyboardButton(text="🔄 Обновить")])
     reply_kb = ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
-    await bot_instance.send_message(chat_id, text, reply_markup=reply_kb, parse_mode="HTML")
 
+    state = _panel_state.setdefault(chat_id, {})
+    old_msg_id = state.get("msg_id")
+    sent = await bot_instance.send_message(
+        chat_id, text, reply_markup=reply_kb, parse_mode="HTML",
+        disable_notification=silent,
+    )
+    if old_msg_id:
+        try:
+            await bot_instance.delete_message(chat_id, old_msg_id)
+        except Exception:
+            pass  # старше 48ч / уже удалено — не страшно
+    state.update(msg_id=sent.message_id, sig=sig, last_seen=time.time())
+
+
+async def _panel_autorefresh_loop():
+    """Панель обновляется сама, пока менеджер активен. Кнопки «Обновить» больше
+    нет. Два ограничителя, чтобы не спамить: шлём только если данные реально
+    изменились (сверка подписи) и только если менеджер что-то делал в последние
+    PANEL_ACTIVE_WINDOW_SECONDS."""
+    while True:
+        await asyncio.sleep(PANEL_AUTOREFRESH_SECONDS)
+        if not _panel_state:
+            continue
+        try:
+            now = time.time()
+            active = [cid for cid, st in _panel_state.items()
+                      if now - st.get("last_seen", 0) <= PANEL_ACTIVE_WINDOW_SECONDS]
+            if not active:
+                continue
+            view = await _panel_view()          # один сбор данных на всех
+            for chat_id in active:
+                if _panel_state[chat_id].get("sig") == view[3]:
+                    continue                    # ничего не изменилось
+                try:
+                    await _send_panel(chat_id, bot, view=view, silent=True)
+                except Exception as e:
+                    logging.warning(f"Не удалось обновить панель у {chat_id}: {e}")
+        except Exception:
+            logging.error(f"Сбой автообновления панели: {traceback.format_exc()}")
+
+
+@dp.startup()
+async def _on_manager_bot_startup(**kwargs):
+    asyncio.create_task(_panel_autorefresh_loop())
 
 
 @dp.message(F.text == "🔄 Обновить")
 async def panel_refresh_text(message: types.Message):
+    """Кнопки больше нет, но у менеджера может висеть старая клавиатура —
+    пусть тап по ней обновляет панель, а не проваливается в никуда."""
     if not await _is_manager(message.chat.id):
         return
     await _send_panel(message.chat.id, bot)

@@ -138,7 +138,7 @@
 
     if (!DATA || !DATA.periods) {
         content.innerHTML = '<div class="card"><div class="empty">' + icon('inbox') +
-            '<div>Не удалось загрузить статистику.<br>Откройте панель заново кнопкой «Обновить».</div></div></div>';
+            '<div>Не удалось загрузить статистику.<br>Закройте и откройте страницу заново.</div></div></div>';
     } else {
         updatedEl.textContent = 'обновлено ' + (DATA.generated_at || '—');
         render();
